@@ -63,6 +63,7 @@ export default function IssuesPage() {
       },
       {
         id: 'endpoint',
+        meta: { className: 'hidden lg:table-cell' },
         header: 'Endpoint',
         cell: ({ row }) => (
           <span className="flex items-center gap-2 font-mono text-xs">
@@ -81,12 +82,14 @@ export default function IssuesPage() {
         // The number that makes deduplication visible: one row here can
         // represent many detections across many scans.
         accessorKey: 'occurrenceCount',
+        meta: { className: 'hidden md:table-cell' },
         header: ({ column }) => <DataTableColumnHeader column={column} title="Occurrences" />,
         cell: ({ row }) => <span className="tabular-nums">{row.original.occurrenceCount}</span>,
         size: 110,
       },
       {
         accessorKey: 'lastSeenAt',
+        meta: { className: 'hidden xl:table-cell' },
         header: ({ column }) => <DataTableColumnHeader column={column} title="Last seen" />,
         cell: ({ row }) => (
           <span className="text-sm text-muted-foreground">{formatDate(row.original.lastSeenAt)}</span>

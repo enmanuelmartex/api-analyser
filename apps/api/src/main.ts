@@ -10,6 +10,7 @@ import { auth } from './lib/auth';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { appBrand } from './brand/brand';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -94,9 +95,9 @@ async function bootstrap() {
   // ── Swagger (non-production) ──────────────────────────────────────────────────
   if (nodeEnv !== 'production') {
     const swaggerConfig = new DocumentBuilder()
-      .setTitle('IASA API')
+      .setTitle(`${appBrand.name} API`)
       .setDescription(
-        '**Intelligent API Security Assessment** — Automated API security testing platform.\n\n' +
+        `**${appBrand.name}** — ${appBrand.description}\n\n` +
         'Better Auth endpoints are at `/api/auth/*` (not under `/api/v1`). ' +
         'All domain routes require a `Bearer` JWT obtained via `POST /api/v1/auth/exchange-session`.',
       )
@@ -122,7 +123,7 @@ async function bootstrap() {
   console.log(`
   ╔══════════════════════════════════════════════════════╗
   ║                                                      ║
-  ║   IASA — Intelligent API Security Assessment         ║
+  ║   ${`${appBrand.name} — ${appBrand.tagline}`.padEnd(51)}║
   ║   Version 0.2.0                                      ║
   ║                                                      ║
   ║   API:  http://localhost:${port}/api/v1                ║

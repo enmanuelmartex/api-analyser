@@ -12,6 +12,13 @@ const badgeVariants = cva(
         outline: 'border-border text-foreground',
         destructive: 'border-transparent bg-destructive/10 text-destructive',
         success: 'border-transparent bg-success/10 text-success',
+        // Tinted variants for metric deltas. Kept as explicit names rather than
+        // ad-hoc className overrides so the meaning of a coloured delta is
+        // decided in one place: in security, fewer vulnerabilities is `success`
+        // and more is `destructive`, whichever direction the number moved.
+        'success-light': 'border-success/20 bg-success/10 text-success',
+        'destructive-light': 'border-destructive/20 bg-destructive/10 text-destructive',
+        neutral: 'border-border bg-muted text-muted-foreground',
       },
     },
     defaultVariants: {

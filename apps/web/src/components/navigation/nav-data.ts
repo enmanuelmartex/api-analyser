@@ -27,6 +27,13 @@ export interface NavLeaf {
   exact?: boolean;
   /** Only show when the current user is an admin */
   adminOnly?: boolean;
+  /**
+   * Optional subdivision within the group, rendered as a small heading above
+   * the first item that carries it. Keeps account-level preferences visually
+   * separate from tenant-wide administration without splitting Settings into
+   * two top-level entries.
+   */
+  section?: string;
 }
 
 export interface NavGroup {
@@ -63,8 +70,11 @@ export const NAV_COLLAPSIBLE: NavGroup[] = [
       { title: 'AI Configuration', url: '/settings?tab=ai', icon: IconRobot },
       { title: 'System', url: '/settings?tab=system', icon: IconServer2 },
       { title: 'About', url: '/settings?tab=about', icon: IconInfoCircle },
-      { title: 'Users', url: '/settings?tab=users', icon: IconUsers, adminOnly: true },
-      { title: 'Audit Logs', url: '/settings?tab=audit-logs', icon: IconHistory, adminOnly: true },
+      // Administration is admin-only. Hiding these is a UI affordance, not a
+      // control: the backend guards on /users and /audit-logs still reject a
+      // non-admin who types the URL.
+      { title: 'Users', url: '/settings?tab=users', icon: IconUsers, adminOnly: true, section: 'Administration' },
+      { title: 'Audit Logs', url: '/settings?tab=audit-logs', icon: IconHistory, adminOnly: true, section: 'Administration' },
     ],
   },
 ];

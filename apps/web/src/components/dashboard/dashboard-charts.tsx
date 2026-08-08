@@ -1,6 +1,6 @@
 'use client';
 
-import { useId } from 'react';
+import { useId, useMemo } from 'react';
 import {
   Bar,
   BarChart,
@@ -20,20 +20,10 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { EmptyState } from '@/components/ui/empty-state';
 import { useChartColors } from '@/lib/use-chart-colors';
 import { cn } from '@/lib/utils';
+import { OWASP_CATEGORIES } from './owasp-categories';
 import type { ScoreTrendPoint, WeeklyFindingsPoint } from '@/types';
 
-export const OWASP_CATEGORIES = [
-  { id: 'API1:2023', label: 'API1', fullName: 'Broken Object Level Authorization' },
-  { id: 'API2:2023', label: 'API2', fullName: 'Broken Authentication' },
-  { id: 'API3:2023', label: 'API3', fullName: 'Broken Object Property Level Authorization' },
-  { id: 'API4:2023', label: 'API4', fullName: 'Unrestricted Resource Consumption' },
-  { id: 'API5:2023', label: 'API5', fullName: 'Broken Function Level Authorization' },
-  { id: 'API6:2023', label: 'API6', fullName: 'Unrestricted Access to Sensitive Business Flows' },
-  { id: 'API7:2023', label: 'API7', fullName: 'Server Side Request Forgery' },
-  { id: 'API8:2023', label: 'API8', fullName: 'Security Misconfiguration' },
-  { id: 'API9:2023', label: 'API9', fullName: 'Improper Inventory Management' },
-  { id: 'API10:2023', label: 'API10', fullName: 'Unsafe Consumption of APIs' },
-] as const;
+export { OWASP_CATEGORIES };
 
 export function getScoreEvaluation(score: number) {
   if (score >= 90) return 'Excellent';
@@ -136,19 +126,27 @@ function computeYearTrend(points: ScoreChartDatum[]): number | null {
 export function SecurityScoreChart({ trend, yearAverage }: { trend: ScoreTrendPoint[]; yearAverage: number | null }) {
   const year = new Date().getFullYear();
   const overall = yearAverage === null ? null : Math.min(MAX_SCORE, Math.max(0, yearAverage));
-  const chartData: ScoreChartDatum[] = trend.map((point) => {
-    const label = formatMonth(point.month);
-    return {
-      month: point.month,
-      label: label.short,
-      fullLabel: label.long,
-      averageScore: point.averageScore === null ? null : Math.min(MAX_SCORE, Math.max(0, Math.round(point.averageScore))),
-      completedCount: point.completedCount,
-    };
-  });
+  // The dashboard polls every 30s, so this component re-renders on a timer even
+  // when the data is unchanged. Recharts treats a new `data` array identity as a
+  // reason to re-run its entry animation, so memoising here is what stops the
+  // bars replaying their 650ms grow every poll.
+  const chartData: ScoreChartDatum[] = useMemo(
+    () =>
+      trend.map((point) => {
+        const label = formatMonth(point.month);
+        return {
+          month: point.month,
+          label: label.short,
+          fullLabel: label.long,
+          averageScore: point.averageScore === null ? null : Math.min(MAX_SCORE, Math.max(0, Math.round(point.averageScore))),
+          completedCount: point.completedCount,
+        };
+      }),
+    [trend],
+  );
   const hasAnyData = chartData.some((point) => point.averageScore !== null);
   const yearTrend = computeYearTrend(chartData);
-  const config = { averageScore: { label: 'Average Security Score', color: '#638cff' } } satisfies ChartConfig;
+  const config = useMemo(() => ({ averageScore: { label: 'Average Security Score', color: '#638cff' } }) satisfies ChartConfig, []);
 
   return (
     <Card className="flex h-full min-h-[420px] flex-col shadow-none">
@@ -259,18 +257,26 @@ export function FindingsSeverityChart({ trend, previousTotal }: { trend: WeeklyF
   // Same data source and logic as before: the eight-week findings series. Each
   // radial segment is one severity's total across that window, and the badge keeps
   // comparing the visible period's total against the previous eight weeks.
-  const chartData: SeverityRadialDatum[] = SEVERITY_SERIES.map((series) => ({
-    key: series.key,
-    name: series.name,
-    value: trend.reduce((sum, point) => sum + point[series.key], 0),
-    fill: colors[series.colorVar],
-  }));
+  const chartData: SeverityRadialDatum[] = useMemo(
+    () =>
+      SEVERITY_SERIES.map((series) => ({
+        key: series.key,
+        name: series.name,
+        value: trend.reduce((sum, point) => sum + point[series.key], 0),
+        fill: colors[series.colorVar],
+      })),
+    [trend, colors],
+  );
   const currentTotal = chartData.reduce((sum, item) => sum + item.value, 0);
   const hasFindings = currentTotal > 0 || previousTotal > 0;
   const findingsPercent = previousTotal > 0 ? ((currentTotal - previousTotal) / previousTotal) * 100 : null;
-  const config = Object.fromEntries(
-    SEVERITY_SERIES.map((series) => [series.key, { label: series.name, color: colors[series.colorVar] }]),
-  ) satisfies ChartConfig;
+  const config = useMemo(
+    () =>
+      Object.fromEntries(
+        SEVERITY_SERIES.map((series) => [series.key, { label: series.name, color: colors[series.colorVar] }]),
+      ) satisfies ChartConfig,
+    [colors],
+  );
 
   return (
     <Card className="flex h-full min-h-[420px] flex-col shadow-none">
@@ -317,7 +323,16 @@ export function FindingsSeverityChart({ trend, previousTotal }: { trend: WeeklyF
                   }
                 />
                 <PolarGrid gridType="circle" stroke={colors.border} />
-                <RadialBar dataKey="value" />
+                {/*
+                  Recharts hard-codes `role="img"` on every sector path without an
+                  accessible name (`shape/Sector.js` applies it after the prop
+                  spread, so it cannot be overridden), which axe reports as
+                  `svg-img-alt`. The sectors are decorative here: the container
+                  above carries the chart's accessible name, and every value is
+                  repeated as text in the severity totals below. `aria-hidden`
+                  survives Recharts' prop filter and reaches each sector.
+                */}
+                <RadialBar dataKey="value" aria-hidden="true" />
               </RadialBarChart>
             </ChartContainer>
             <div className="grid grid-cols-2 gap-x-6 gap-y-1.5" aria-label="Severity totals">
@@ -354,12 +369,16 @@ export function OwaspCoverageRadar({ coverage }: { coverage: Record<string, numb
   const fillId = `owasp-radar-fill-${uid}`;
   const glowId = `owasp-radar-glow-${uid}`;
   const accent = colors.primary;
-  const data: OwaspDatum[] = OWASP_CATEGORIES.map((item) => ({
-    ...item,
-    value: Math.min(100, Math.max(0, Number(coverage[item.id] ?? 0))),
-  }));
+  const data: OwaspDatum[] = useMemo(
+    () =>
+      OWASP_CATEGORIES.map((item) => ({
+        ...item,
+        value: Math.min(100, Math.max(0, Number(coverage[item.id] ?? 0))),
+      })),
+    [coverage],
+  );
   const hasCoverage = data.some((item) => item.value > 0);
-  const config = { value: { label: 'Coverage', color: accent } } satisfies ChartConfig;
+  const config = useMemo(() => ({ value: { label: 'Coverage', color: accent } }) satisfies ChartConfig, [accent]);
 
   return (
     <Card className="flex h-full min-h-[420px] flex-col shadow-none">

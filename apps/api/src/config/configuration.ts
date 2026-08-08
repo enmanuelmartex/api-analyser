@@ -112,6 +112,7 @@ export default () => ({
   },
 
   reports: {
-    dir: process.env.REPORTS_DIR || './reports',
+    /** Storage root for binary report artifacts. See ReportStorageService. */
+    dir: process.env.REPORTS_DIR || './storage/reports',
   },
 });

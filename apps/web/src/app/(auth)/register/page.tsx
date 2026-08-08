@@ -4,13 +4,15 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { IconShield, IconEye, IconEyeOff, IconCheck, IconX } from '@tabler/icons-react';
+import { IconEye, IconEyeOff, IconCheck, IconX } from '@tabler/icons-react';
 import { authClient } from '@/lib/auth-client';
 import { authApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { appBrand } from '@/lib/brand';
+import { AppLogo } from '@/components/brand/app-logo';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -113,7 +115,7 @@ export default function RegisterPage() {
       const data = await authApi.exchangeSession(sessionToken);
       localStorage.setItem('iasa_token', data.accessToken);
       localStorage.setItem('iasa_user', JSON.stringify(data.user));
-      toast.success('Account created! Welcome to IASA.');
+      toast.success(`Account created! Welcome to ${appBrand.name}.`);
       router.push('/dashboard');
     } catch (err: any) {
       toast.error(err.message || err.response?.data?.message || 'Registration failed');
@@ -128,13 +130,8 @@ export default function RegisterPage() {
 
       <div className="w-full max-w-md relative">
         <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
-              <IconShield className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="text-2xl font-bold tracking-tight text-foreground">IASA</span>
-          </div>
-          <p className="text-sm text-muted-foreground">Intelligent API Security Assessment</p>
+          <AppLogo variant="full" size={40} className="mb-4" nameClassName="text-2xl" />
+          <p className="text-sm text-muted-foreground">{appBrand.tagline}</p>
         </div>
 
         <div className="rounded-2xl border border-border bg-card p-8 shadow-2xl">

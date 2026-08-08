@@ -39,6 +39,23 @@ export class AssessmentsController {
     return this.assessmentsService.getDashboardStats(user.id);
   }
 
+  // Declared before ':id' so the two-segment path is not captured by it.
+  @Get('projects/:projectId')
+  @ApiOperation({ summary: "List a project's assessments (paginated, newest first)" })
+  findByProject(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user: any,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.assessmentsService.findByProjectPaginated(
+      user.id,
+      projectId,
+      page ? Number.parseInt(page, 10) : undefined,
+      pageSize ? Number.parseInt(pageSize, 10) : undefined,
+    );
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get assessment details' })
   findOne(@Param('id') id: string, @CurrentUser() user: any) {

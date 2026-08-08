@@ -109,7 +109,7 @@ export class IssueLifecycleService {
 
   /** Computes identity for every finding, dropping any that cannot be identified. */
   private resolveIdentities(input: PersistScanResultsInput): ResolvedDetection[] {
-    const detections: ResolvedDetection[] = [];
+    const detections = new Map<string, ResolvedDetection>();
 
     for (const finding of input.findings) {
       if (!finding.pluginId || !finding.ruleId) {
@@ -131,14 +131,19 @@ export class IssueLifecycleService {
         component: finding.component,
       });
 
-      detections.push({
+      const detection = {
         finding,
         identity,
         occurrenceKey: computeOccurrenceKey(identity.fingerprintVersion, identity.fingerprint),
-      });
+      };
+      // Collapse duplicates before hitting the database uniqueness gate. The
+      // gate remains necessary for retries and concurrent workers.
+      if (!detections.has(detection.occurrenceKey)) {
+        detections.set(detection.occurrenceKey, detection);
+      }
     }
 
-    return detections;
+    return [...detections.values()];
   }
 
   /**

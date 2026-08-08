@@ -4,13 +4,15 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { IconShield, IconEye, IconEyeOff, IconCheck, IconX, IconAlertTriangle, IconLoader2 } from '@tabler/icons-react';
+import { IconEye, IconEyeOff, IconCheck, IconX, IconAlertTriangle, IconLoader2 } from '@tabler/icons-react';
 import { authClient } from '@/lib/auth-client';
 import { authApi, usersApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { appBrand } from '@/lib/brand';
+import { AppLogo } from '@/components/brand/app-logo';
 
 function getPasswordChecks(password: string) {
   return {
@@ -105,7 +107,7 @@ function AcceptInviteForm() {
       localStorage.setItem('iasa_token', fresh.accessToken);
       localStorage.setItem('iasa_user', JSON.stringify(fresh.user));
 
-      toast.success(`Welcome to IASA! You've joined as ${invite.role}.`);
+      toast.success(`Welcome to ${appBrand.name}! You've joined as ${invite.role}.`);
       router.replace('/dashboard');
     } catch (err: any) {
       toast.error(err.message || 'Registration failed. Please try again.');
@@ -148,12 +150,7 @@ function AcceptInviteForm() {
       <div className="w-full max-w-md relative">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
-              <IconShield className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="text-2xl font-bold tracking-tight text-foreground">IASA</span>
-          </div>
+          <AppLogo variant="full" size={40} className="mb-4" nameClassName="text-2xl" />
         </div>
 
         <div className="rounded-2xl border border-border bg-card p-8 shadow-2xl">

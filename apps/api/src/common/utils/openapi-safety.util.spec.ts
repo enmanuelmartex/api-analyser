@@ -1,9 +1,20 @@
 import { BadRequestException } from '@nestjs/common';
 import {
   assertNoExternalRefs,
+  isOpenApi31Document,
   isExternalRef,
   SAFE_PARSER_OPTIONS,
 } from './openapi-safety.util';
+
+describe('isOpenApi31Document', () => {
+  it.each(['3.1.0', '3.1.1', '3.1'])('recognizes OpenAPI %s', (openapi) => {
+    expect(isOpenApi31Document({ openapi })).toBe(true);
+  });
+
+  it.each(['3.0.3', '2.0', '', null])('does not classify %s as OpenAPI 3.1', (openapi) => {
+    expect(isOpenApi31Document({ openapi })).toBe(false);
+  });
+});
 
 describe('isExternalRef', () => {
   it.each(['#/components/schemas/User', '#/paths/~1users/get', '#'])(

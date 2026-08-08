@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { IconShieldLock } from "@tabler/icons-react";
+import { appBrand } from "@/lib/brand";
+import { AppLogoMark } from "@/components/brand/app-logo-mark";
 import {
   Sidebar,
   SidebarContent,
@@ -31,15 +32,18 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
           <SidebarMenuItem>
             <SidebarMenuButton
               asChild
-              tooltip="IASA"
+              tooltip={appBrand.name}
               className="h-12 group-data-[collapsible=icon]:size-10"
             >
               <Link href="/dashboard">
+                {/* The symbol keeps its container when collapsed; the wordmark
+                    is hidden by the sidebar's own icon-mode rules rather than
+                    being truncated. */}
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent">
-                  <IconShieldLock className="h-5 w-5 text-sidebar-foreground" />
+                  <AppLogoMark size={20} className="text-sidebar-foreground" />
                 </div>
-                <span className="text-base font-semibold tracking-[0.18em]">
-                  IASA
+                <span className="text-base font-semibold tracking-tight">
+                  {appBrand.name}
                 </span>
               </Link>
             </SidebarMenuButton>

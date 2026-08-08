@@ -216,8 +216,25 @@ export interface Assessment {
   reports?: Report[];
   logs?: AssessmentLog[];
   _count?: { occurrences: number };
+  /**
+   * Finding counts derived from this scan's real occurrences (source of truth
+   * for the Critical / High / Total columns), attached by the list, paginated
+   * and dashboard endpoints. `total` includes every severity. Absent on the
+   * single-assessment detail endpoint, which loads the occurrences themselves.
+   */
+  findingCounts?: FindingCounts;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Occurrence-derived severity counts for one assessment. `total` = all severities. */
+export interface FindingCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+  total: number;
 }
 
 export interface AssessmentConfig {
@@ -347,22 +364,59 @@ export interface AiTestConnectionResult {
 // a `FindingOccurrence` and a vulnerability is a `SecurityIssue`; the old type
 // conflated the two, which is why the same problem appeared once per scan.
 
+export type ReportType = 'EXECUTIVE' | 'TECHNICAL' | 'COMPLIANCE' | 'DEVELOPER';
+export type ReportFormat = 'PDF' | 'HTML' | 'MARKDOWN' | 'JSON' | 'SARIF';
+
+export const REPORT_FORMATS: ReportFormat[] = ['PDF', 'HTML', 'MARKDOWN', 'JSON', 'SARIF'];
+
 export interface Report {
   id: string;
   assessmentId: string;
   assessment?: {
     id: string;
+    status?: string;
+    completedAt?: string | null;
+    duration?: number | null;
     project: { id: string; name: string };
     summary?: AssessmentSummary;
     occurrences?: FindingOccurrence[];
   };
-  type: 'EXECUTIVE' | 'TECHNICAL' | 'COMPLIANCE' | 'DEVELOPER';
-  format: 'PDF' | 'HTML' | 'MARKDOWN' | 'JSON' | 'SARIF';
+  type: ReportType;
+  format: ReportFormat;
   title: string;
-  filePath?: string;
-  fileSize?: number;
-  checksum?: string;
+  /** Explicit revision of (assessment, type, format). Only "Regenerate" increments it. */
+  version: number;
+  /** Server-derived download name. The client never chooses it. */
+  fileName?: string | null;
+  filePath?: string | null;
+  fileSize?: number | null;
+  checksum?: string | null;
+  generatorVersion?: string | null;
+  /**
+   * Whether an artifact actually exists behind this row. False for records
+   * created before artifacts were persisted — those offer "Generate", not
+   * "Download".
+   */
+  isDownloadable: boolean;
   generatedAt: string;
+  /** Present on report detail: every format of this assessment + type. */
+  formats?: ReportFormatAvailability[];
+}
+
+/**
+ * One format of a report bundle.
+ *
+ * `AVAILABLE` → downloadable now. `UNAVAILABLE` → the row exists but has no
+ * artifact. `MISSING` → never generated. The UI must never label the last two
+ * "Download".
+ */
+export interface ReportFormatAvailability {
+  format: ReportFormat;
+  status: 'AVAILABLE' | 'UNAVAILABLE' | 'MISSING';
+  reportId: string | null;
+  fileSize: number | null;
+  generatedAt: string | null;
+  version: number | null;
 }
 
 export interface ReportTrendPoint {
@@ -372,24 +426,75 @@ export interface ReportTrendPoint {
   medium: number;
   low: number;
   total: number;
-  score: number;
+  /** Scans completed that day. 0 means no scan ran — not "a scan found nothing". */
+  scans: number;
 }
 
+/** Half-window comparison of the vulnerability trend. Null when there is no baseline. */
+export interface ReportTrendDelta {
+  current: number;
+  previous: number;
+  /** Negative means fewer vulnerabilities, which is an improvement. */
+  changePercent: number;
+  direction: 'up' | 'down' | 'flat';
+}
+
+/**
+ * Change in average security score between two consecutive 30-day windows.
+ *
+ * Null when either window holds no scored assessment — a first-ever scan has no
+ * baseline, and the UI says so rather than showing a fabricated delta.
+ */
+export interface ReportScoreDelta {
+  currentAverage: number;
+  previousAverage: number;
+  /** Signed whole points. Positive means the posture improved. */
+  deltaPoints: number;
+  /** Null when the previous average was 0 — no honest percentage exists. */
+  deltaPercent: number | null;
+  direction: 'up' | 'down' | 'flat';
+  currentSampleSize: number;
+  previousSampleSize: number;
+}
+
+/**
+ * Reports metrics.
+ *
+ * Field names state their unit. Everything is scoped to assessments that
+ * produced at least one ACTIVE report, and distinct entities are counted once —
+ * never multiplied by the number of formats a scan was exported to.
+ *
+ * "Artifact" = one row = one (assessment, type, format). "Active" = the latest
+ * version of that artifact; superseded rows are earlier versions.
+ */
 export interface ReportStats {
-  totalReports: number;
-  totalAssessments: number;
-  totalProjects: number;
-  totalFindings: number;
-  criticalCount: number;
-  highCount: number;
-  mediumCount: number;
-  lowCount: number;
-  /** Null when no project has a computable score. Never substitute 0 or 100. */
-  avgSecurityScore: number | null;
-  scoredProjects?: number;
-  unassessedProjects?: number;
-  avgDuration: number;
-  trend: ReportTrendPoint[];
+  activeReportArtifacts: number;
+  supersededReportArtifacts: number;
+  activeArtifactsLast30Days: number;
+
+  distinctAssessmentsWithReports: number;
+  /** All COMPLETED assessments — the denominator shown on the Assessments page. */
+  totalCompletedAssessments: number;
+  distinctProjectsCovered: number;
+  totalActiveProjects: number;
+
+  /** One value per assessment, all time. Null when nothing was scored. */
+  averageAssessmentScore: number | null;
+  scoredAssessmentsInAverage: number;
+  averageScoreDelta: ReportScoreDelta | null;
+
+  criticalFindingsIncluded: number;
+  highFindingsIncluded: number;
+  mediumFindingsIncluded: number;
+  lowFindingsIncluded: number;
+  infoFindingsIncluded: number;
+  totalFindingsIncluded: number;
+  criticalHighFindingsIncluded: number;
+
+  /** Per-day, per-severity independent counts. Never cumulative. */
+  vulnerabilityTrend: ReportTrendPoint[];
+  vulnerabilityTrendDelta: ReportTrendDelta | null;
+  trendWindowDays: number;
 }
 
 export interface AssessmentLog {

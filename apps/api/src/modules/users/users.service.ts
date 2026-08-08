@@ -14,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { appBrand } from '../../brand/brand';
 
 const SELECT_PUBLIC = {
   id: true,
@@ -288,10 +289,10 @@ export class UsersService {
     const { error } = await resend.emails.send({
       from,
       to:      email,
-      subject: `You've been invited to IASA by ${inviter?.name ?? 'an admin'}`,
+      subject: `You've been invited to ${appBrand.name} by ${inviter?.name ?? 'an admin'}`,
       html: `
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-          <h2 style="color:#7c3aed">You're invited to IASA</h2>
+          <h2 style="color:#7c3aed">You're invited to ${appBrand.name}</h2>
           <p><strong>${inviter?.name ?? 'An admin'}</strong> has invited you to join their
           security workspace as <strong>${role}</strong>.</p>
           <p>

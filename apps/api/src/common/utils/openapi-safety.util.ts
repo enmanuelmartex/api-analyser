@@ -30,6 +30,13 @@ export function isExternalRef(ref: unknown): boolean {
   return !trimmed.startsWith('#');
 }
 
+/** swagger-parser v10 rejects OpenAPI 3.1 before it can dereference it. */
+export function isOpenApi31Document(spec: unknown): boolean {
+  if (spec === null || typeof spec !== 'object') return false;
+  const version = (spec as Record<string, unknown>).openapi;
+  return typeof version === 'string' && /^3\.1(?:\.|$)/.test(version.trim());
+}
+
 /**
  * Walks the raw specification and throws when any external `$ref` is present.
  * Must run BEFORE `SwaggerParser.dereference`, since dereferencing is what

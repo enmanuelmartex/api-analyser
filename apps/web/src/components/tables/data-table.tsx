@@ -3,6 +3,7 @@
 import * as React from 'react';
 import {
   type ColumnDef,
+  type RowData,
   type SortingState,
   type ColumnFiltersState,
   type RowSelectionState,
@@ -34,6 +35,24 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { DataTableToolbar } from '@/components/tables/data-table-toolbar';
 import { DataTablePagination } from '@/components/tables/data-table-pagination';
 
+declare module '@tanstack/react-table' {
+  /**
+   * Per-column classes, applied to the header cell and every body cell alike.
+   *
+   * This exists so a column can be dropped at narrow widths with
+   * `hidden md:table-cell` rather than being squeezed to illegibility. Doing it
+   * in CSS keeps it out of React state: there is no media-query hook, so nothing
+   * differs between the server and client render, and the columns respond to a
+   * window resize without a re-render.
+   */
+  // The two type parameters are required by the interface being augmented, even
+  // though this declaration does not reference them.
+  // eslint-disable-next-line no-unused-vars
+  interface ColumnMeta<TData extends RowData, TValue> {
+    className?: string;
+  }
+}
+
 const DRAG_COLUMN_ID = '__drag';
 const SELECT_COLUMN_ID = '__select';
 
@@ -53,6 +72,8 @@ interface DataTableProps<TData extends object, TValue> {
   isLoading?: boolean;
   emptyState?: React.ReactNode;
   pageSize?: number;
+  /** Choices in the rows-per-page selector. Must contain `pageSize`. */
+  pageSizeOptions?: number[];
   hideToolbar?: boolean;
   hidePagination?: boolean;
   className?: string;
@@ -74,6 +95,7 @@ export function DataTable<TData extends object, TValue>({
   isLoading = false,
   emptyState,
   pageSize = 20,
+  pageSizeOptions,
   hideToolbar = false,
   hidePagination = false,
   className,
@@ -133,6 +155,9 @@ export function DataTable<TData extends object, TValue>({
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: enableRowOrder ? undefined : getPaginationRowModel(),
+    // Searching or filtering returns to the first page. Without this a filter
+    // applied from page 4 can land on an empty page that looks like "no results".
+    autoResetPageIndex: true,
     initialState: { pagination: { pageSize } },
   });
 
@@ -167,8 +192,11 @@ export function DataTable<TData extends object, TValue>({
       {isLoading ? (
         Array.from({ length: 6 }).map((_, i) => (
           <TableRow key={i}>
-            {resolvedColumns.map((_, j) => (
-              <TableCell key={j}>
+            {resolvedColumns.map((column, j) => (
+              // The placeholders honour the same per-column classes as the real
+              // cells, so a column hidden at this width does not reappear as an
+              // empty skeleton and change the column count mid-load.
+              <TableCell key={j} className={column.meta?.className}>
                 <Skeleton className="h-4 w-full" />
               </TableCell>
             ))}
@@ -179,7 +207,7 @@ export function DataTable<TData extends object, TValue>({
           rows.map((row) => (
             <DraggableTableRow key={row.id} rowId={row.id} onRowClick={onRowClick ? () => onRowClick(row.original) : undefined}>
               {row.getVisibleCells().map((cell) => (
-                <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                <TableCell key={cell.id} className={cell.column.columnDef.meta?.className}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
               ))}
             </DraggableTableRow>
           ))
@@ -192,7 +220,7 @@ export function DataTable<TData extends object, TValue>({
               className={onRowClick ? 'cursor-pointer' : undefined}
             >
               {row.getVisibleCells().map((cell) => (
-                <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                <TableCell key={cell.id} className={cell.column.columnDef.meta?.className}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
               ))}
             </TableRow>
           ))
@@ -240,6 +268,7 @@ export function DataTable<TData extends object, TValue>({
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
+                    className={header.column.columnDef.meta?.className}
                     aria-sort={
                       header.column.getIsSorted() === 'asc'
                         ? 'ascending'
@@ -272,7 +301,9 @@ export function DataTable<TData extends object, TValue>({
           )}
         </Table>
         </div>
-        {!hidePagination && !enableRowOrder && <DataTablePagination table={table} />}
+        {!hidePagination && !enableRowOrder && (
+          <DataTablePagination table={table} {...(pageSizeOptions ? { pageSizeOptions } : {})} />
+        )}
       </div>
     </div>
   );

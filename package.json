@@ -25,8 +25,9 @@
     "lint": "bun run lint:api && bun run lint:web",
     "lint:api": "bun run --cwd apps/api lint",
     "lint:web": "bun run --cwd apps/web lint",
-    "test": "bun run test:api",
+    "test": "bun run test:api && bun run test:web",
     "test:api": "bun run --cwd apps/api test",
+    "test:web": "bun run --cwd apps/web test",
     "test:e2e": "bun run --cwd apps/api test:e2e",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
   },

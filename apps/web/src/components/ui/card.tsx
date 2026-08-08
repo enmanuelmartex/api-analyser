@@ -19,11 +19,18 @@ const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
 );
 CardHeader.displayName = 'CardHeader';
 
-const CardTitle = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLHeadingElement>>(
-  ({ className, ...props }, ref) => (
-    <h3 ref={ref} className={cn('text-sm font-semibold leading-none tracking-tight', className)} {...props} />
-  ),
-);
+/**
+ * Renders `h2` because a card title's nearest ancestor heading is the page `h1`.
+ * As an `h3` it skipped a level, which is a `heading-order` failure and makes the
+ * document outline lie to a screen reader. The level is overridable via `as` for
+ * the rare card nested under its own section heading.
+ */
+const CardTitle = React.forwardRef<
+  HTMLHeadingElement,
+  React.HTMLAttributes<HTMLHeadingElement> & { as?: 'h2' | 'h3' | 'h4' }
+>(({ className, as: Heading = 'h2', ...props }, ref) => (
+  <Heading ref={ref} className={cn('text-sm font-semibold leading-none tracking-tight', className)} {...props} />
+));
 CardTitle.displayName = 'CardTitle';
 
 const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(

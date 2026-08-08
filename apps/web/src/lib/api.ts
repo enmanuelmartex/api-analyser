@@ -1,4 +1,11 @@
 import axios, { AxiosInstance } from 'axios';
+import type {
+  Report,
+  ReportFormat,
+  ReportFormatAvailability,
+  ReportStats,
+  ReportType,
+} from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
 
@@ -75,6 +82,11 @@ export const projectsApi = {
 export const assessmentsApi = {
   list: (projectId?: string) =>
     api.get('/assessments', { params: projectId ? { projectId } : {} }).then((r) => r.data),
+  // Server-side paginated assessments for one project, newest first.
+  listByProject: (projectId: string, page = 1, pageSize = 5) =>
+    api
+      .get(`/assessments/projects/${projectId}`, { params: { page, pageSize } })
+      .then((r) => r.data),
   get: (id: string) => api.get(`/assessments/${id}`).then((r) => r.data),
   run: (projectId: string, config?: {
     executionMode?: 'all' | 'profile' | 'manual';
@@ -207,38 +219,99 @@ export const usersApi = {
     api.post('/users/accept-invite', { token }).then((r) => r.data),
 };
 
-// Reports
+/**
+ * Reports.
+ *
+ * `generate` and `download` are deliberately separate calls against separate
+ * endpoints. They used to be the same one: the "Download" button issued
+ * `GET /reports/assessment/:id/generate`, which re-rendered the document AND
+ * inserted another Report row, so every download of an existing report created
+ * a duplicate. `download` below is read-only — it can never create a record.
+ */
 export const reportsApi = {
-  stats: () => api.get('/reports/stats').then((r) => r.data),
-  list: (assessmentId?: string) =>
+  stats: (): Promise<ReportStats> => api.get('/reports/stats').then((r) => r.data),
+
+  list: (options: { assessmentId?: string; includeHistory?: boolean } = {}): Promise<Report[]> =>
     api
-      .get('/reports', { params: assessmentId ? { assessmentId } : {} })
+      .get('/reports', {
+        params: {
+          ...(options.assessmentId ? { assessmentId: options.assessmentId } : {}),
+          ...(options.includeHistory ? { includeHistory: 'true' } : {}),
+        },
+      })
       .then((r) => r.data),
-  listByAssessment: (assessmentId: string) =>
+
+  listByAssessment: (assessmentId: string): Promise<Report[]> =>
     api.get(`/reports/assessment/${assessmentId}`).then((r) => r.data),
-  get: (id: string) => api.get(`/reports/${id}`).then((r) => r.data),
+
+  get: (id: string): Promise<Report> => api.get(`/reports/${id}`).then((r) => r.data),
+
+  formats: (assessmentId: string, type: ReportType = 'TECHNICAL'): Promise<ReportFormatAvailability[]> =>
+    api.get(`/reports/assessment/${assessmentId}/formats`, { params: { type } }).then((r) => r.data),
+
   delete: (id: string) => api.delete(`/reports/${id}`).then((r) => r.data),
-  generate: async (
+
+  /**
+   * Creates an artifact — the only call that may add a report.
+   *
+   * Idempotent on the server: requesting a format that already exists returns
+   * the existing report with `created: false`, so a double click cannot produce
+   * two rows. Pass `regenerate` for the deliberate "make a new version" action.
+   */
+  generate: (
     assessmentId: string,
-    format: 'PDF' | 'JSON' | 'HTML' | 'MARKDOWN' | 'SARIF',
-    type: 'EXECUTIVE' | 'TECHNICAL' | 'DEVELOPER' | 'COMPLIANCE' = 'TECHNICAL',
-  ) => {
-    const response = await api.get(
-      `/reports/assessment/${assessmentId}/generate`,
-      { params: { format, type }, responseType: 'blob' },
-    );
-    const ext = { PDF: 'pdf', JSON: 'json', HTML: 'html', MARKDOWN: 'md', SARIF: 'sarif' }[format] ?? 'txt';
+    format: ReportFormat,
+    type: ReportType = 'TECHNICAL',
+    options: { regenerate?: boolean } = {},
+  ): Promise<{ report: Report; created: boolean }> =>
+    api
+      .post(`/reports/assessment/${assessmentId}/generate`, {
+        format,
+        type,
+        regenerate: options.regenerate === true,
+      })
+      .then((r) => r.data),
+
+  /**
+   * Downloads an artifact that already exists. Never generates anything.
+   *
+   * The saved file name comes from the server's `Content-Disposition`, so it
+   * matches the name stored with the report rather than being re-derived here.
+   */
+  download: async (reportId: string): Promise<void> => {
+    const response = await api.get(`/reports/${reportId}/download`, { responseType: 'blob' });
+
     const rawContentType = response.headers['content-type'];
     const contentType = typeof rawContentType === 'string' ? rawContentType : undefined;
-    const blob = new Blob([response.data], { type: contentType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `iasa-report-${assessmentId.slice(0, 8)}.${ext}`;
-    a.click();
+    const fileName = filenameFromContentDisposition(response.headers['content-disposition']) ?? `iasa-report-${reportId.slice(0, 8)}`;
+
+    const url = URL.createObjectURL(new Blob([response.data], { type: contentType }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
     URL.revokeObjectURL(url);
   },
 };
+
+/** Reads the server-chosen file name, preferring the RFC 5987 `filename*` form. */
+export function filenameFromContentDisposition(header: unknown): string | null {
+  if (typeof header !== 'string') return null;
+
+  const encoded = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      // Fall through to the plain form.
+    }
+  }
+
+  const plain = header.match(/filename="?([^";]+)"?/i);
+  return plain ? plain[1].trim() : null;
+}
 
 // NOTE: `financeApi` was removed in Phase 0. It called `/finance/summary` and
 // `/finance/usage`, which have no backend implementation — the API's finance

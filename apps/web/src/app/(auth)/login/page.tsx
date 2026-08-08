@@ -4,13 +4,15 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { IconShield, IconEye, IconEyeOff } from '@tabler/icons-react';
+import { IconEye, IconEyeOff } from '@tabler/icons-react';
 import { authClient } from '@/lib/auth-client';
 import { authApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { appBrand } from '@/lib/brand';
+import { AppLogo } from '@/components/brand/app-logo';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -77,13 +79,8 @@ export default function LoginPage() {
       <div className="w-full max-w-md relative">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
-              <IconShield className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="text-2xl font-bold tracking-tight text-foreground">IASA</span>
-          </div>
-          <p className="text-sm text-muted-foreground">Intelligent API Security Assessment</p>
+          <AppLogo variant="full" size={40} className="mb-4" nameClassName="text-2xl" />
+          <p className="text-sm text-muted-foreground">{appBrand.tagline}</p>
         </div>
 
         {/* Card */}

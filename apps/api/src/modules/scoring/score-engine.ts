@@ -33,7 +33,9 @@ import type { Severity } from '@prisma/client';
  * then apply one exposure-scaled penalty per rule.
  */
 
-export const SCORE_VERSION = 'score-v1';
+export const SCORE_VERSION = 'score-v2';
+/** A completed, scorable assessment uses 1 as its lowest displayable score. */
+export const MIN_SECURITY_SCORE = 1;
 
 /** Penalty weights by severity. INFO is deliberately 0: informational is not risk. */
 export const SEVERITY_WEIGHTS: Record<Severity, number> = {
@@ -208,7 +210,7 @@ export function computeScore(input: ScoreInput): ScoreResult {
 
   const uncappedPenalty = round2(rulePenalties.reduce((sum, rule) => sum + rule.rulePenalty, 0));
   const totalPenalty = Math.min(MAX_TOTAL_PENALTY, uncappedPenalty);
-  const securityScore = Math.round(Math.max(0, 100 - totalPenalty));
+  const securityScore = Math.round(Math.max(MIN_SECURITY_SCORE, 100 - totalPenalty));
 
   // ── Is the result complete enough to be called final? ─────────────────────
 

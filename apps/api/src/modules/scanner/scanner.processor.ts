@@ -12,7 +12,6 @@ import { decryptAuthFields } from '../../common/crypto/auth-config.crypto';
 import { IssueLifecycleService } from '../issues/issue-lifecycle.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
-import { ReportGeneratorService } from '../reports/report-generator.service';
 import { ReportsService } from '../reports/reports.service';
 
 interface JobData {
@@ -31,7 +30,6 @@ export class ScannerProcessor extends WorkerHost {
     private scannerService:   ScannerService,
     private eventEmitter:     EventEmitter2,
     private pluginRegistry:   PluginRegistryService,
-    private reportGenerator:  ReportGeneratorService,
     private reportsService:   ReportsService,
     private crypto:           CryptoService,
     private issueLifecycle:   IssueLifecycleService,
@@ -371,30 +369,33 @@ export class ScannerProcessor extends WorkerHost {
     });
   }
 
+  /**
+   * Issues the canonical PDF for a finished scan.
+   *
+   * Delegates to the same idempotent generation path the API exposes, so the
+   * automatic report and a user-triggered one converge on a single artifact
+   * instead of racing to insert two rows for the same scan. Previously this
+   * rendered a PDF, threw the bytes away and recorded only their length — the
+   * row that produced looked like a report but had nothing to download.
+   */
   private async autoGenerateReport(assessmentId: string, userId?: string) {
-    const assessment = await this.prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      include: {
-        project: { select: { id: true, name: true, baseUrl: true, environment: true } },
-        summary: true,
-        occurrences: {
-          orderBy: [{ severitySnapshot: 'asc' }, { detectedAt: 'desc' }],
-          include: { endpoint: { select: { path: true, method: true } } },
-        },
-      },
-    });
-    if (!assessment) return;
+    const owner =
+      userId ??
+      (
+        await this.prisma.assessment.findUnique({
+          where: { id: assessmentId },
+          select: { project: { select: { userId: true } } },
+        })
+      )?.project?.userId;
 
-    const content = await this.reportGenerator.generatePdf(assessment, 'TECHNICAL');
-    const projectName = (assessment.project as any).name ?? 'report';
-    const ts = new Date().toISOString().split('T')[0];
+    if (!owner) {
+      this.logger.warn(`Skipping auto-report for ${assessmentId}: no owning user could be resolved.`);
+      return;
+    }
 
-    await this.reportsService.createRecord({
-      assessmentId,
-      type:     'TECHNICAL',
-      format:   'PDF',
-      title:    `Automatic security report — ${projectName} — ${ts}`,
-      fileSize: content.length,
+    await this.reportsService.generate(assessmentId, owner, {
+      type: 'TECHNICAL',
+      format: 'PDF',
     });
   }
 

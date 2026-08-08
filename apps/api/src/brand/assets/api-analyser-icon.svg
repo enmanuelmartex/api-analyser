@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="API Analyser">
+  <!--
+    API Analyser symbol.
+
+    Geometry only — no embedded colour for the mark itself: the ring and the
+    centre dot paint with `currentColor`, so one asset serves both themes
+    (white on the dark UI, near-black on light surfaces) without a second file
+    drifting out of sync. Only the accent beam carries fixed brand colour.
+
+    The mark is: a broken annulus (aperture at the upper right, a narrow notch
+    at the lower left), a solid centre dot, and a gradient beam travelling from
+    the dot out through the aperture — a scan sweep leaving the aperture.
+
+    Do not restyle. Scale via width/height; the viewBox is square and the
+    proportions are fixed.
+  -->
+  <defs>
+    <linearGradient id="aa-beam" x1="148.35" y1="115.28" x2="216.2" y2="72.89" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C5CFF" />
+      <stop offset="0.45" stop-color="#4D9DFF" />
+      <stop offset="1" stop-color="#CFF0FF" />
+    </linearGradient>
+    <clipPath id="aa-disc">
+      <circle cx="128" cy="128" r="100" />
+    </clipPath>
+  </defs>
+
+  <!--
+    Broken ring, drawn as a stroked circle so the two openings are expressed as
+    dash gaps rather than hand-built arc paths. r=83 with a 34 stroke yields an
+    outer radius of 100 and an inner radius of 66.
+    Circumference = 2*pi*83 = 521.5; the dash pattern below sums to exactly that.
+    The aperture gap is cut to the same angular span as the beam (10deg-54deg),
+    so the beam fills the opening exactly instead of leaving a sliver of ring
+    above it.
+      dash 210.0  ring from 3 o'clock round to the lower-left notch
+      gap   21.8  the notch
+      dash 211.5  round through the bottom, left and top
+      gap   63.7  the aperture the beam exits through
+      dash  14.5  back to the start
+  -->
+  <circle
+    cx="128"
+    cy="128"
+    r="83"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="34"
+    stroke-dasharray="210 21.8 211.5 63.7 14.5"
+  />
+
+  <!-- Centre dot: the origin of the sweep. -->
+  <circle cx="128" cy="128" r="26" fill="currentColor" />
+
+  <!-- Accent beam, clipped to the disc so it stops at the ring's outer edge. -->
+  <g clip-path="url(#aa-disc)">
+    <path d="M148.78 116 L230.42 109.94 L189.13 43.87 L146.39 112.57 Z" fill="url(#aa-beam)" />
+  </g>
+</svg>

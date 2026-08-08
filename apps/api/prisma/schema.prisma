@@ -807,23 +807,52 @@ model IssueStatusChange {
 // REPORT
 // =============================================================================
 
+/// An issued report artifact.
+///
+/// A row is created ONLY by an explicit generation (`POST /reports/assessment/
+/// :assessmentId/generate`) or by the scanner's automatic post-scan generation.
+/// Downloading never creates one: `GET /reports/:id/download` replays the
+/// artifact persisted here.
+///
+/// The artifact is immutable. `sourceSnapshot` freezes the exact document text
+/// at issue time, so re-triaging an issue, rewording a check or retuning a
+/// severity cannot retroactively change a report that was already delivered.
 model Report {
   id           String     @id @default(cuid())
   assessmentId String
   assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
-  type     ReportType
-  format   ReportFormat
-  title    String
+  type   ReportType
+  format ReportFormat
+  title  String
+
+  /// Explicit revision of (assessment, type, format). Starts at 1; only a
+  /// deliberate "Regenerate" mints version + 1. Downloads never bump it.
+  version Int @default(1)
+
+  /// Server-derived file name served on download. Never client-supplied.
+  fileName String?
+  /// Relative name inside the report storage root — `<id>.<ext>`, no directory
+  /// component, so it cannot escape the root. Binary formats (PDF) only.
   filePath String?
   fileSize Int?
-  content  String? // For text-based formats
-  checksum String? // SHA256 of file
+  /// SHA-256 of the delivered bytes, used to detect a corrupted/stale artifact.
+  checksum String?
+
+  /// The frozen document source this artifact was rendered from: the file
+  /// itself for HTML/MARKDOWN/JSON/SARIF, and the HTML a PDF was printed from.
+  /// Lets a lost binary be re-rendered byte-for-byte without re-reading findings.
+  sourceSnapshot String?
+  /// Version of the generator that produced the artifact, shown on report detail.
+  generatorVersion String?
 
   generatedAt DateTime @default(now())
 
   /// Reports of one scan (reports list grouping, scan detail → Reports).
   @@index([assessmentId])
+  /// The duplicate guard. Two concurrent generations of the same artifact
+  /// collide here instead of both inserting; the loser returns the winner's row.
+  @@unique([assessmentId, type, format, version])
   @@map("reports")
 }
 

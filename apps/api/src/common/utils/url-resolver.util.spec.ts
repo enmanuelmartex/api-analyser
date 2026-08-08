@@ -14,8 +14,11 @@ describe('assertSafeRemoteUrl', () => {
     await expect(assertSafeRemoteUrl(url)).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('allows private targets only through the explicit development switch', async () => {
+  it.each([
+    'http://127.0.0.1:8080/openapi.json',
+    'http://localhost:8000/openapi.json',
+  ])('allows private target %s through the explicit development switch', async (url) => {
     process.env.ALLOW_PRIVATE_TARGETS = 'true';
-    await expect(assertSafeRemoteUrl('http://127.0.0.1:8080/openapi.json')).resolves.toBe('http://127.0.0.1:8080/openapi.json');
+    await expect(assertSafeRemoteUrl(url)).resolves.toBe(url);
   });
 });

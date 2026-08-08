@@ -96,28 +96,34 @@ export default function AssessmentsPage() {
         size: 80,
       },
       {
+        // Counts come from the scan's real findings (findingCounts), not the
+        // persisted summary counters, which can be zero for demo/old data.
         id: 'critical',
-        accessorFn: (row) => row.summary?.criticalCount ?? -1,
+        meta: { className: 'hidden md:table-cell' },
+        accessorFn: (row) => row.findingCounts?.critical ?? -1,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Critical" />,
-        cell: ({ row }) => <span className="text-sm font-bold text-destructive">{row.original.summary?.criticalCount ?? '—'}</span>,
+        cell: ({ row }) => <span className="text-sm font-bold text-destructive">{row.original.findingCounts?.critical ?? '—'}</span>,
         size: 80,
       },
       {
         id: 'high',
-        accessorFn: (row) => row.summary?.highCount ?? -1,
+        meta: { className: 'hidden md:table-cell' },
+        accessorFn: (row) => row.findingCounts?.high ?? -1,
         header: ({ column }) => <DataTableColumnHeader column={column} title="High" />,
-        cell: ({ row }) => <span className="text-sm font-bold text-severity-high">{row.original.summary?.highCount ?? '—'}</span>,
+        cell: ({ row }) => <span className="text-sm font-bold text-severity-high">{row.original.findingCounts?.high ?? '—'}</span>,
         size: 80,
       },
       {
         id: 'total',
-        accessorFn: (row) => row.summary?.totalFindings ?? -1,
+        meta: { className: 'hidden lg:table-cell' },
+        accessorFn: (row) => row.findingCounts?.total ?? -1,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Total" />,
-        cell: ({ row }) => <span className="text-sm text-foreground">{row.original.summary?.totalFindings ?? '—'}</span>,
+        cell: ({ row }) => <span className="text-sm text-foreground">{row.original.findingCounts?.total ?? '—'}</span>,
         size: 70,
       },
       {
         id: 'duration',
+        meta: { className: 'hidden xl:table-cell' },
         accessorFn: (row) => row.duration ?? -1,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Duration" />,
         cell: ({ row }) => (
@@ -126,6 +132,7 @@ export default function AssessmentsPage() {
       },
       {
         accessorKey: 'createdAt',
+        meta: { className: 'hidden lg:table-cell' },
         header: ({ column }) => <DataTableColumnHeader column={column} title="Started" />,
         cell: ({ row }) => <span className="text-xs text-muted-foreground">{formatRelative(row.original.createdAt)}</span>,
       },

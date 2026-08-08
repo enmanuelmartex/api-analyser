@@ -1,19 +1,11 @@
 'use client';
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { IconMoon, IconPlus, IconSun } from '@tabler/icons-react';
-import { useTheme } from 'next-themes';
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-} from '@/components/ui/command';
-import { NAV_MAIN, NAV_COLLAPSIBLE } from '@/components/navigation/nav-data';
+import dynamic from 'next/dynamic';
+
+const loadCommandMenu = () => import('./command-menu-dialog');
+
+const CommandMenu = dynamic(() => loadCommandMenu().then((m) => m.CommandMenu), { ssr: false });
 
 interface CommandMenuContextValue {
   open: boolean;
@@ -30,6 +22,10 @@ export function useCommandMenu() {
 
 export function CommandMenuProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  // The palette chunk is only mounted after the first open. Tracking that
+  // separately from `open` keeps the dialog mounted afterwards, so closing it
+  // does not unmount `cmdk` and re-trigger the loading state on the next Cmd+K.
+  const [everOpened, setEverOpened] = useState(false);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -42,61 +38,29 @@ export function CommandMenuProvider({ children }: { children: React.ReactNode })
     return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  useEffect(() => {
+    if (open) setEverOpened(true);
+  }, [open]);
+
+  // Warm the chunk once the browser is idle, so the first Cmd+K opens instantly
+  // even though the code is no longer part of the route's entry bundle. Falls
+  // back to a timeout on Safari, which still lacks requestIdleCallback.
+  useEffect(() => {
+    const warm = () => void loadCommandMenu();
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(warm, { timeout: 3000 });
+      return () => window.cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(warm, 2000);
+    return () => window.clearTimeout(id);
+  }, []);
+
   const value = useMemo(() => ({ open, setOpen }), [open]);
 
   return (
     <CommandMenuContext.Provider value={value}>
       {children}
-      <CommandMenu />
+      {everOpened && <CommandMenu open={open} setOpen={setOpen} />}
     </CommandMenuContext.Provider>
-  );
-}
-
-function CommandMenu() {
-  const { open, setOpen } = useCommandMenu();
-  const router = useRouter();
-  const { setTheme, resolvedTheme } = useTheme();
-
-  function runCommand(action: () => void) {
-    setOpen(false);
-    action();
-  }
-
-  return (
-    <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Search pages, actions…" />
-      <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
-        <CommandGroup heading="Actions">
-          <CommandItem onSelect={() => runCommand(() => router.push('/projects/new'))}>
-            <IconPlus className="h-4 w-4" />
-            New Project
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark'))}>
-            {resolvedTheme === 'dark' ? <IconSun className="h-4 w-4" /> : <IconMoon className="h-4 w-4" />}
-            Toggle theme
-          </CommandItem>
-        </CommandGroup>
-        <CommandSeparator />
-        <CommandGroup heading="Navigate">
-          {NAV_MAIN.map((item) => (
-            <CommandItem key={item.url} onSelect={() => runCommand(() => router.push(item.url))}>
-              <item.icon className="h-4 w-4" />
-              {item.title}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-        {NAV_COLLAPSIBLE.map((group) => (
-          <CommandGroup key={group.title} heading={group.title}>
-            {group.items.map((item) => (
-              <CommandItem key={item.url} onSelect={() => runCommand(() => router.push(item.url))}>
-                <item.icon className="h-4 w-4" />
-                {item.title}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        ))}
-      </CommandList>
-    </CommandDialog>
   );
 }

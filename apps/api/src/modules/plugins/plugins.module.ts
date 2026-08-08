@@ -15,7 +15,8 @@ import { ProfilesController } from './profiles.controller';
     PluginExecutorService,
     ProfilesService,
   ],
-  controllers: [PluginsController, ProfilesController],
+  // Static /plugins/profiles routes must be registered before /plugins/:id.
+  controllers: [ProfilesController, PluginsController],
   exports: [PluginRegistryService, PluginExecutorService],
 })
 export class PluginsModule {}

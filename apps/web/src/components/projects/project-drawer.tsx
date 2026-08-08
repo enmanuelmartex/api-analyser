@@ -64,28 +64,44 @@ export function ProjectDrawer({ open, project, onOpenChange, onChanged }: { open
     isReadyRef.current = project?.status === 'READY';
     createDraftPromise.current = null;
     setProjectId(existingId);
-    setStep(project?.setupStep ?? 1);
+    const nextStep = project?.setupStep ?? 1;
+    setStep(nextStep);
     setSaveState(project ? 'saved' : 'idle');
-    savedSnapshot.current = JSON.stringify(next);
+    savedSnapshot.current = JSON.stringify({
+      name: next.name,
+      description: next.description,
+      baseUrl: next.baseUrl,
+      environment: next.environment,
+      setupStep: nextStep,
+    });
   }, [open, project, form]);
 
   const meaningful = useMemo(() => Boolean(values.name.trim() || values.baseUrl.trim() || values.description.trim() || values.specUrl.trim() || values.specContent.trim()), [values]);
+  const draftDetails = useMemo(() => ({
+    name: values.name,
+    description: values.description,
+    baseUrl: values.baseUrl,
+    environment: values.environment,
+    setupStep: step,
+  }), [values.name, values.description, values.baseUrl, values.environment, step]);
+  const draftSnapshot = useMemo(() => JSON.stringify(draftDetails), [draftDetails]);
+
   useEffect(() => {
     if (!open || !meaningful) return;
-    const snapshot = JSON.stringify(values);
-    if (snapshot === savedSnapshot.current) return;
+    if (draftSnapshot === savedSnapshot.current) return;
     setSaveState('dirty');
     const version = ++requestVersion.current;
     const timer = window.setTimeout(async () => {
       setSaveState('saving');
       try {
-        await persistDetails({ name: values.name, description: values.description, baseUrl: values.baseUrl, environment: values.environment, setupStep: step });
+        await persistDetails(draftDetails);
         if (version !== requestVersion.current) return;
-        savedSnapshot.current = snapshot; setSaveState('saved'); onChanged();
+        savedSnapshot.current = draftSnapshot;
+        setSaveState('saved');
       } catch { if (version === requestVersion.current) setSaveState('error'); }
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [open, meaningful, values, step, projectId, onChanged]);
+  }, [open, meaningful, draftDetails, draftSnapshot, projectId]);
 
   async function ensureDraft(payload = { name: values.name, description: values.description, baseUrl: values.baseUrl, environment: values.environment, setupStep: step }) {
     if (projectIdRef.current) return projectIdRef.current;
@@ -141,8 +157,9 @@ export function ProjectDrawer({ open, project, onOpenChange, onChanged }: { open
     setBusy(true);
     setSaveState('saving');
     try {
-      await persistDetails({ name: values.name, description: values.description, baseUrl: values.baseUrl, environment: values.environment, setupStep: step });
-      savedSnapshot.current = JSON.stringify(values);
+      const details = { name: values.name, description: values.description, baseUrl: values.baseUrl, environment: values.environment, setupStep: step };
+      await persistDetails(details);
+      savedSnapshot.current = JSON.stringify(details);
       setSaveState('saved');
       onChanged();
       onOpenChange(false);

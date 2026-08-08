@@ -53,6 +53,7 @@ export class AiService {
     let anySucceeded    = false;
     let anyFailed       = false;
     let firstError: string | undefined;
+    let providerUnavailable = false;
 
     // ── Batch analysis ───────────────────────────────────────────────────────
     for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
@@ -65,14 +66,16 @@ export class AiService {
       } catch (error: any) {
         firstError = firstError ?? error?.message;
         anyFailed  = true;
+        providerUnavailable = this.isProviderUnavailable(error);
         this.logger.warn(
           `AI batch failed (findings ${i}–${i + batch.length}): ${error?.message}`,
         );
+        if (providerUnavailable) break;
       }
     }
 
     // ── Executive summary ────────────────────────────────────────────────────
-    if (config.executiveSummary && findings.length > 0) {
+    if (config.executiveSummary && findings.length > 0 && !providerUnavailable) {
       try {
         const { summary, tokens } = await this.generateExecutiveSummary(
           provider, findings, context, config,
@@ -120,6 +123,12 @@ export class AiService {
         return false;
       })
       .slice(0, config.maxFindings);
+  }
+
+  private isProviderUnavailable(error: any): boolean {
+    const status = Number(error?.status ?? error?.statusCode ?? error?.response?.status);
+    return [401, 403, 429].includes(status) ||
+      /\b(401|403|429)\b|quota|billing|unauthori[sz]ed|forbidden/i.test(String(error?.message ?? ''));
   }
 
   private async analyzeBatch(

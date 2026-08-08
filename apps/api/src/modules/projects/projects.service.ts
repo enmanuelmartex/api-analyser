@@ -12,7 +12,11 @@ import axios from 'axios';
 import { assertSafeRemoteUrl, resolveTargetUrl } from '../../common/utils/url-resolver.util';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { encryptAuthFields, stripAuthSecrets } from '../../common/crypto/auth-config.crypto';
-import { assertNoExternalRefs, SAFE_PARSER_OPTIONS } from '../../common/utils/openapi-safety.util';
+import {
+  assertNoExternalRefs,
+  isOpenApi31Document,
+  SAFE_PARSER_OPTIONS,
+} from '../../common/utils/openapi-safety.util';
 
 @Injectable()
 export class ProjectsService {
@@ -207,11 +211,19 @@ export class ProjectsService {
     assertNoExternalRefs(rawSpec);
 
     let parsed: any;
-    try {
-      parsed = await SwaggerParser.dereference(rawSpec as any, SAFE_PARSER_OPTIONS as any);
-    } catch (err) {
-      this.logger.warn(`Could not fully dereference spec: ${err.message}`);
-      throw new BadRequestException('Upload a valid OpenAPI JSON or YAML document.');
+    if (isOpenApi31Document(rawSpec)) {
+      // swagger-parser v10 rejects 3.1 documents even when they are otherwise
+      // valid. Endpoint operations are usable without dereferencing; external
+      // refs were already rejected above and internal schema refs remain safe.
+      parsed = rawSpec;
+      this.logger.log('Importing OpenAPI 3.1 document without parser dereference');
+    } else {
+      try {
+        parsed = await SwaggerParser.dereference(rawSpec as any, SAFE_PARSER_OPTIONS as any);
+      } catch (err) {
+        this.logger.warn(`Could not fully dereference spec: ${err.message}`);
+        throw new BadRequestException('Upload a valid OpenAPI JSON or YAML document.');
+      }
     }
 
     const endpoints = this.extractEndpoints(parsed);

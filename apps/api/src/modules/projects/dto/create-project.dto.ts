@@ -20,9 +20,12 @@ export class CreateProjectDto {
   @MaxLength(500)
   description?: string;
 
-  @ApiProperty({ example: 'https://api.example.com' })
+  @ApiProperty({ example: 'http://localhost:8000' })
   @IsString()
-  @IsUrl({ require_protocol: true }, { message: 'Enter a valid API base URL.' })
+  @IsUrl(
+    { require_protocol: true, require_tld: false, protocols: ['http', 'https'] },
+    { message: 'Enter a valid HTTP or HTTPS API base URL.' },
+  )
   baseUrl: string;
 
   @ApiPropertyOptional({ enum: ProjectEnvironment, default: 'DEVELOPMENT' })

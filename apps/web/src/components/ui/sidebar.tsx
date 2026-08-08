@@ -67,6 +67,15 @@ function SidebarProvider({
   const isMobile = useIsMobile();
   const [openMobile, setOpenMobile] = React.useState(false);
 
+  /**
+   * `defaultOpen` is the persisted preference, read from the `sidebar_state`
+   * cookie by the server component that renders this provider. It used to be
+   * read from `document.cookie` during the first client render, which is what
+   * kept this whole subtree out of server rendering. Restoring it in an effect
+   * instead is not an option: the sidebar would paint expanded and then snap to
+   * its collapsed width, a layout shift on every navigation for anyone who keeps
+   * it collapsed.
+   */
   const [internalOpen, setInternalOpen] = React.useState(defaultOpen);
   const open = openProp ?? internalOpen;
 
@@ -79,14 +88,6 @@ function SidebarProvider({
     },
     [setOpenProp, open],
   );
-
-  React.useEffect(() => {
-    const match = document.cookie.match(
-      new RegExp(`(?:^|; )${SIDEBAR_COOKIE_NAME}=([^;]*)`),
-    );
-    if (match) setInternalOpen(match[1] === "true");
-    // Restore persisted preference once on mount only.
-  }, []);
 
   const toggleSidebar = React.useCallback(() => {
     return isMobile ? setOpenMobile((prev) => !prev) : setOpen((prev) => !prev);
@@ -298,7 +299,18 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
     <main
       data-slot="sidebar-inset"
       className={cn(
-        "relative flex w-full flex-1 flex-col bg-background",
+        /*
+         * `min-w-0` is load-bearing, not decoration.
+         *
+         * This is a flex item, and a flex item's automatic minimum size is the
+         * min-content width of its contents — so any wide descendant (every data
+         * table on the site) made the inset refuse to shrink and pushed the page
+         * past the viewport. The tables already scroll internally; they simply
+         * never got the chance, because the overflow was resolved above them.
+         * Measured: 180–288 px of horizontal overflow on /dashboard,
+         * /assessments, /issues and /reports at 768 px and 1024 px, gone at 0.
+         */
+        "relative flex w-full min-w-0 flex-1 flex-col bg-background",
         "md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:border md:peer-data-[variant=inset]:border-border md:peer-data-[variant=inset]:shadow-sm md:peer-data-[state=collapsed]:peer-data-[variant=inset]:ml-2",
         className,
       )}

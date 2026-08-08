@@ -7,8 +7,12 @@
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start",
+    "//preview": "Production build served on :3100 for Lighthouse. Uses a separate output dir so it can run alongside a live `bun dev` — never measure performance against :3000, which is unminified React with HMR and on-demand compilation.",
+    "preview:build": "NEXT_DIST_DIR=.next-prod next build",
+    "preview": "NEXT_DIST_DIR=.next-prod next start --port 3100",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "bun test src"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

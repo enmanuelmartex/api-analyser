@@ -1,7 +1,19 @@
 'use client';
 
 import * as React from 'react';
-import * as RechartsPrimitive from 'recharts';
+/**
+ * Named imports, not `import * as RechartsPrimitive`.
+ *
+ * A namespace import cannot be tree-shaken and `optimizePackageImports` cannot
+ * rewrite it to deep module paths, so it pins the whole barrel by construction.
+ * Measured against Recharts 2.15 this changes nothing today — every chart is
+ * built on `generateCategoricalChart`, which statically imports `cartesian/Brush`
+ * and the reference-element helpers, so the unused chart types come along no
+ * matter how they are imported. The named form is kept because it is the one
+ * that can benefit if that ever stops being true; it does not currently save
+ * bytes.
+ */
+import { Legend, type LegendProps, ResponsiveContainer, Tooltip } from 'recharts';
 import { cn } from '@/lib/utils';
 
 export type ChartConfig = {
@@ -30,7 +42,7 @@ function ChartContainer({
   ...props
 }: React.ComponentProps<'div'> & {
   config: ChartConfig;
-  children: React.ComponentProps<typeof RechartsPrimitive.ResponsiveContainer>['children'];
+  children: React.ComponentProps<typeof ResponsiveContainer>['children'];
 }) {
   const uniqueId = React.useId();
   const chartId = `chart-${id || uniqueId.replace(/:/g, '')}`;
@@ -47,7 +59,7 @@ function ChartContainer({
         {...props}
       >
         <ChartStyle id={chartId} config={config} />
-        <RechartsPrimitive.ResponsiveContainer>{children}</RechartsPrimitive.ResponsiveContainer>
+        <ResponsiveContainer>{children}</ResponsiveContainer>
       </div>
     </ChartContext.Provider>
   );
@@ -68,7 +80,7 @@ function ChartStyle({ id, config }: { id: string; config: ChartConfig }) {
   );
 }
 
-const ChartTooltip = RechartsPrimitive.Tooltip;
+const ChartTooltip = Tooltip;
 
 function ChartTooltipContent({
   active,
@@ -84,7 +96,7 @@ function ChartTooltipContent({
   color,
   nameKey,
   labelKey,
-}: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
+}: React.ComponentProps<typeof Tooltip> &
   React.ComponentProps<'div'> & {
     hideLabel?: boolean;
     hideIndicator?: boolean;
@@ -181,7 +193,7 @@ function ChartTooltipContent({
   );
 }
 
-const ChartLegend = RechartsPrimitive.Legend;
+const ChartLegend = Legend;
 
 function ChartLegendContent({
   className,
@@ -190,7 +202,7 @@ function ChartLegendContent({
   verticalAlign = 'bottom',
   nameKey,
 }: React.ComponentProps<'div'> &
-  Pick<RechartsPrimitive.LegendProps, 'payload' | 'verticalAlign'> & {
+  Pick<LegendProps, 'payload' | 'verticalAlign'> & {
     hideIcon?: boolean;
     nameKey?: string;
   }) {

@@ -38,6 +38,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { appBrand } from '@/lib/brand';
+import { AppLogoMark } from '@/components/brand/app-logo-mark';
 
 type TabId = 'general' | 'security' | 'tokens' | 'notifications' | 'ai' | 'system' | 'about' | 'users' | 'audit-logs';
 
@@ -74,73 +76,47 @@ export default function SettingsPage() {
   });
 
   const isAdmin = me?.role === 'ADMIN';
-  const tabs = ALL_TABS.filter((t) => !t.adminOnly || isAdmin);
+  const activeLabel = ALL_TABS.find((t) => t.id === activeTab)?.label ?? 'General';
+
+  /*
+   * A non-admin who deep-links to ?tab=users must not be left on a blank page.
+   * The sidebar hides those entries, but hiding is not authorization — the
+   * backend guards still reject the requests — so the URL is normalised back to
+   * General rather than rendering nothing.
+   */
+  const resolvedTab: TabId =
+    !isAdmin && (activeTab === 'users' || activeTab === 'audit-logs') ? 'general' : activeTab;
 
   return (
     <PageContainer>
-      <PageHeader title="Settings" description="Manage your account, security preferences and integrations" />
+      {/*
+        No in-page navigation.
+        Settings used to render its own vertical menu listing the same nine
+        entries as the global sidebar, which meant two menus, two simultaneous
+        active states, and a 12rem column of duplicated links stealing width
+        from the content. The sidebar's Settings group is now the single source
+        of navigation; this page renders only the selected section.
+      */}
+      <PageHeader
+        title="Settings"
+        description="Manage your account, security preferences and integrations"
+        breadcrumb={
+          <span className="text-xs text-muted-foreground">
+            Settings <span className="px-1 text-muted-foreground/50">·</span> {activeLabel}
+          </span>
+        }
+      />
 
-      <div className="flex flex-col gap-8 lg:flex-row">
-        {/* Sidebar */}
-        <aside className="w-full flex-shrink-0 lg:w-48">
-          <nav className="space-y-0.5">
-            {tabs
-              .filter((t) => !t.adminOnly)
-              .map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={cn(
-                    'flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
-                    activeTab === tab.id
-                      ? 'border-primary/20 bg-primary/10 text-primary'
-                      : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
-                  )}
-                >
-                  <tab.icon className={cn('h-4 w-4 flex-shrink-0', activeTab === tab.id ? 'text-primary' : 'text-muted-foreground')} />
-                  {tab.label}
-                </button>
-              ))}
-
-            {isAdmin && (
-              <>
-                <div className="px-2 pb-1.5 pt-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Administration</p>
-                </div>
-                {tabs
-                  .filter((t) => t.adminOnly)
-                  .map((tab) => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={cn(
-                        'flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
-                        activeTab === tab.id
-                          ? 'border-primary/20 bg-primary/10 text-primary'
-                          : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
-                      )}
-                    >
-                      <tab.icon className={cn('h-4 w-4 flex-shrink-0', activeTab === tab.id ? 'text-primary' : 'text-muted-foreground')} />
-                      {tab.label}
-                    </button>
-                  ))}
-              </>
-            )}
-          </nav>
-        </aside>
-
-        {/* Content */}
-        <div className="min-w-0 flex-1">
-          {activeTab === 'general' && <GeneralTab user={me} />}
-          {activeTab === 'security' && <SecurityTab />}
-          {activeTab === 'tokens' && <TokensTab />}
-          {activeTab === 'notifications' && <NotificationsTab />}
-          {activeTab === 'ai' && <AiConfigTab />}
-          {activeTab === 'system' && <SystemTab />}
-          {activeTab === 'about' && <AboutTab />}
-          {activeTab === 'users' && isAdmin && <UsersTab currentUserId={me?.id ?? ''} />}
-          {activeTab === 'audit-logs' && isAdmin && <AuditLogsTab />}
-        </div>
+      <div className="min-w-0">
+        {resolvedTab === 'general' && <GeneralTab user={me} />}
+        {resolvedTab === 'security' && <SecurityTab />}
+        {resolvedTab === 'tokens' && <TokensTab />}
+        {resolvedTab === 'notifications' && <NotificationsTab />}
+        {resolvedTab === 'ai' && <AiConfigTab />}
+        {resolvedTab === 'system' && <SystemTab />}
+        {resolvedTab === 'about' && <AboutTab />}
+        {resolvedTab === 'users' && isAdmin && <UsersTab currentUserId={me?.id ?? ''} />}
+        {resolvedTab === 'audit-logs' && isAdmin && <AuditLogsTab />}
       </div>
     </PageContainer>
   );
@@ -432,7 +408,7 @@ function NotificationsTab() {
 
   return (
     <div className="space-y-6">
-      <Section title="In-App Notifications" description="What you see inside IASA">
+      <Section title="In-App Notifications" description={`What you see inside ${appBrand.name}`}>
         <div className="divide-y divide-border">
           {items.map(({ key, label, desc }) => (
             <div key={key} className="flex items-center justify-between py-3.5">
@@ -465,7 +441,7 @@ function SystemTab() {
       <Section title="System Information" description="Runtime and infrastructure details">
         <div className="space-y-0">
           {[
-            { label: 'Platform', value: 'IASA API v1' },
+            { label: 'Platform', value: `${appBrand.name} API v1` },
             { label: 'Runtime', value: 'Bun 1.x + NestJS 10' },
             { label: 'Database', value: 'PostgreSQL 16' },
             { label: 'Queue', value: 'Redis 7 + BullMQ 5' },
@@ -513,11 +489,10 @@ function AboutTab() {
     <div className="space-y-6">
       <Card>
         <CardContent className="p-8 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary">
-            <IconShield className="h-7 w-7 text-primary-foreground" />
-          </div>
-          <h2 className="mb-1 text-xl font-bold text-foreground">IASA</h2>
-          <p className="text-sm text-muted-foreground">Intelligent API Security Assessment</p>
+          <AppLogoMark size={56} className="mx-auto mb-4 text-foreground" />
+          <h2 className="mb-1 text-xl font-bold text-foreground">{appBrand.name}</h2>
+          <p className="text-sm text-muted-foreground">{appBrand.tagline}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{appBrand.domain}</p>
           <div className="mt-3 flex items-center justify-center gap-2">
             <span className="font-mono text-xs text-muted-foreground">v0.1.0</span>
             <span className="h-1 w-1 rounded-full bg-border" />
@@ -530,7 +505,7 @@ function AboutTab() {
 
       <Section title="About This Project" description="Mission and objectives">
         <p className="text-sm leading-relaxed text-muted-foreground">
-          IASA is an open source platform for automated security evaluation of RESTful APIs, aligned with the{' '}
+          {appBrand.name} is an open source platform for automated security evaluation of RESTful APIs, aligned with the{' '}
           <span className="font-medium text-primary">OWASP API Security Top 10</span>. It detects vulnerabilities, generates professional reports, and
           allows managing multiple projects and users across organizations.
         </p>
@@ -553,7 +528,7 @@ function AboutTab() {
         </div>
       </Section>
 
-      <Section title="Stack" description="Technologies powering IASA">
+      <Section title="Stack" description={`Technologies powering ${appBrand.name}`}>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {['NestJS 10', 'Next.js 15', 'React 19', 'PostgreSQL 16', 'Redis 7', 'BullMQ 5', 'Prisma ORM', 'TypeScript 5', 'Bun Runtime', 'TanStack Query', 'Tailwind CSS', 'Recharts'].map(
             (tech) => (

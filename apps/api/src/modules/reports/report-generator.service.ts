@@ -2,6 +2,12 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { existsSync } from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import { appBrand, REPORT_TOOL_VERSION } from '../../brand/brand';
+import {
+  pdfFooterTemplate,
+  pdfHeaderTemplate,
+  renderReportHtml,
+} from './report-template';
 
 type ReportType = 'TECHNICAL' | 'EXECUTIVE' | 'DEVELOPER' | 'COMPLIANCE';
 
@@ -79,8 +85,8 @@ export class ReportGeneratorService {
   generateJson(assessment: any): string {
     const output = {
       meta: {
-        tool: 'IASA — Intelligent API Security Assessment',
-        version: '0.1.0',
+        tool: `${appBrand.name} — ${appBrand.tagline}`,
+        version: REPORT_TOOL_VERSION,
         generatedAt: new Date().toISOString(),
         assessmentId: assessment.id,
       },
@@ -119,7 +125,7 @@ export class ReportGeneratorService {
     const date = new Date().toISOString().split('T')[0];
     const lines: string[] = [];
 
-    lines.push(`# Security Assessment Report`);
+    lines.push(`# ${appBrand.name} — Security Assessment Report`);
     lines.push(`**Project:** ${project.name}  `);
     lines.push(`**URL:** ${project.baseUrl}  `);
     lines.push(`**Date:** ${date}  `);
@@ -228,9 +234,9 @@ export class ReportGeneratorService {
         {
           tool: {
             driver: {
-              name: 'IASA',
-              version: '0.1.0',
-              informationUri: 'https://github.com/your-org/iasa',
+              name: appBrand.name,
+              version: REPORT_TOOL_VERSION,
+              informationUri: appBrand.url,
               rules: Object.values(rules),
             },
           },
@@ -246,158 +252,60 @@ export class ReportGeneratorService {
     return JSON.stringify(sarif, null, 2);
   }
 
-  generateHtml(assessment: any, type: ReportType): string {
-    const { project, summary, findings } = assessment;
-    const date = new Date().toLocaleDateString('en-US', {
-      year: 'numeric', month: 'long', day: 'numeric',
+  /**
+   * The report document.
+   *
+   * Delegates to `report-template.ts`, which renders the dark, print-ready
+   * layout shared by the PDF and HTML formats. Kept as a thin wrapper so the
+   * PDF path and the HTML export can never diverge into two designs.
+   */
+  generateHtml(
+    assessment: any,
+    type: ReportType,
+    options: { reportId?: string; version?: number } = {},
+  ): string {
+    return renderReportHtml({
+      assessment,
+      type,
+      reportId: options.reportId,
+      version: options.version,
     });
-    // Read from the stored snapshot, never recomputed. `?? 100` here previously
-    // printed a perfect score on a report for a scan that produced none.
-    const score = summary?.securityScore ?? null;
-    const scoreStatus = summary?.scoreStatus ?? 'UNAVAILABLE';
-    const scoreLabel = score === null ? 'Unavailable' : `${score}/100`;
-    const scoreColor =
-      score === null
-        ? '#6b7280'
-        : score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : score >= 40 ? '#f97316' : '#ef4444';
-
-    // A report built from an incomplete scan must say so on its face.
-    const scoreCaveat =
-      scoreStatus === 'FINAL'
-        ? ''
-        : scoreStatus === 'PROVISIONAL'
-          ? `Provisional — ${summary?.successfulChecks ?? 0} of ${summary?.plannedChecks ?? 0} checks completed` +
-            (summary?.coveragePercent != null ? ` (${summary.coveragePercent}% coverage)` : '')
-          : 'No score could be computed for this scan';
-
-    const sorted = [...findings].sort(
-      (a: any, b: any) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9),
-    );
-
-    const findingRows = sorted.map((f: any) => {
-      const color = SEVERITY_COLOR[f.severity] ?? '#6b7280';
-      return `
-      <div class="finding">
-        <div class="finding-header">
-          <span class="badge" style="background:${color}20;color:${color};border:1px solid ${color}40">${f.severity}</span>
-          <span class="finding-title">${esc(f.title)}</span>
-          ${f.cvssScore ? `<span class="cvss">CVSS ${f.cvssScore}</span>` : ''}
-        </div>
-        ${f.owaspCategory ? `<div class="meta">OWASP: <strong>${esc(f.owaspCategory)}</strong>${f.cweId ? ` &nbsp;|&nbsp; CWE: <strong>${esc(f.cweId)}</strong>` : ''}</div>` : ''}
-        ${f.affectedUrl ? `<div class="meta">URL: <code>${esc(f.affectedUrl)}</code></div>` : ''}
-        <div class="section-label">Description</div>
-        <div class="text">${esc(f.description ?? '')}</div>
-        ${f.impact ? `<div class="section-label">Impact</div><div class="text">${esc(f.impact)}</div>` : ''}
-        ${f.remediation ? `<div class="section-label">Remediation</div><div class="text remediation">${esc(f.remediation)}</div>` : ''}
-        ${f.aiAnalysis ? `<div class="section-label">AI security enrichment</div><div class="text ai-box">${f.aiAnalysis.technicalAnalysis ? `<strong>Technical analysis:</strong> ${esc(f.aiAnalysis.technicalAnalysis)}<br>` : ''}${f.aiAnalysis.businessImpact ? `<strong>Business impact:</strong> ${esc(f.aiAnalysis.businessImpact)}<br>` : ''}${Array.isArray(f.aiAnalysis.securityBestPractices) ? `<strong>Best practices:</strong><ul>${f.aiAnalysis.securityBestPractices.map((item: string) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}${Array.isArray(f.aiAnalysis.validationSteps) ? `<strong>Validation:</strong><ul>${f.aiAnalysis.validationSteps.map((item: string) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}</div>` : ''}
-        ${f.references?.length ? `<div class="section-label">References</div><ul class="refs">${f.references.map((r: string) => `<li><a href="${esc(r)}">${esc(r)}</a></li>`).join('')}</ul>` : ''}
-      </div>`;
-    }).join('');
-
-    const owaspRows = this.buildOwaspTable(findings);
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Security Report — ${esc(project.name)}</title>
-<style>
-  @media print {
-    body { margin: 0; }
-    .no-print { display: none !important; }
-    .finding { page-break-inside: avoid; }
-    .page-break { page-break-before: always; }
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; color: #1e293b; background: #fff; line-height: 1.6; }
-  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px; }
-  /* Header */
-  .report-header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 24px; border-bottom: 2px solid #e2e8f0; margin-bottom: 32px; }
-  .report-header h1 { font-size: 22px; font-weight: 700; color: #0f172a; }
-  .report-header p { color: #64748b; font-size: 12px; margin-top: 4px; }
-  .score-circle { width: 80px; height: 80px; border-radius: 50%; border: 4px solid ${scoreColor}; display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; }
-  .score-num { font-size: 22px; font-weight: 800; color: ${scoreColor}; line-height: 1; }
-  .score-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; }
-  /* Summary cards */
-  .summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 32px; }
-  .sev-card { text-align: center; padding: 16px 8px; border-radius: 8px; border: 1px solid; }
-  .sev-card .num { font-size: 28px; font-weight: 800; }
-  .sev-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
-  /* OWASP table */
-  .owasp-table { width: 100%; border-collapse: collapse; margin-bottom: 32px; font-size: 12px; }
-  .owasp-table th { background: #f8fafc; padding: 8px 10px; text-align: left; border-bottom: 2px solid #e2e8f0; font-weight: 600; }
-  .owasp-table td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; }
-  .owasp-table tr:hover td { background: #f8fafc; }
-  /* Findings */
-  .section-title { font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0; }
-  .finding { border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px; background: #fafafa; }
-  .finding-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-  .finding-title { font-weight: 600; font-size: 14px; flex: 1; color: #0f172a; }
-  .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
-  .cvss { font-size: 11px; color: #64748b; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
-  .meta { font-size: 11px; color: #64748b; margin-bottom: 6px; }
-  .meta code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
-  .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #94a3b8; margin-top: 10px; margin-bottom: 4px; }
-  .text { font-size: 12px; color: #475569; }
-  .remediation { color: #166534; background: #f0fdf4; padding: 8px; border-radius: 6px; border-left: 3px solid #22c55e; }
-  .ai-box { background: #eff6ff; border-left: 3px solid #3b82f6; padding: 8px; border-radius: 6px; }
-  .ai-box ul { padding-left: 18px; margin: 4px 0 8px; }
-  .refs { padding-left: 16px; font-size: 11px; color: #64748b; }
-  .refs a { color: #6366f1; }
-  /* Print button */
-  .no-print { position: fixed; top: 16px; right: 16px; background: #6366f1; color: #fff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; box-shadow: 0 2px 8px rgba(99,102,241,.3); }
-  .no-print:hover { background: #4f46e5; }
-  /* Footer */
-  .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 11px; color: #94a3b8; }
-</style>
-</head>
-<body>
-<button class="no-print" onclick="window.print()">⬇ Save as PDF (Ctrl+P)</button>
-<div class="container">
-  <div class="report-header">
-    <div>
-      <h1>Security Assessment Report</h1>
-      <p>${esc(project.name)} &nbsp;·&nbsp; ${esc(project.baseUrl ?? '')} &nbsp;·&nbsp; ${date}</p>
-      <p style="margin-top:6px">Report type: <strong>${type}</strong> &nbsp;·&nbsp; Risk: <strong style="color:${scoreColor}">${summary?.riskLevel ?? 'Unknown'}</strong></p>
-      ${scoreCaveat ? `<p style="margin-top:6px;color:#f97316"><strong>${scoreCaveat}</strong></p>` : ''}
-    </div>
-    <div class="score-circle">
-      <span class="score-num">${score === null ? '—' : score}</span>
-      <span class="score-label">${score === null ? 'No score' : 'Score'}</span>
-    </div>
-  </div>
-
-  <div class="summary-grid">
-    ${this.sevCard('CRITICAL', summary?.criticalCount ?? 0)}
-    ${this.sevCard('HIGH', summary?.highCount ?? 0)}
-    ${this.sevCard('MEDIUM', summary?.mediumCount ?? 0)}
-    ${this.sevCard('LOW', summary?.lowCount ?? 0)}
-    ${this.sevCard('INFO', summary?.infoCount ?? 0)}
-  </div>
-
-  ${owaspRows ? `
-  <h2 class="section-title">OWASP API Top 10 Coverage</h2>
-  <table class="owasp-table">
-    <thead><tr><th>Category</th><th>Findings</th></tr></thead>
-    <tbody>${owaspRows}</tbody>
-  </table>
-  ` : ''}
-
-  <h2 class="section-title">Findings (${findings.length} total)</h2>
-  ${findingRows || '<p style="color:#94a3b8;text-align:center;padding:24px">No findings detected.</p>'}
-
-  <div class="footer">
-    Generated by <strong>IASA</strong> — Intelligent API Security Assessment &nbsp;·&nbsp; ${new Date().toISOString()}
-  </div>
-</div>
-</body>
-</html>`;
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────
 
   async generatePdf(assessment: any, type: ReportType): Promise<Buffer> {
+    return this.renderPdfFromHtml(this.generateHtml(assessment, type));
+  }
+
+  /**
+   * Chromium print options shared by first-generation and re-render.
+   *
+   * Header and footer come from Chromium's own templates rather than CSS,
+   * because `.pageNumber` / `.totalPages` are the only way to number pages in
+   * a Chromium print job — CSS page counters are not supported. The top margin
+   * leaves room for the header band so it cannot overlap body text.
+   */
+  private pdfOptions(reportId?: string) {
+    return {
+      format: 'A4' as const,
+      printBackground: true,
+      displayHeaderFooter: true,
+      headerTemplate: pdfHeaderTemplate(),
+      footerTemplate: pdfFooterTemplate(reportId),
+      margin: { top: '14mm', right: '12mm', bottom: '14mm', left: '12mm' },
+    };
+  }
+
+  /**
+   * Prints an already-rendered HTML document to PDF.
+   *
+   * Separated from `generatePdf` so a download can re-print the HTML snapshot
+   * frozen with the report instead of re-reading findings from the database.
+   * That is what keeps a re-render byte-identical to the document originally
+   * issued, even after the underlying issues have been re-triaged.
+   */
+  async renderPdfFromHtml(html: string, reportId?: string): Promise<Buffer> {
     const browser = await puppeteer.launch({
       executablePath: this.findBrowserExecutable(),
       headless: true,
@@ -407,8 +315,10 @@ export class ReportGeneratorService {
     });
     try {
       const page = await browser.newPage();
-      await page.setContent(this.generateHtml(assessment, type), { waitUntil: 'domcontentloaded' });
-      const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '14mm', right: '12mm', bottom: '14mm', left: '12mm' } });
+      // The document embeds its logo as a data URI and loads no webfonts, so
+      // `domcontentloaded` is sufficient — there is no network to wait for.
+      await page.setContent(html, { waitUntil: 'domcontentloaded' });
+      const pdf = await page.pdf(this.pdfOptions(reportId));
       return Buffer.from(pdf);
     } finally {
       await browser.close();

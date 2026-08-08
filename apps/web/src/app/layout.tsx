@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
+import { appBrand } from '@/lib/brand';
 import { ThemedToaster } from '@/components/layout/themed-toaster';
 import { Providers } from './providers';
 import './globals.css';
@@ -17,15 +18,27 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(appBrand.url),
   title: {
-    default: 'IASA — Intelligent API Security Assessment',
-    template: '%s | IASA',
+    default: `${appBrand.name} — ${appBrand.tagline}`,
+    template: `%s | ${appBrand.name}`,
   },
-  description:
-    'Automated API security testing and vulnerability detection platform. Scan REST APIs against OWASP API Security Top 10.',
+  description: appBrand.description,
+  applicationName: appBrand.name,
   keywords: ['API security', 'OWASP', 'vulnerability scanner', 'penetration testing', 'API testing'],
-  icons: {
-    icon: '/favicon.ico',
+  // The browser-tab icon comes from `src/app/icon.svg` via Next's file
+  // convention — same artwork as the in-app mark, no separate .ico to drift.
+  openGraph: {
+    type: 'website',
+    siteName: appBrand.name,
+    title: `${appBrand.name} — ${appBrand.tagline}`,
+    description: appBrand.description,
+    url: appBrand.url,
+  },
+  twitter: {
+    card: 'summary',
+    title: `${appBrand.name} — ${appBrand.tagline}`,
+    description: appBrand.description,
   },
 };
 

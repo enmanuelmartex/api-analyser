@@ -13,6 +13,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { RunAssessmentDto } from './dto/run-assessment.dto';
+import {
+  emptyFindingCounts,
+  foldOccurrenceCounts,
+  type FindingCounts,
+} from './assessment-finding-counts';
+
+/** Default page size for the project-detail "Recent assessments" list. */
+const PROJECT_ASSESSMENTS_PAGE_SIZE = 5;
+/** Upper bound so a caller cannot ask for an unbounded page. */
+const MAX_PAGE_SIZE = 50;
 
 @Injectable()
 export class AssessmentsService {
@@ -32,7 +42,7 @@ export class AssessmentsService {
   }
 
   async findAll(userId: string, projectId?: string) {
-    return this.prisma.assessment.findMany({
+    const assessments = await this.prisma.assessment.findMany({
       where: {
         project: { userId },
         ...(projectId ? { projectId } : {}),
@@ -46,6 +56,83 @@ export class AssessmentsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+    return this.withFindingCounts(assessments);
+  }
+
+  /**
+   * A project's assessments, newest first, one page at a time.
+   *
+   * Server-side pagination (skip/take + count) rather than fetching every scan
+   * and slicing in the browser: a project can accumulate hundreds of scans. The
+   * `project: { userId }` scope both filters by project and enforces ownership,
+   * so another user's project simply returns an empty page.
+   */
+  async findByProjectPaginated(
+    userId: string,
+    projectId: string,
+    page = 1,
+    pageSize = PROJECT_ASSESSMENTS_PAGE_SIZE,
+  ) {
+    const safePage = Math.max(1, Math.floor(page) || 1);
+    const safeSize = Math.min(
+      MAX_PAGE_SIZE,
+      Math.max(1, Math.floor(pageSize) || PROJECT_ASSESSMENTS_PAGE_SIZE),
+    );
+    const where = { projectId, project: { userId } };
+
+    const [total, rows] = await Promise.all([
+      this.prisma.assessment.count({ where }),
+      this.prisma.assessment.findMany({
+        where,
+        include: {
+          project: { select: { id: true, name: true, baseUrl: true } },
+          summary: true,
+          _count: { select: { occurrences: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (safePage - 1) * safeSize,
+        take: safeSize,
+      }),
+    ]);
+
+    return {
+      data: await this.withFindingCounts(rows),
+      page: safePage,
+      pageSize: safeSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / safeSize)),
+    };
+  }
+
+  /**
+   * Attaches occurrence-derived `findingCounts` to each assessment.
+   *
+   * The counts are the source of truth for the Critical / High / Total columns,
+   * computed from the real `FindingOccurrence` rows rather than the persisted
+   * summary counters (which may be zero for demo/seed or pre-aggregation data).
+   * A single grouped query covers the whole page, so there is no N+1.
+   */
+  private async withFindingCounts<T extends { id: string }>(
+    assessments: T[],
+  ): Promise<(T & { findingCounts: FindingCounts })[]> {
+    const counts = await this.findingCountsFor(assessments.map((a) => a.id));
+    return assessments.map((assessment) => ({
+      ...assessment,
+      findingCounts: counts.get(assessment.id) ?? emptyFindingCounts(),
+    }));
+  }
+
+  /** One grouped query → `assessmentId → FindingCounts`, never one query per row. */
+  private async findingCountsFor(
+    assessmentIds: string[],
+  ): Promise<Map<string, FindingCounts>> {
+    if (!assessmentIds.length) return new Map();
+    const groups = await this.prisma.findingOccurrence.groupBy({
+      by: ['assessmentId', 'severitySnapshot'],
+      where: { assessmentId: { in: assessmentIds } },
+      _count: { _all: true },
+    });
+    return foldOccurrenceCounts(groups);
   }
 
   async findOne(id: string, userId: string) {
@@ -242,10 +329,13 @@ export class AssessmentsService {
   }
 
   async getDashboardStats(userId: string) {
+    // The two counts below were bound to swapped names, so the Dashboard
+    // reported the assessment total as "Projects" and the project total as
+    // "Assessments". Order now matches the destructuring.
     const [projects, totalAssessmentCount, assessments, findings] = await Promise.all([
+      this.prisma.project.count({ where: { userId, isActive: true } }),
       // Real total, separate from the recent-scans window below.
       this.prisma.assessment.count({ where: { project: { userId } } }),
-      this.prisma.project.count({ where: { userId, isActive: true } }),
       this.prisma.assessment.findMany({
         where: { project: { userId }, status: 'COMPLETED' },
         include: { summary: true },
@@ -307,7 +397,9 @@ export class AssessmentsService {
       scoredProjects: scored.length,
       unassessedProjects: postures.length - scored.length,
       findings: findingsBySeverity,
-      recentAssessments: assessments.slice(0, 5),
+      // Same occurrence-derived counts as the assessments list, so the dashboard
+      // "Critical + High" column matches the full table.
+      recentAssessments: await this.withFindingCounts(assessments.slice(0, 5)),
       ...(await this.getScoreTrend(userId)),
       ...(await this.getFindingsTrend(userId)),
     };

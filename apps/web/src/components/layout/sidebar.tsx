@@ -15,6 +15,7 @@ import {
   Puzzle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AppLogo } from '@/components/brand/app-logo';
 
 const navItems = [
   {
@@ -61,14 +62,11 @@ export function Sidebar({ user }: SidebarProps) {
 
   return (
     <aside className="w-60 min-h-screen flex flex-col bg-slate-950 border-r border-slate-800/60">
-      {/* Logo */}
+      {/* Logo. NOTE: this component is legacy and currently unrendered —
+          `app-sidebar.tsx` is the live sidebar. Kept in sync with the brand so
+          no stale product name survives anywhere in the tree. */}
       <div className="flex items-center gap-2.5 px-5 h-16 border-b border-slate-800/60">
-        <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center flex-shrink-0">
-          <Shield className="w-4 h-4 text-white" />
-        </div>
-        <div>
-          <span className="font-bold text-white tracking-tight text-lg">IASA</span>
-        </div>
+        <AppLogo variant="full" size={32} nameClassName="text-lg text-white" />
       </div>
 
       {/* Navigation */}

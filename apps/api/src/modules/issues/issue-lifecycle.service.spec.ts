@@ -116,6 +116,15 @@ describe('deduplication across scans', () => {
 });
 
 describe('BullMQ retry idempotency', () => {
+  it('deduplicates identical findings within the same scanner result', async () => {
+    const duplicate = finding();
+    const result = await persist(ASSESSMENT_A, [duplicate, { ...duplicate }]);
+
+    expect(result.occurrencesCreated).toBe(1);
+    expect(result.occurrencesSkipped).toBe(0);
+    expect(await prisma.findingOccurrence.count()).toBe(1);
+  });
+
   it('re-running the same job creates no duplicate occurrence', async () => {
     await persist(ASSESSMENT_A, [finding()]);
     const retry = await persist(ASSESSMENT_A, [finding()]);

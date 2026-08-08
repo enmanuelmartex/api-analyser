@@ -29,7 +29,10 @@ export function DataTableToolbar({
             value={searchValue ?? ''}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder={searchPlaceholder}
-            className="h-9 w-full border-border/70 bg-card shadow-none sm:w-64"
+            /* Grows on wide screens so a descriptive placeholder ("Search
+               reports, projects or assessments…") is not truncated mid-word.
+               Full width on mobile, unchanged at sm. */
+            className="h-9 w-full border-border/70 bg-card shadow-none sm:w-64 lg:w-80"
           />
         )}
         {filters}

@@ -146,12 +146,12 @@ describe('penalties', () => {
     expect(result.totalPenalty).toBe(40);
   });
 
-  it('preserves a real score of 0 rather than treating it as missing', () => {
+  it('uses 1 as the floor for a scorable assessment rather than conflating it with unavailable', () => {
     const issues = Array.from({ length: 20 }, (_, i) =>
       issue({ fingerprint: `fp-${i}`, ruleId: `headers.rule-${i}`, severity: 'CRITICAL' }),
     );
     const result = computeScore(input({ issues }));
-    expect(result.securityScore).toBe(0);
+    expect(result.securityScore).toBe(1);
     expect(result.securityScore).not.toBeNull();
     expect(result.scoreStatus).toBe('FINAL');
   });

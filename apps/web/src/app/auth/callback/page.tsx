@@ -2,10 +2,12 @@
 
 import { Suspense, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { IconShield, IconLoader2 } from '@tabler/icons-react';
+import { IconLoader2 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { authClient, AUTH_BASE_URL } from '@/lib/auth-client';
 import { authApi } from '@/lib/api';
+import { appBrand } from '@/lib/brand';
+import { AppLogo } from '@/components/brand/app-logo';
 
 // OAuth callback page — landed here after Google OAuth completes.
 // Better Auth sets a session cookie; we read it with getSession() then exchange for JWT.
@@ -65,12 +67,7 @@ function AuthCallbackContent() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background" aria-busy="true">
-      <div className="flex items-center gap-2 mb-6">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-          <IconShield className="h-4 w-4 text-primary-foreground" />
-        </div>
-        <span className="text-lg font-bold text-foreground">IASA</span>
-      </div>
+      <AppLogo variant="full" size={32} className="mb-6" nameClassName="text-lg" />
       <IconLoader2 className="mb-3 h-6 w-6 animate-spin text-primary" />
       <p className="text-sm text-muted-foreground">Completing sign-in…</p>
     </div>

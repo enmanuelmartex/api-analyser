@@ -16,6 +16,9 @@ node_modules/
 dist/
 build/
 .next/
+# Production build produced alongside a running dev server via NEXT_DIST_DIR
+# (see apps/web/next.config.ts) — used for Lighthouse runs, never committed.
+.next-prod/
 out/
 
 # TypeScript
@@ -74,6 +77,11 @@ temp/
 
 # Uploads
 uploads/
+
+# Generated report artifacts (REPORTS_DIR). Reproducible from the snapshot
+# stored with each report, so they are never committed.
+storage/
+apps/api/reports/
 
 # Secrets
 *.pem

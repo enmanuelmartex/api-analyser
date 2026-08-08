@@ -64,11 +64,28 @@ export default function AssessmentDetailPage() {
   const running = !TERMINAL.has(assessment.status);
   const summary = assessment.summary;
   const ai = summary?.aiStatus;
+  /**
+   * Exports a format from this scan.
+   *
+   * Two steps on purpose. `generate` is idempotent — it returns the existing
+   * report when the format was already produced — and only then does `download`
+   * fetch the artifact. Previously a single call both created a Report row and
+   * streamed the file, so exporting the same format twice left two rows behind.
+   */
   const exportReport = async (format: 'PDF' | 'HTML' | 'JSON' | 'SARIF' | 'MARKDOWN') => {
     setExporting(format);
-    try { await reportsApi.generate(assessment.id, format, 'TECHNICAL'); toast.success(`${format} report downloaded`); }
-    catch { toast.error(`Could not export ${format}`); }
-    finally { setExporting(undefined); }
+    try {
+      const { report, created } = await reportsApi.generate(assessment.id, format, 'TECHNICAL');
+      await reportsApi.download(report.id);
+      queryClient.invalidateQueries({ queryKey: ['assessments', assessmentId] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
+      queryClient.invalidateQueries({ queryKey: ['reports-stats'] });
+      toast.success(created ? `${format} report generated and downloaded` : `${format} report downloaded`);
+    } catch {
+      toast.error(`Could not export ${format}`);
+    } finally {
+      setExporting(undefined);
+    }
   };
 
   return (
@@ -92,11 +109,14 @@ export default function AssessmentDetailPage() {
         <Metric label="Duration" value={assessment.duration ? formatDuration(assessment.duration) : '—'} />
       </div>
 
+      {/* Grid items default to `min-width: auto`, meaning they refuse to shrink
+          below their content's min-content width. `min-w-0` on both children is
+          what allows the single mobile column to stay inside the viewport. */}
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2"><CardHeader><CardTitle className="flex items-center gap-2"><IconBug className="size-4 text-primary" />Findings</CardTitle><CardDescription>Evidence captured by this immutable execution.</CardDescription></CardHeader><CardContent className="space-y-2">{assessment.occurrences?.length ? assessment.occurrences.map((finding) => <Link key={finding.id} href={`/issues/${finding.issueId}`} className="flex items-center justify-between gap-3 rounded-md border p-3 hover:bg-accent"><div className="min-w-0"><p className="truncate text-sm font-medium">{finding.titleSnapshot}</p><p className="truncate text-xs text-muted-foreground">{`${finding.methodSnapshot} ${finding.pathSnapshot}`}</p></div><SeverityBadge severity={finding.severitySnapshot} size="sm" /></Link>) : <EmptyState icon={IconBug} title={running ? 'Scanning for findings' : 'No findings detected'} compact />}</CardContent></Card>
-        <div className="space-y-4">
+        <Card className="min-w-0 lg:col-span-2"><CardHeader><CardTitle className="flex items-center gap-2"><IconBug className="size-4 text-primary" />Findings</CardTitle><CardDescription>Evidence captured by this immutable execution.</CardDescription></CardHeader><CardContent className="space-y-2">{assessment.occurrences?.length ? assessment.occurrences.map((finding) => <Link key={finding.id} href={`/issues/${finding.issueId}`} className="flex items-center justify-between gap-3 rounded-md border p-3 hover:bg-accent"><div className="min-w-0"><p className="truncate text-sm font-medium">{finding.titleSnapshot}</p><p className="truncate text-xs text-muted-foreground">{`${finding.methodSnapshot} ${finding.pathSnapshot}`}</p></div><SeverityBadge severity={finding.severitySnapshot} size="sm" /></Link>) : <EmptyState icon={IconBug} title={running ? 'Scanning for findings' : 'No findings detected'} compact />}</CardContent></Card>
+        <div className="min-w-0 space-y-4">
           <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconTerminal2 className="size-4 text-primary" />Execution</CardTitle></CardHeader><CardContent><dl className="space-y-2 text-xs"><Row label="Mode" value={assessment.config?.executionMode ?? '—'} /><Row label="Plugins" value={String(assessment.config?.resolvedPlugins?.length ?? 0)} /><Row label="AI analysis" value={assessment.config?.enableAiAnalysis ? 'Enabled' : 'Disabled'} /><Row label="Risk" value={summary?.riskLevel ?? '—'} /></dl></CardContent></Card>
-          <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconFileReport className="size-4 text-primary" />Reports</CardTitle></CardHeader><CardContent className="space-y-2">{assessment.reports?.length ? assessment.reports.map((report) => <Button key={report.id} asChild variant="outline" className="w-full justify-between"><Link href={`/reports/${report.id}`}>{report.title}<Badge variant="secondary">{report.format}</Badge></Link></Button>) : <p className="text-sm text-muted-foreground">{running ? 'Generated after completion.' : 'No report artifact is available.'}</p>}</CardContent></Card>
+          <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconFileReport className="size-4 text-primary" />Reports</CardTitle></CardHeader><CardContent className="space-y-2">{assessment.reports?.length ? assessment.reports.map((report) => <Button key={report.id} asChild variant="outline" className="w-full justify-between"><Link href={`/reports/${report.id}`}><span className="truncate">{report.title}</span><Badge variant="secondary" className="shrink-0">{report.format}</Badge></Link></Button>) : <p className="text-sm text-muted-foreground">{running ? 'Generated after completion.' : 'No report artifact is available.'}</p>}</CardContent></Card>
           <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconDownload className="size-4 text-primary" />Export</CardTitle><CardDescription>PDF is the primary report; machine-readable formats are also available.</CardDescription></CardHeader><CardContent className="grid grid-cols-2 gap-2">{(['PDF', 'HTML', 'JSON', 'SARIF', 'MARKDOWN'] as const).map((format) => <Button key={format} variant={format === 'PDF' ? 'default' : 'outline'} size="sm" disabled={running || Boolean(exporting)} onClick={() => exportReport(format)}>{exporting === format ? 'Preparing…' : format}</Button>)}</CardContent></Card>
           <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconSparkles className="size-4 text-primary" />AI enrichment</CardTitle><CardDescription>{assessment.config?.enableAiAnalysis ? 'Requested for this execution.' : 'Disabled for this execution.'}</CardDescription></CardHeader><CardContent className="text-xs">{ai ? <dl className="space-y-2"><Row label="Status" value={ai.status ?? (ai.available ? 'completed' : 'skipped')} /><Row label="Provider" value={ai.provider || '—'} /><Row label="Model" value={ai.model || '—'} /><Row label="Findings enriched" value={String(ai.analyzed)} /><Row label="Tokens" value={ai.tokensUsed.toLocaleString()} />{(ai.reason || ai.errorMessage) && <Row label="Details" value={ai.reason || ai.errorMessage || '—'} />}</dl> : <p className="text-muted-foreground">{running ? 'AI runs after plugin analysis.' : 'No AI execution metadata was recorded.'}</p>}</CardContent></Card>
         </div>
@@ -106,4 +126,14 @@ export default function AssessmentDetailPage() {
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) { return <Card><CardHeader><CardDescription>{label}</CardDescription><CardTitle>{value}</CardTitle></CardHeader></Card>; }
-function Row({ label, value }: { label: string; value: string }) { return <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{label}</dt><dd className="font-medium capitalize">{value}</dd></div>; }
+/**
+ * A label/value pair.
+ *
+ * `min-w-0` plus `break-words` on the value is what keeps this row from setting
+ * the width of everything around it. Values here are not all short enums: the AI
+ * "Details" row carries provider error text ending in a long URL with no spaces,
+ * whose min-content width is the entire string. Without a break opportunity that
+ * measurement propagates up through the grid item and stretches the whole column
+ * past the viewport, taking every sibling card with it.
+ */
+function Row({ label, value }: { label: string; value: string }) { return <div className="flex justify-between gap-3"><dt className="shrink-0 text-muted-foreground">{label}</dt><dd className="min-w-0 break-words text-right font-medium capitalize">{value}</dd></div>; }
