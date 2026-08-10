@@ -358,12 +358,34 @@ export function FindingsSeverityChart({ trend, previousTotal }: { trend: WeeklyF
 }
 
 // =============================================================================
-// OWASP API TOP 10 COVERAGE — radar with subtle glow
+// OWASP API TOP 10 — open issues per category, radar with subtle glow
 // =============================================================================
 
+/**
+ * This radar used to plot `AssessmentSummary.owaspCoverage` on a fixed 0–100
+ * axis and call it "% coverage". That field is not a percentage: the scanner
+ * fills it by counting findings per category. A workspace with four API6
+ * findings therefore rendered at 4% of the radius — a dot in the middle of an
+ * empty web, on an installation with nine completed scans and 37 issues.
+ *
+ * It now plots open issues per category, which is a count on purpose:
+ *
+ *   - The source is `GET /issues/stats`, so entries are deduplicated issues
+ *     with a lifecycle, not raw detections. Ten scans of the same unfixed
+ *     problem are one issue, where averaging or summing scan summaries would
+ *     have understated or multiplied it.
+ *   - The radius scales to the largest category rather than to 100, so the
+ *     shape is legible whether the worst category holds 4 issues or 400.
+ *
+ * Note the shape still grows as security gets *worse* — that is inherent to
+ * plotting problems, and the title says "Open issues" so it cannot be misread
+ * as a measure of how much was tested. What *was* tested is the coverage matrix
+ * in Settings → System, which is a different question and deliberately lives
+ * somewhere else.
+ */
 type OwaspDatum = { id: string; label: string; fullName: string; value: number };
 
-export function OwaspCoverageRadar({ coverage }: { coverage: Record<string, number> }) {
+export function OwaspIssuesRadar({ issuesByCategory }: { issuesByCategory: Record<string, number> }) {
   const colors = useChartColors();
   const uid = useId().replace(/:/g, '');
   const fillId = `owasp-radar-fill-${uid}`;
@@ -373,21 +395,24 @@ export function OwaspCoverageRadar({ coverage }: { coverage: Record<string, numb
     () =>
       OWASP_CATEGORIES.map((item) => ({
         ...item,
-        value: Math.min(100, Math.max(0, Number(coverage[item.id] ?? 0))),
+        value: Math.max(0, Math.round(Number(issuesByCategory[item.id] ?? 0))),
       })),
-    [coverage],
+    [issuesByCategory],
   );
-  const hasCoverage = data.some((item) => item.value > 0);
-  const config = useMemo(() => ({ value: { label: 'Coverage', color: accent } }) satisfies ChartConfig, [accent]);
+  const hasIssues = data.some((item) => item.value > 0);
+  // The outer ring is the worst category. `|| 1` keeps the axis valid on the
+  // frame where every value is still zero.
+  const axisMax = useMemo(() => Math.max(...data.map((item) => item.value), 1), [data]);
+  const config = useMemo(() => ({ value: { label: 'Open issues', color: accent } }) satisfies ChartConfig, [accent]);
 
   return (
     <Card className="flex h-full min-h-[420px] flex-col shadow-none">
       <CardHeader className="pb-2">
-        <CardTitle>OWASP API Top 10 Coverage</CardTitle>
-        <CardDescription>Measured coverage from recent assessment results</CardDescription>
+        <CardTitle>OWASP API Top 10</CardTitle>
+        <CardDescription>Open issues by category</CardDescription>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 items-center justify-center px-3 pb-4 sm:px-4">
-        {hasCoverage ? (
+        {hasIssues ? (
           <ChartContainer config={config} className="mx-auto aspect-square h-full max-h-[340px] w-full max-w-[360px]">
             <RadarChart data={data} outerRadius="70%" margin={{ top: 18, right: 24, bottom: 18, left: 24 }} accessibilityLayer>
               <defs>
@@ -409,7 +434,11 @@ export function OwaspCoverageRadar({ coverage }: { coverage: Record<string, numb
                       return (
                         <div className="flex w-full items-center justify-between gap-6 text-muted-foreground">
                           <span className="font-mono text-foreground">{datum.label}</span>
-                          <span className="font-mono font-medium tabular-nums text-foreground">{datum.value}% coverage</span>
+                          <span className="font-mono font-medium tabular-nums text-foreground">
+                            {datum.value === 0
+                              ? 'None open'
+                              : `${datum.value} ${datum.value === 1 ? 'issue' : 'issues'}`}
+                          </span>
                         </div>
                       );
                     }}
@@ -418,7 +447,7 @@ export function OwaspCoverageRadar({ coverage }: { coverage: Record<string, numb
               />
               <PolarGrid stroke={colors.border} />
               <PolarAngleAxis dataKey="label" tick={{ fill: colors['muted-foreground'], fontSize: 11 }} />
-              <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+              <PolarRadiusAxis domain={[0, axisMax]} tick={false} axisLine={false} />
               <Radar
                 dataKey="value"
                 stroke={accent}
@@ -433,7 +462,7 @@ export function OwaspCoverageRadar({ coverage }: { coverage: Record<string, numb
             </RadarChart>
           </ChartContainer>
         ) : (
-          <EmptyState icon={IconShieldCheck} title="Coverage unavailable" description="OWASP coverage will appear after compatible checks run." compact />
+          <EmptyState icon={IconShieldCheck} title="No open issues" description="Categories fill in as scans report findings. See Settings → System for which categories are tested." compact />
         )}
       </CardContent>
     </Card>

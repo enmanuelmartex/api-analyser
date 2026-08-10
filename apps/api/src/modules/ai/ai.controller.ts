@@ -6,6 +6,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { AiService } from './ai.service';
 import { AiConfigService, SaveProviderConfigDto, TestConnectionDto } from './ai-config.service';
+import { AiUsageService } from './guidance/ai-usage.service';
 
 /**
  * `AiProviderConfig` is GLOBAL platform state — it has no `userId`. Every
@@ -21,6 +22,7 @@ export class AiController {
   constructor(
     private readonly aiService: AiService,
     private readonly aiConfigService: AiConfigService,
+    private readonly aiUsage: AiUsageService,
   ) {}
 
   // ── Provider Status ───────────────────────────────────────────────────────
@@ -28,6 +30,23 @@ export class AiController {
   @Get('status')
   async getStatus() {
     return this.aiService.getProviderStatus();
+  }
+
+  /**
+   * GET /ai/usage — what AI enrichment has cost.
+   *
+   * Replaces the removed `financeApi`, which called `/finance/summary` against
+   * an empty module and 404'd on every request. This reads real rows written by
+   * the guidance pipeline. Every monetary figure is an ESTIMATE derived from a
+   * versioned price table, never a billed amount, and is labelled as such.
+   *
+   * Admin-only: spend is platform-wide, and the provider configuration it
+   * reflects is already admin-only.
+   */
+  @Roles('ADMIN')
+  @Get('usage')
+  async getUsage() {
+    return this.aiUsage.getSummary();
   }
 
   // ── Static routes FIRST (must precede :provider param routes) ────────────

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
 import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
+import { appBrand } from '../../../../brand/brand';
 
 export class SsrfPlugin extends BasePlugin {
   readonly manifest: PluginManifest = {
@@ -9,7 +10,7 @@ export class SsrfPlugin extends BasePlugin {
     version: '1.0.0',
     description: 'Tests for API7:2023 - Server-Side Request Forgery (SSRF)',
     longDescription: 'Injects malicious URLs (localhost, AWS metadata endpoint, file://) into URL-accepting parameters to detect SSRF vulnerabilities that could expose internal infrastructure.',
-    author: 'IASA Core Team',
+    author: appBrand.pluginAuthor,
     license: 'MIT',
     category: PluginCategory.INFRASTRUCTURE,
     owaspMappings: ['API7:2023'],

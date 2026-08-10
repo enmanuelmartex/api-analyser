@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import type { PrismaClient } from '@prisma/client';
 import { ReportsService } from './reports.service';
 import { ReportGeneratorService } from './report-generator.service';
+import { testPluginRegistry } from '../../test/plugin-registry';
 import { ReportStorageService } from './report-storage.service';
+import { appBrand } from '../../brand/brand';
 import { resetTestDatabase, setupTestDatabase, teardownTestDatabase } from '../../test/db';
 
 /**
@@ -112,7 +114,7 @@ beforeAll(async () => {
   storageRoot = mkdtempSync(join(tmpdir(), 'iasa-reports-'));
   process.env.REPORTS_DIR = storageRoot;
 
-  const generator = new ReportGeneratorService(prisma as any);
+  const generator = new ReportGeneratorService(prisma as any, testPluginRegistry());
   const storage = new ReportStorageService();
   service = new ReportsService(prisma as any, generator, storage);
 });
@@ -143,7 +145,12 @@ describe('generate', () => {
 
     expect(created).toBe(true);
     expect(report.isDownloadable).toBe(true);
-    expect(report.fileName).toBe(`iasa-project-${PROJECT_A}-technical-${new Date().toISOString().split('T')[0]}.html`);
+    // Derived from the brand rather than hardcoded: the previous literal went
+    // stale the moment the product was renamed, and failed for a reason that
+    // had nothing to do with report behaviour.
+    expect(report.fileName).toBe(
+      `${appBrand.fileSlug}-project-${PROJECT_A}-technical-${new Date().toISOString().split('T')[0]}.html`,
+    );
     expect(report.fileSize).toBeGreaterThan(0);
     expect(report.checksum).toMatch(/^[a-f0-9]{64}$/);
     expect(await prisma.report.count({ where: { assessmentId: SCAN_A } })).toBe(1);

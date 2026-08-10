@@ -7,7 +7,8 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { IconActivity } from '@tabler/icons-react';
 import { assessmentsApi } from '@/lib/api';
 import { StatusBadge } from '@/components/security/finding-status-badge';
-import { formatRelative, formatDuration, cn } from '@/lib/utils';
+import { ScoreCell } from '@/components/security/score-display';
+import { formatRelative, formatDuration } from '@/lib/utils';
 import type { Assessment } from '@/types';
 import { PageHeader } from '@/components/layout/page-header';
 import { PageContainer } from '@/components/layout/page-container';
@@ -26,12 +27,6 @@ import {
   type AssessmentFilterState,
 } from '@/lib/assessment-list';
 
-function scoreClass(score: number) {
-  if (score >= 80) return 'text-success';
-  if (score >= 60) return 'text-severity-medium';
-  if (score >= 40) return 'text-severity-high';
-  return 'text-severity-critical';
-}
 
 export default function AssessmentsPage() {
   const router = useRouter();
@@ -85,14 +80,15 @@ export default function AssessmentsPage() {
         id: 'score',
         accessorFn: (row) => row.summary?.securityScore ?? -1,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Score" />,
-        cell: ({ row }) =>
-          row.original.summary ? (
-            <span className={cn('text-sm font-bold', scoreClass(row.original.summary.securityScore ?? 0))}>
-              {row.original.summary.securityScore ?? "—"}
-            </span>
-          ) : (
-            <span className="text-sm text-muted-foreground">—</span>
-          ),
+        // ScoreCell, not a bare number: it renders "—" for UNAVAILABLE rather
+        // than 0, and flags a PROVISIONAL score so a partial scan is not read
+        // as a complete one.
+        cell: ({ row }) => (
+          <ScoreCell
+            score={row.original.summary?.securityScore ?? null}
+            status={(row.original.summary?.scoreStatus ?? 'UNAVAILABLE') as any}
+          />
+        ),
         size: 80,
       },
       {
@@ -142,7 +138,7 @@ export default function AssessmentsPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Assessments" description="All security assessment runs across your projects" />
+      <PageHeader title="Scans" description="Every security scan run across your projects" />
 
       <AssessmentFilters
         value={filters}
@@ -161,11 +157,11 @@ export default function AssessmentsPage() {
         emptyState={
           <EmptyState
             icon={IconActivity}
-            title={filtersActive ? 'No matching assessments' : 'No assessments yet'}
+            title={filtersActive ? 'No matching scans' : 'No scans yet'}
             description={
               filtersActive
-                ? 'No runs match the current filters.'
-                : 'Go to a project and run your first assessment.'
+                ? 'No scans match the current filters.'
+                : 'Open a project and run your first scan.'
             }
             action={
               filtersActive ? (

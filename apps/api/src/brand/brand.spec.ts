@@ -44,6 +44,14 @@ describe('appBrand', () => {
     expect(appBrand.scannerUserAgent).toContain('APIAnalyser');
     expect(appBrand.scannerUserAgent).not.toMatch(/IASA/i);
   });
+
+  it('presents the new name in everything else a scanned target sees', () => {
+    // These reach a stranger's access log during a scan, so the legacy name
+    // must not travel with them either.
+    expect(appBrand.scannerProbeHeader).toContain('APIAnalyser');
+    expect(appBrand.scannerProbeHeader).not.toMatch(/IASA/i);
+    expect(appBrand.scannerProbeField).not.toMatch(/IASA/i);
+  });
 });
 
 describe('brand asset packaging', () => {

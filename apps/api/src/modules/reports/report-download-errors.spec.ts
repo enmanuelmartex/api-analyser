@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { PrismaClient } from '@prisma/client';
 import { ReportsService } from './reports.service';
 import { ReportGeneratorService } from './report-generator.service';
+import { testPluginRegistry } from '../../test/plugin-registry';
 import { ReportStorageService } from './report-storage.service';
 import { resetTestDatabase, setupTestDatabase, teardownTestDatabase } from '../../test/db';
 
@@ -59,7 +60,7 @@ beforeEach(async () => {
 
 describe('no stored artifact', () => {
   it('refuses with an actionable message and creates nothing', async () => {
-    const service = serviceWith(new ReportGeneratorService(prisma as any));
+    const service = serviceWith(new ReportGeneratorService(prisma as any, testPluginRegistry()));
     const legacy = await prisma.report.create({
       data: { assessmentId: SCAN, type: 'TECHNICAL', format: 'PDF', title: 'Legacy' } as any,
     });
@@ -73,7 +74,7 @@ describe('no stored artifact', () => {
 
 describe('PDF renderer unavailable', () => {
   it('reports the missing renderer instead of failing opaquely', async () => {
-    const service = serviceWith(new NoChromiumGenerator(prisma as any));
+    const service = serviceWith(new NoChromiumGenerator(prisma as any, testPluginRegistry()));
     // Generation itself survives: the HTML snapshot is kept even though the
     // PDF could not be printed.
     const { report } = await service.generate(SCAN, USER, { type: 'TECHNICAL', format: 'PDF' });
@@ -85,7 +86,7 @@ describe('PDF renderer unavailable', () => {
   });
 
   it('names a remedy and never leaks a server path', async () => {
-    const service = serviceWith(new NoChromiumGenerator(prisma as any));
+    const service = serviceWith(new NoChromiumGenerator(prisma as any, testPluginRegistry()));
     const { report } = await service.generate(SCAN, USER, { type: 'TECHNICAL', format: 'PDF' });
 
     const message = await service.resolveArtifact(report.id, USER).then(
@@ -100,7 +101,7 @@ describe('PDF renderer unavailable', () => {
   });
 
   it('does NOT generate a replacement report as a fallback', async () => {
-    const service = serviceWith(new NoChromiumGenerator(prisma as any));
+    const service = serviceWith(new NoChromiumGenerator(prisma as any, testPluginRegistry()));
     const { report } = await service.generate(SCAN, USER, { type: 'TECHNICAL', format: 'PDF' });
 
     const before = await prisma.report.findMany();
@@ -113,7 +114,7 @@ describe('PDF renderer unavailable', () => {
   });
 
   it('still serves the text formats of the same scan', async () => {
-    const service = serviceWith(new NoChromiumGenerator(prisma as any));
+    const service = serviceWith(new NoChromiumGenerator(prisma as any, testPluginRegistry()));
     const { report } = await service.generate(SCAN, USER, { type: 'TECHNICAL', format: 'JSON' });
 
     const artifact = await service.resolveArtifact(report.id, USER);

@@ -65,6 +65,23 @@ export class UsersController {
     return this.users.sendInvitation(dto, actor.id);
   }
 
+  /**
+   * GET /users/assignable — the directory an assignee picker needs.
+   *
+   * `@Roles()` clears the controller-level ADMIN requirement: assigning an
+   * issue is ordinary triage, so gating the list to admins would make the
+   * assignee field unusable for exactly the people who work the queue.
+   *
+   * Deliberately narrow — id, name, email and role of active accounts only. No
+   * password hash, no last-login, no invitation state. Declared before the
+   * `:id` route so the literal path wins the match.
+   */
+  @Roles()
+  @Get('assignable')
+  listAssignable() {
+    return this.users.findAssignable();
+  }
+
   @Public()
   @Roles()
   @Get('verify-invite')

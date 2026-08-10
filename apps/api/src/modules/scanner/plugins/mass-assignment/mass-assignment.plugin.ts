@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
 import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
+import { appBrand } from '../../../../brand/brand';
 
 export class MassAssignmentPlugin extends BasePlugin {
   readonly manifest: PluginManifest = {
@@ -9,7 +10,7 @@ export class MassAssignmentPlugin extends BasePlugin {
     version: '1.0.0',
     description: 'Tests for API3:2023 - Broken Object Property Level Authorization (Mass Assignment)',
     longDescription: 'Submits POST/PUT requests with extra privileged fields (isAdmin, role, price, etc.) not defined in the spec to detect APIs that blindly bind all incoming properties.',
-    author: 'IASA Core Team',
+    author: appBrand.pluginAuthor,
     license: 'MIT',
     category: PluginCategory.AUTHORIZATION,
     owaspMappings: ['API3:2023'],

@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { IconActivity, IconArrowLeft, IconBraces, IconExternalLink, IconWorld } from '@tabler/icons-react';
-import { assessmentsApi, projectsApi } from '@/lib/api';
-import type { Assessment, Paginated, Project } from '@/types';
+import { assessmentsApi, issuesApi, projectsApi } from '@/lib/api';
+import type { Assessment, Paginated, Project, SecurityIssue } from '@/types';
 import { PageContainer } from '@/components/layout/page-container';
 import { PageHeader } from '@/components/layout/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -15,7 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RunAssessmentSheet } from '@/components/projects/run-assessment-sheet';
-import { getHttpMethodStyles } from '@/lib/http-method-styles';
+import { EndpointsTable } from '@/components/projects/endpoints-table';
 import { cn } from '@/lib/utils';
 
 const ASSESSMENTS_PAGE_SIZE = 5;
@@ -45,6 +45,15 @@ export default function ProjectDetailsPage() {
     placeholderData: keepPreviousData,
   });
 
+  // Issues for this project, used only to annotate the endpoint rows. Page size
+  // is generous because the table matches routes client-side; a partial page
+  // would leave some endpoints looking clean when they are not.
+  const issuesQuery = useQuery<Paginated<SecurityIssue>>({
+    queryKey: ['issues', 'project', projectId],
+    queryFn: () => issuesApi.list({ projectId, pageSize: 100 }),
+    enabled: Boolean(projectId),
+  });
+
   if (isLoading) return <PageContainer><Skeleton className="h-9 w-64" /><Skeleton className="mt-6 h-72 w-full" /></PageContainer>;
   if (isError || !project) return <PageContainer><EmptyState icon={IconWorld} title="Project not found" description="The project may have been deleted or you may not have access to it." action={<Button asChild variant="outline"><Link href="/projects">Back to projects</Link></Button>} /></PageContainer>;
 
@@ -52,6 +61,7 @@ export default function ProjectDetailsPage() {
   const assessments = project.assessments ?? [];
   const assessmentsData = assessmentsQuery.data;
   const recentAssessments = assessmentsData?.data ?? [];
+  const projectIssues = issuesQuery.data?.data ?? [];
 
   return (
     <PageContainer>
@@ -70,8 +80,13 @@ export default function ProjectDetailsPage() {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><IconBraces className="size-4 text-primary" />Endpoints</CardTitle><CardDescription>Operations imported from the current API specification.</CardDescription></CardHeader>
-          <CardContent className="space-y-2">{endpoints.length ? endpoints.slice(0, 12).map((endpoint) => <div key={endpoint.id} className="flex min-w-0 items-center gap-3 rounded-md border p-2.5"><Badge variant="outline" className={`w-16 justify-center font-mono text-[10px] ${getHttpMethodStyles(endpoint.method)}`}>{endpoint.method}</Badge><span className="truncate font-mono text-xs">{endpoint.path}</span></div>) : <p className="text-sm text-muted-foreground">No endpoints were imported.</p>}</CardContent>
+          <CardHeader><CardTitle className="flex items-center gap-2"><IconBraces className="size-4 text-primary" />Endpoints</CardTitle><CardDescription>The attack surface imported from the current API specification, annotated with the issues found on each operation.</CardDescription></CardHeader>
+          {/*
+            Replaces a hardcoded `slice(0, 12)` list of method-and-path chips.
+            With 371 endpoints in a real project, showing twelve with no search
+            and no issue linkage made the model effectively invisible.
+          */}
+          <CardContent><EndpointsTable endpoints={endpoints} issues={projectIssues} /></CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><IconActivity className="size-4 text-primary" />Recent assessments</CardTitle><CardDescription>Latest security scans for this project.</CardDescription></CardHeader>

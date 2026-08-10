@@ -1,0 +1,370 @@
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import {
+  IconAlertTriangle,
+  IconChecklist,
+  IconExternalLink,
+  IconInfoCircle,
+  IconServer2,
+  IconSparkles,
+} from '@tabler/icons-react';
+import { cn, formatDate } from '@/lib/utils';
+import { issuesApi } from '@/lib/api';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import type {
+  ContextConfidence,
+  EnvironmentGuidance,
+  GuidanceMetadata,
+  IssueGuidanceResponse,
+  SecurityGuidance,
+} from '@/types';
+
+/**
+ * AI security guidance, rendered as structured UI.
+ *
+ * Two rules this component exists to enforce:
+ *
+ *  1. **Evidence and advice are visually separate.** Scanner evidence is
+ *     forensic and authoritative; this panel is advisory and can be wrong. It
+ *     carries its own heading, its own tone, and a footer stating exactly which
+ *     model, prompt and knowledge pack produced it.
+ *
+ *  2. **It is not a wall of Markdown.** The old enrichment produced free-form
+ *     paragraphs that were dumped into a box. Each part of the contract now has
+ *     a place in the layout, so a developer can jump to the fix without reading
+ *     an essay, and a missing section is visibly missing rather than silently
+ *     absorbed into prose.
+ */
+export function AiSecurityGuidance({ issueId }: { issueId: string }) {
+  const { data, isLoading, isError } = useQuery<IssueGuidanceResponse>({
+    queryKey: ['issues', issueId, 'guidance'],
+    queryFn: () => issuesApi.guidance(issueId),
+    enabled: Boolean(issueId),
+  });
+
+  return (
+    <Card className="border-primary/20">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <IconSparkles className="h-4 w-4 text-primary" aria-hidden="true" />
+          AI Security Guidance
+          <Badge
+            variant="outline"
+            className="h-5 border-primary/30 px-1.5 text-[10px] font-medium text-primary"
+          >
+            Advisory
+          </Badge>
+        </CardTitle>
+        <CardDescription>
+          Generated advice. It does not change the severity, status or evidence recorded by the
+          scanner.
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </div>
+        ) : isError ? (
+          <UnavailableNotice
+            title="Guidance could not be loaded"
+            detail="The request failed. Scanner evidence above is unaffected."
+          />
+        ) : !data || data.status !== 'READY' || !data.guidance ? (
+          <UnavailableNotice
+            title={
+              data?.status === 'FAILED'
+                ? 'AI guidance unavailable'
+                : data?.status === 'SKIPPED'
+                  ? 'AI guidance was not requested'
+                  : 'No AI guidance yet'
+            }
+            detail={data?.reason ?? 'No guidance has been generated for this issue.'}
+          />
+        ) : (
+          <GuidanceBody guidance={data.guidance} metadata={data.metadata} />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function UnavailableNotice({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2.5">
+      <IconInfoCircle
+        className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground"
+        aria-hidden="true"
+      />
+      <div>
+        <p className="text-sm text-foreground">{title}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{detail}</p>
+      </div>
+    </div>
+  );
+}
+
+function GuidanceBody({
+  guidance,
+  metadata,
+}: {
+  guidance: SecurityGuidance;
+  metadata?: GuidanceMetadata;
+}) {
+  const priorityTone = {
+    IMMEDIATE: 'border-severity-critical/30 text-severity-critical',
+    SHORT_TERM: 'border-severity-high/30 text-severity-high',
+    PLANNED: 'border-border text-muted-foreground',
+  }[guidance.remediation.priority];
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm leading-relaxed text-foreground">{guidance.summary}</p>
+
+      <Section title="Root cause">{guidance.rootCause}</Section>
+      {guidance.technicalImpact && (
+        <Section title="Technical impact">{guidance.technicalImpact}</Section>
+      )}
+      {guidance.businessImpact && (
+        <Section title="Business impact">{guidance.businessImpact}</Section>
+      )}
+
+      {guidance.remediation.steps.length > 0 && (
+        <section>
+          <div className="mb-2 flex items-center gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Recommended fix
+            </h4>
+            <Badge variant="outline" className={cn('h-5 px-1.5 text-[10px]', priorityTone)}>
+              {guidance.remediation.priority.replace('_', ' ').toLowerCase()}
+            </Badge>
+          </div>
+          <ol className="space-y-2">
+            {guidance.remediation.steps.map((step, index) => (
+              <li key={`${step.title}-${index}`} className="flex gap-2.5">
+                <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold tabular-nums text-primary">
+                  {index + 1}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">{step.title}</p>
+                  {step.description && (
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                      {step.description}
+                    </p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {guidance.environmentGuidance.length > 0 && (
+        <section>
+          <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <IconServer2 className="h-3.5 w-3.5" aria-hidden="true" />
+            Environment-specific
+          </h4>
+          <div className="space-y-2.5">
+            {guidance.environmentGuidance.map((entry) => (
+              <EnvironmentBlock key={entry.technology} entry={entry} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {guidance.verification.steps.length > 0 && (
+        <section>
+          <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <IconChecklist className="h-3.5 w-3.5" aria-hidden="true" />
+            How to verify
+          </h4>
+          <ol className="list-inside list-decimal space-y-1 text-sm text-muted-foreground">
+            {guidance.verification.steps.map((step, index) => (
+              <li key={index} className="leading-relaxed">
+                {step}
+              </li>
+            ))}
+          </ol>
+          {guidance.verification.expectedResult && (
+            <p className="mt-2 rounded-md border border-success/20 bg-success/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+              <span className="font-medium text-foreground">Expected: </span>
+              {guidance.verification.expectedResult}
+            </p>
+          )}
+        </section>
+      )}
+
+      {/*
+        Shown prominently rather than buried. A security tool that never admits
+        a finding might be wrong trains its users to dismiss everything it says.
+      */}
+      {guidance.falsePositiveConsiderations.length > 0 && (
+        <section>
+          <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <IconAlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+            Could this be a false positive?
+          </h4>
+          <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
+            {guidance.falsePositiveConsiderations.map((item, index) => (
+              <li key={index} className="leading-relaxed">
+                {item}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {guidance.references.length > 0 && (
+        <section>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            References
+          </h4>
+          <ul className="space-y-1">
+            {guidance.references.map((reference, index) => (
+              <li key={index} className="text-sm">
+                {reference.url ? (
+                  <a
+                    href={reference.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    {reference.title}
+                    <IconExternalLink className="h-3 w-3" aria-hidden="true" />
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">{reference.title}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {metadata && <GuidanceFooter metadata={metadata} confidence={guidance.confidence} />}
+    </div>
+  );
+}
+
+function EnvironmentBlock({ entry }: { entry: EnvironmentGuidance }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/20 px-3 py-2.5">
+      <div className="mb-1 flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-foreground">{entry.technology}</span>
+        <BasisBadge basis={entry.basis} />
+      </div>
+      <p className="text-xs leading-relaxed text-muted-foreground">{entry.guidance}</p>
+      {entry.example && (
+        <pre className="mt-2 overflow-x-auto rounded border border-border bg-background p-2 font-mono text-[11px] leading-relaxed text-foreground">
+          <code>{entry.example}</code>
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Why we believe this technology applies.
+ *
+ * Without it, "In Express, use helmet()" reads as established fact when it may
+ * rest on nothing more than a session cookie name.
+ */
+function BasisBadge({ basis }: { basis: ContextConfidence }) {
+  const config: Record<ContextConfidence, { label: string; tone: string; explanation: string }> = {
+    USER_CONFIGURED: {
+      label: 'Configured',
+      tone: 'border-success/30 text-success',
+      explanation: 'You configured this for the project.',
+    },
+    DETECTED: {
+      label: 'Detected',
+      tone: 'border-primary/30 text-primary',
+      explanation: 'Identified from response headers observed during the scan.',
+    },
+    INFERRED: {
+      label: 'Inferred',
+      tone: 'border-severity-medium/30 text-severity-medium',
+      explanation: 'Deduced from a weak signal such as a cookie name. Verify before acting.',
+    },
+    UNKNOWN: {
+      label: 'Unverified',
+      tone: 'border-border text-muted-foreground',
+      explanation: 'The stack could not be established. Treat this advice as generic.',
+    },
+  };
+
+  const { label, tone, explanation } = config[basis] ?? config.UNKNOWN;
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="outline" className={cn('h-5 cursor-help px-1.5 text-[10px]', tone)}>
+            {label}
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">{explanation}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+/**
+ * Provenance footer.
+ *
+ * Deliberately subtle but always present: guidance that cannot say which model
+ * and prompt produced it cannot be audited or reproduced.
+ */
+function GuidanceFooter({
+  metadata,
+  confidence,
+}: {
+  metadata: GuidanceMetadata;
+  confidence: number | null;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border pt-3 text-[11px] text-muted-foreground">
+      <span>
+        Generated with {metadata.provider}
+        {metadata.model ? ` · ${metadata.model}` : ''}
+      </span>
+      <span className="text-muted-foreground/50">·</span>
+      <span>Prompt {metadata.promptVersion}</span>
+      <span className="text-muted-foreground/50">·</span>
+      <span>Knowledge {metadata.knowledgeVersion}</span>
+      {confidence != null && (
+        <>
+          <span className="text-muted-foreground/50">·</span>
+          <span>Confidence {Math.round(confidence * 100)}%</span>
+        </>
+      )}
+      <span className="text-muted-foreground/50">·</span>
+      <span>{formatDate(metadata.generatedAt)}</span>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  if (!children) return null;
+  return (
+    <section>
+      <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {title}
+      </h4>
+      <p className="text-sm leading-relaxed text-muted-foreground">{children}</p>
+    </section>
+  );
+}

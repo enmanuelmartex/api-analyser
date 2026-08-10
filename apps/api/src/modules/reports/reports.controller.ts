@@ -13,9 +13,11 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { AuditAction } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ReportsService } from './reports.service';
+import { AuditService } from '../audit/audit.service';
 import {
   contentDisposition,
   isReportFormat,
@@ -44,7 +46,10 @@ import {
 @UseGuards(JwtAuthGuard)
 @Controller('reports')
 export class ReportsController {
-  constructor(private reportsService: ReportsService) {}
+  constructor(
+    private reportsService: ReportsService,
+    private audit: AuditService,
+  ) {}
 
   @Get('stats')
   @ApiOperation({ summary: 'Reports metrics and vulnerability trend' })
@@ -104,11 +109,35 @@ export class ReportsController {
     if (!isReportFormat(format)) throw new BadRequestException(`Unsupported report format: ${format}`);
     if (!isReportType(type)) throw new BadRequestException(`Unsupported report type: ${type}`);
 
-    return this.reportsService.generate(assessmentId, user.id, {
+    const result = await this.reportsService.generate(assessmentId, user.id, {
       format: format as ReportFormat,
       type: type as ReportType,
       regenerate: body.regenerate === true,
     });
+
+    /*
+     * Only a genuine creation is audited. `generate` is idempotent: asking for
+     * a format that already exists returns it with `created: false`. Logging
+     * those too would fill the trail with entries for what is really a read,
+     * and hide the versions that were actually produced.
+     */
+    if (result?.created) {
+      this.audit.log({
+        userId: user.id,
+        action: AuditAction.CREATE,
+        resource: 'report',
+        resourceId: result.report?.id,
+        metadata: {
+          assessmentId,
+          format,
+          type,
+          version: result.report?.version,
+          regenerated: body.regenerate === true,
+        },
+      });
+    }
+
+    return result;
   }
 
   /**
@@ -132,6 +161,19 @@ export class ReportsController {
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.send(artifact.bytes);
+
+    /*
+     * Downloads are audited because a report is the one artifact that leaves
+     * the system carrying findings and HTTP evidence. Knowing who exported one,
+     * and when, is the point of an export trail.
+     */
+    this.audit.log({
+      userId: user.id,
+      action: AuditAction.EXPORT,
+      resource: 'report',
+      resourceId: id,
+      metadata: { fileName: artifact.fileName },
+    });
   }
 
   @Get(':id')
@@ -142,7 +184,16 @@ export class ReportsController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a report and its artifact' })
-  remove(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.reportsService.remove(id, user.id);
+  async remove(@Param('id') id: string, @CurrentUser() user: any) {
+    const result = await this.reportsService.remove(id, user.id);
+
+    this.audit.log({
+      userId: user.id,
+      action: AuditAction.DELETE,
+      resource: 'report',
+      resourceId: id,
+    });
+
+    return result;
   }
 }

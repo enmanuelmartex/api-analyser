@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
 import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
+import { appBrand } from '../../../../brand/brand';
 
 export class BflaPlugin extends BasePlugin {
   readonly manifest: PluginManifest = {
@@ -9,7 +10,7 @@ export class BflaPlugin extends BasePlugin {
     version: '1.0.0',
     description: 'Tests for API5:2023 - Broken Function Level Authorization',
     longDescription: 'Detects endpoints that expose administrative or elevated-privilege operations to regular users by probing admin-pattern paths without appropriate authorization.',
-    author: 'IASA Core Team',
+    author: appBrand.pluginAuthor,
     license: 'MIT',
     category: PluginCategory.AUTHORIZATION,
     owaspMappings: ['API5:2023'],

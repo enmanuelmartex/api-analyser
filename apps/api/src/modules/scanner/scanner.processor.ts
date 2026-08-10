@@ -13,6 +13,7 @@ import { IssueLifecycleService } from '../issues/issue-lifecycle.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
 import { ReportsService } from '../reports/reports.service';
+import { IssueGuidanceService } from '../ai/guidance/issue-guidance.service';
 
 interface JobData {
   assessmentId: string;
@@ -34,6 +35,7 @@ export class ScannerProcessor extends WorkerHost {
     private crypto:           CryptoService,
     private issueLifecycle:   IssueLifecycleService,
     private scoring:          ScoringService,
+    private issueGuidance:    IssueGuidanceService,
   ) {
     super();
   }
@@ -224,6 +226,51 @@ export class ScannerProcessor extends WorkerHost {
             : ''),
       );
 
+      /*
+       * AI security guidance — after persistence, never before.
+       *
+       * Guidance is keyed by issue id, which does not exist until the lifecycle
+       * has written the issues. Running here also means enrichment sees the
+       * deduplicated vulnerabilities rather than raw findings, so a rule that
+       * matched forty endpoints costs one call instead of forty.
+       *
+       * Wrapped in its own try/catch and awaited: a provider outage, a rate
+       * limit or a malformed answer must never change the outcome of the scan.
+       * Failures are recorded per issue as a FAILED guidance row.
+       */
+      let guidanceMeta: any = null;
+      if (assessmentConfig?.enableAiAnalysis !== false) {
+        try {
+          const scannedIssues = await this.prisma.securityIssue.findMany({
+            where: { projectId, occurrences: { some: { assessmentId } } },
+            select: { id: true },
+          });
+
+          guidanceMeta = await this.issueGuidance.enrichIssues({
+            issueIds: scannedIssues.map((issue) => issue.id),
+            projectId,
+            authType: authConfig?.type ?? null,
+          });
+
+          await this.addLog(
+            assessmentId,
+            guidanceMeta.failed > 0 ? 'warn' : 'info',
+            'ai',
+            `AI guidance: ${guidanceMeta.succeeded} generated, ${guidanceMeta.failed} failed, ` +
+              `${guidanceMeta.skipped} skipped (${guidanceMeta.provider}/${guidanceMeta.model}, ` +
+              `~$${guidanceMeta.estimatedCostUsd.toFixed(4)} estimated)`,
+          );
+        } catch (error: any) {
+          this.logger.warn(`AI guidance step failed entirely: ${error?.message}`);
+          await this.addLog(
+            assessmentId,
+            'warn',
+            'ai',
+            `AI guidance unavailable: ${error?.message}. Scanner evidence is unaffected.`,
+          );
+        }
+      }
+
       // ── Compute and persist summary ───────────────────────────────────────
       const summary = this.calculateSummary(findings, spec.endpoints.length);
 
@@ -399,19 +446,21 @@ export class ScannerProcessor extends WorkerHost {
     });
   }
 
+  /**
+   * Severity counts, risk level and per-category finding totals.
+   *
+   * Deliberately does NOT compute a score. It used to carry the original
+   * formula (`100 − 20·critical − 10·high − …`), whose result was returned,
+   * never read, and silently contradicted `score-v2` — the one scoring
+   * implementation, which runs after the assessment reaches COMPLETED and
+   * works from persisted occurrences rather than this in-memory list.
+   */
   private calculateSummary(findings: any[], _totalEndpoints: number) {
     const critical = findings.filter((f) => f.severity === 'CRITICAL').length;
     const high     = findings.filter((f) => f.severity === 'HIGH').length;
     const medium   = findings.filter((f) => f.severity === 'MEDIUM').length;
     const low      = findings.filter((f) => f.severity === 'LOW').length;
     const info     = findings.filter((f) => f.severity === 'INFO').length;
-
-    let score = 100;
-    score -= critical * 20;
-    score -= high     * 10;
-    score -= medium   *  5;
-    score -= low      *  2;
-    score = Math.max(0, Math.min(100, score));
 
     let riskLevel = 'LOW';
     if (critical > 0)               riskLevel = 'CRITICAL';
@@ -424,6 +473,6 @@ export class ScannerProcessor extends WorkerHost {
       owaspCoverage[f.owaspCategory] = (owaspCoverage[f.owaspCategory] || 0) + 1;
     }
 
-    return { critical, high, medium, low, info, score, riskLevel, owaspCoverage };
+    return { critical, high, medium, low, info, riskLevel, owaspCoverage };
   }
 }

@@ -21,6 +21,7 @@ import { DeleteConfirmationDialog } from '@/components/shared/delete-confirmatio
 import { toast } from 'sonner';
 import { PageContainer } from '@/components/layout/page-container';
 import { PageHeader } from '@/components/layout/page-header';
+import { SecurityChecksTabs } from '@/components/navigation/security-checks-tabs';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -79,7 +80,7 @@ export default function ProfilesPage() {
     <PageContainer className="max-w-4xl">
       <PageHeader
         title="Scan Profiles"
-        description="Reusable plugin sets for targeted assessments"
+        description="Reusable sets of security checks for targeted scans"
         actions={
           <Button onClick={() => setShowCreate(true)}>
             <IconPlus className="h-4 w-4" />
@@ -87,6 +88,8 @@ export default function ProfilesPage() {
           </Button>
         }
       />
+
+      <SecurityChecksTabs active="profiles" />
 
       {/* System profiles */}
       <section className="mb-6 space-y-3">

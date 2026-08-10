@@ -695,3 +695,319 @@ export interface FinanceUsagePage {
   page: number;
   pageSize: number;
 }
+
+// ─── OWASP coverage & system information ──────────────────────────────────────
+//
+// Mirrors `apps/api/src/modules/plugins/owasp-coverage.ts` and
+// `apps/api/src/modules/system/system.service.ts`. Coverage describes which
+// categories have a check behind them — never how many findings were produced.
+
+export type OwaspCoverageStatus = 'COVERED' | 'NOT_COVERED';
+
+export interface OwaspCategoryCoverage {
+  id: string;
+  shortId: string;
+  title: string;
+  description: string;
+  status: OwaspCoverageStatus;
+  checkIds: string[];
+  checkNames: string[];
+  ruleCount: number;
+  /** Why nothing covers this category. Present only when NOT_COVERED. */
+  gapReason?: string;
+  /**
+   * What the covering checks cannot reach. Present only when COVERED, and only
+   * where "covered" would otherwise be read as "exhaustively tested".
+   */
+  scopeNote?: string;
+}
+
+export interface OwaspCoverageSummary {
+  edition: '2023';
+  categories: OwaspCategoryCoverage[];
+  coveredCount: number;
+  totalCount: number;
+  /** e.g. "10/10". */
+  label: string;
+  checkCount: number;
+  ruleCount: number;
+}
+
+export interface SystemCheckState {
+  id: string;
+  name: string;
+  category: string;
+  owaspMappings: string[];
+  ruleCount: number;
+  isEnabled: boolean;
+}
+
+export interface SystemInfo {
+  product: { name: string; version: string; tagline: string; domain: string };
+  runtime: {
+    apiFramework: string;
+    bunVersion: string | null;
+    nodeVersion: string;
+    uptimeSeconds: number;
+    environment: string;
+  };
+  securityChecks: {
+    total: number;
+    enabled: number;
+    totalRules: number;
+    checks: SystemCheckState[];
+  };
+  owasp: OwaspCoverageSummary;
+}
+
+// ─── Scoring: snapshot, explanation and comparison ────────────────────────────
+//
+// Mirrors `apps/api/src/modules/scoring/score-engine.ts`. A score is never read
+// without its status: UNAVAILABLE means no measurement exists (never 0, never
+// 100), PROVISIONAL means a real measurement over incomplete coverage.
+
+export type ScoreStatusValue = 'UNAVAILABLE' | 'PROVISIONAL' | 'FINAL';
+
+export interface ScoreCoverage {
+  plannedChecks: number;
+  successfulChecks: number;
+  failedChecks: number;
+  skippedChecks: number;
+  executionErrors: number;
+}
+
+export interface RulePenalty {
+  pluginId: string;
+  ruleId: string;
+  aggregationKey: string;
+  highestSeverity: string;
+  severityWeight: number;
+  fingerprints: string[];
+  fingerprintCount: number;
+  affectedComponents: string[];
+  distinctAffectedComponents: number;
+  exposureMultiplier: number;
+  rulePenalty: number;
+  /** Title of the rule as reported by the check, when available. */
+  title?: string;
+}
+
+export interface ScoreExplanation {
+  scoreVersion: string;
+  securityScore: number | null;
+  scoreStatus: ScoreStatusValue;
+  coveragePercent: number | null;
+  totalPenalty: number;
+  uncappedPenalty: number;
+  severityBreakdown: Record<string, number>;
+  rulePenalties: RulePenalty[];
+  /** Why the score is PROVISIONAL or UNAVAILABLE. Empty when FINAL. */
+  reasons: string[];
+  weights: Record<string, number>;
+  issuesConsidered: number;
+  coverage: ScoreCoverage;
+}
+
+export interface AssessmentScore {
+  assessmentId: string;
+  status: string;
+  securityScore: number | null;
+  scoreStatus: ScoreStatusValue;
+  scoreVersion: string | null;
+  scoreComputedAt: string | null;
+  coveragePercent: number | null;
+  coverage: ScoreCoverage;
+  explanation: ScoreExplanation | null;
+}
+
+/**
+ * A scan that may serve as a comparison baseline.
+ *
+ * Score fields are nested under `summary` because the service selects them via
+ * a Prisma relation include — they are NOT flattened onto the candidate. Read
+ * them as `candidate.summary?.securityScore`; the first version of this type
+ * flattened them by mistake and every option in the baseline picker rendered
+ * "—/100".
+ */
+export interface ComparisonCandidate {
+  id: string;
+  createdAt: string;
+  summary: {
+    securityScore: number | null;
+    scoreStatus: ScoreStatusValue;
+    scoreVersion: string | null;
+    coveragePercent: number | null;
+  } | null;
+}
+
+// ─── Scan comparison ──────────────────────────────────────────────────────────
+//
+// Mirrors `apps/api/src/modules/scoring/comparison.service.ts`. The change kinds
+// are deliberately more than "fixed / not fixed": an issue absent from the later
+// scan is only RESOLVED when the check that would have found it ran to
+// completion. Otherwise it is NOT_TESTED or OUT_OF_SCOPE.
+
+export type Comparability = 'COMPARABLE' | 'PARTIALLY_COMPARABLE' | 'NOT_COMPARABLE';
+
+export type IssueChangeKind =
+  | 'NEW'
+  | 'PERSISTING'
+  | 'RESOLVED'
+  | 'REOPENED'
+  | 'NOT_TESTED'
+  | 'OUT_OF_SCOPE';
+
+export interface ComparisonChangeEntry {
+  fingerprint: string;
+  issueId: string;
+  title: string;
+  severity: string;
+  pluginId: string;
+  ruleId: string;
+  /** Pre-joined "METHOD /path". */
+  route: string;
+  severityChangedFrom?: string;
+}
+
+export interface ComparisonSide {
+  assessmentId: string;
+  createdAt: string;
+  securityScore: number | null;
+  scoreStatus: ScoreStatusValue;
+  scoreVersion: string | null;
+  coveragePercent: number | null;
+  plannedChecks: number;
+  successfulChecks: number;
+  failedChecks: number;
+  skippedChecks: number;
+}
+
+/**
+ * Check-scope difference between the two scans.
+ *
+ * Field names mirror `assessComparability` in `comparison.service.ts` exactly.
+ * They are the basis for "not retested" versus "resolved": a check present in
+ * the baseline but absent from the current scan cannot prove anything was
+ * fixed.
+ */
+export interface ComparisonScopeChanges {
+  sharedChecks: string[];
+  addedChecks: string[];
+  removedChecks: string[];
+}
+
+export interface ScanComparison {
+  comparability: Comparability;
+  warnings: string[];
+  current: ComparisonSide;
+  baseline: ComparisonSide | null;
+  scoreDelta: number | null;
+  coverageDelta: number | null;
+  changes: Record<IssueChangeKind, ComparisonChangeEntry[]>;
+  scopeChanges: ComparisonScopeChanges | null;
+}
+
+
+/** Minimal user projection returned by `GET /users/assignable`. */
+export interface AssignableUser {
+  id: string;
+  name: string | null;
+  email: string;
+  role: string;
+}
+
+/** Aggregates from `GET /issues/stats`. Prisma groupBy shape, kept verbatim. */
+export interface IssueStats {
+  bySeverity: { severity: string; _count: { _all: number } }[];
+  byStatus: { status: string; _count: { _all: number } }[];
+  byOwasp: { owaspCategory: string; _count: { _all: number } }[];
+  total: number;
+  open: number;
+}
+
+// ─── AI security guidance ─────────────────────────────────────────────────────
+//
+// Mirrors `apps/api/src/modules/ai/guidance/security-guidance.schema.ts`.
+// Guidance is ADVISORY. It never modifies severity, status or scanner evidence,
+// and the UI must always render it as visually distinct from evidence.
+
+export type GuidanceStatus = 'READY' | 'FAILED' | 'SKIPPED' | 'UNAVAILABLE';
+export type ContextConfidence = 'DETECTED' | 'USER_CONFIGURED' | 'INFERRED' | 'UNKNOWN';
+export type GuidancePriority = 'IMMEDIATE' | 'SHORT_TERM' | 'PLANNED';
+
+export interface RemediationStep {
+  title: string;
+  description: string;
+}
+
+export interface EnvironmentGuidance {
+  technology: string;
+  basis: ContextConfidence;
+  guidance: string;
+  example?: string;
+}
+
+export interface GuidanceReference {
+  title: string;
+  source: string;
+  url?: string;
+}
+
+export interface SecurityGuidance {
+  schemaVersion: string;
+  summary: string;
+  rootCause: string;
+  businessImpact: string;
+  technicalImpact: string;
+  remediation: { priority: GuidancePriority; steps: RemediationStep[] };
+  environmentGuidance: EnvironmentGuidance[];
+  verification: { steps: string[]; expectedResult: string };
+  falsePositiveConsiderations: string[];
+  references: GuidanceReference[];
+  confidence: number | null;
+}
+
+export interface GuidanceMetadata {
+  provider: string;
+  model: string;
+  promptVersion: string;
+  knowledgeVersion: string;
+  schemaVersion: string;
+  playbookIds: string[];
+  confidence: number | null;
+  generatedAt: string;
+  tokensInput: number;
+  tokensOutput: number;
+  estimatedCostUsd: number;
+}
+
+export interface IssueGuidanceResponse {
+  status: GuidanceStatus;
+  reason: string | null;
+  guidance: SecurityGuidance | null;
+  metadata?: GuidanceMetadata;
+}
+
+export interface AiUsageByProvider {
+  provider: string;
+  model: string;
+  count: number;
+  tokensInput: number;
+  tokensOutput: number;
+  estimatedCostUsd: number;
+}
+
+export interface AiUsageSummary {
+  totalEnrichments: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  tokensInput: number;
+  tokensOutput: number;
+  estimatedCostUsd: number;
+  averageCostPerEnrichment: number | null;
+  byProvider: AiUsageByProvider[];
+  failureBreakdown: { errorCode: string; count: number }[];
+  pricingTableVersion: string;
+  costIsEstimated: true;
+}

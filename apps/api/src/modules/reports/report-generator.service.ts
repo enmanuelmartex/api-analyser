@@ -2,25 +2,25 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { existsSync } from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import { PluginRegistryService } from '../plugins/plugin-registry.service';
 import { appBrand, REPORT_TOOL_VERSION } from '../../brand/brand';
-import {
-  pdfFooterTemplate,
-  pdfHeaderTemplate,
-  renderReportHtml,
-} from './report-template';
+import { renderReportHtml } from './report-template';
 
 type ReportType = 'TECHNICAL' | 'EXECUTIVE' | 'DEVELOPER' | 'COMPLIANCE';
+
+/** A4 at Chromium's 96dpi print resolution, used as the render viewport. */
+const A4_VIEWPORT = { width: 794, height: 1123 };
 
 const SEVERITY_ORDER: Record<string, number> = {
   CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4,
 };
-const SEVERITY_COLOR: Record<string, string> = {
-  CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#eab308', LOW: '#22c55e', INFO: '#6b7280',
-};
 
 @Injectable()
 export class ReportGeneratorService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private registry: PluginRegistryService,
+  ) {}
 
   /**
    * Loads the data a report renders.
@@ -44,7 +44,30 @@ export class ReportGeneratorService {
           orderBy: [{ severitySnapshot: 'asc' }, { detectedAt: 'desc' }],
           include: {
             endpoint: { select: { path: true, method: true } },
-            issue: { select: { id: true, status: true, firstSeenAt: true, occurrenceCount: true } },
+            issue: {
+              select: {
+                id: true,
+                status: true,
+                firstSeenAt: true,
+                occurrenceCount: true,
+                // Persisted AI guidance for the issue this detection belongs
+                // to. Previously the report read `aiAnalysis` off the in-memory
+                // finding, which existed only during the scan — so a report
+                // regenerated later silently lost every piece of guidance.
+                guidance: {
+                  select: {
+                    status: true,
+                    payload: true,
+                    provider: true,
+                    model: true,
+                    promptVersion: true,
+                    knowledgeVersion: true,
+                    confidence: true,
+                    generatedAt: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -53,6 +76,16 @@ export class ReportGeneratorService {
 
     return {
       ...assessment,
+      /*
+       * Real OWASP coverage, from the check registry.
+       *
+       * The report previously derived its OWASP section from finding counts,
+       * listing only categories where something was found. A COMPLIANCE report
+       * therefore omitted API6, API9 and API10 entirely — the three categories
+       * with no check behind them — leaving an auditor to conclude they were
+       * tested and clean. Coverage and findings are now separate inputs.
+       */
+      owaspCoverage: this.registry.getOwaspCoverage(),
       findings: assessment.occurrences.map((occurrence) => ({
         id: occurrence.id,
         issueId: occurrence.issueId,
@@ -78,6 +111,25 @@ export class ReportGeneratorService {
           occurrence.endpoint ??
           { path: occurrence.pathSnapshot, method: occurrence.methodSnapshot },
         references: [] as string[],
+
+        /**
+         * AI guidance, or null. Advisory: it is rendered in its own labelled
+         * block and never merged into the scanner's description or evidence.
+         */
+        guidance:
+          occurrence.issue?.guidance?.status === 'READY'
+            ? {
+                ...(occurrence.issue.guidance.payload as any),
+                _meta: {
+                  provider: occurrence.issue.guidance.provider,
+                  model: occurrence.issue.guidance.model,
+                  promptVersion: occurrence.issue.guidance.promptVersion,
+                  knowledgeVersion: occurrence.issue.guidance.knowledgeVersion,
+                  confidence: occurrence.issue.guidance.confidence,
+                  generatedAt: occurrence.issue.guidance.generatedAt,
+                },
+              }
+            : null,
       })),
     };
   }
@@ -281,19 +333,23 @@ export class ReportGeneratorService {
   /**
    * Chromium print options shared by first-generation and re-render.
    *
-   * Header and footer come from Chromium's own templates rather than CSS,
-   * because `.pageNumber` / `.totalPages` are the only way to number pages in
-   * a Chromium print job — CSS page counters are not supported. The top margin
-   * leaves room for the header band so it cannot overlap body text.
+   * Zero margins and `preferCSSPageSize` hand the entire 210×297mm sheet to the
+   * document. A paper margin here would frame every page in white — which is
+   * what made a full-bleed dark cover render as a dark rectangle floating on a
+   * white page — and would clip the sheets the paginator composed.
+   *
+   * Chromium's own header/footer templates are off for the same reason: they
+   * can only draw inside a paper margin that no longer exists. Running
+   * furniture and page numbers are part of the document instead, so they also
+   * survive into the HTML export and into any re-print of a stored snapshot.
    */
-  private pdfOptions(reportId?: string) {
+  private pdfOptions() {
     return {
       format: 'A4' as const,
       printBackground: true,
-      displayHeaderFooter: true,
-      headerTemplate: pdfHeaderTemplate(),
-      footerTemplate: pdfFooterTemplate(reportId),
-      margin: { top: '14mm', right: '12mm', bottom: '14mm', left: '12mm' },
+      preferCSSPageSize: true,
+      displayHeaderFooter: false,
+      margin: { top: '0', right: '0', bottom: '0', left: '0' },
     };
   }
 
@@ -305,7 +361,7 @@ export class ReportGeneratorService {
    * That is what keeps a re-render byte-identical to the document originally
    * issued, even after the underlying issues have been re-triaged.
    */
-  async renderPdfFromHtml(html: string, reportId?: string): Promise<Buffer> {
+  async renderPdfFromHtml(html: string): Promise<Buffer> {
     const browser = await puppeteer.launch({
       executablePath: this.findBrowserExecutable(),
       headless: true,
@@ -315,10 +371,22 @@ export class ReportGeneratorService {
     });
     try {
       const page = await browser.newPage();
+      /*
+       * The document measures itself into pages before it is printed, so it has
+       * to be measured under the conditions it will be printed in: print media
+       * and an A4-wide viewport. Measuring at the default 800×600 screen size
+       * would paginate against the wrong available height and leave pages
+       * short or clipped.
+       */
+      await page.setViewport(A4_VIEWPORT);
+      await page.emulateMediaType('print');
       // The document embeds its logo as a data URI and loads no webfonts, so
       // `domcontentloaded` is sufficient — there is no network to wait for.
       await page.setContent(html, { waitUntil: 'domcontentloaded' });
-      const pdf = await page.pdf(this.pdfOptions(reportId));
+      // The paginator is inline and synchronous, so it has already run; this
+      // asserts it rather than assuming it, and fails loudly if it threw.
+      await page.waitForSelector('html[data-paginated]', { timeout: 15_000 });
+      const pdf = await page.pdf(this.pdfOptions());
       return Buffer.from(pdf);
     } finally {
       await browser.close();
@@ -332,26 +400,6 @@ export class ReportGeneratorService {
     return executable;
   }
 
-  private sevCard(severity: string, count: number): string {
-    const color = SEVERITY_COLOR[severity] ?? '#6b7280';
-    return `<div class="sev-card" style="border-color:${color}30;background:${color}08">
-      <div class="num" style="color:${color}">${count}</div>
-      <div class="label" style="color:${color}">${severity}</div>
-    </div>`;
-  }
-
-  private buildOwaspTable(findings: any[]): string {
-    const map: Record<string, number> = {};
-    for (const f of findings) {
-      if (f.owaspCategory) map[f.owaspCategory] = (map[f.owaspCategory] || 0) + 1;
-    }
-    if (!Object.keys(map).length) return '';
-    return Object.entries(map)
-      .sort((a, b) => b[1] - a[1])
-      .map(([cat, cnt]) => `<tr><td>${esc(cat)}</td><td>${cnt}</td></tr>`)
-      .join('');
-  }
-
   private severityToCvss(severity: string): number {
     return { CRITICAL: 9.5, HIGH: 7.5, MEDIUM: 5.0, LOW: 3.0, INFO: 0.0 }[severity] ?? 0;
   }
@@ -359,13 +407,4 @@ export class ReportGeneratorService {
   private severityToSarifLevel(severity: string): string {
     return { CRITICAL: 'error', HIGH: 'error', MEDIUM: 'warning', LOW: 'note', INFO: 'none' }[severity] ?? 'none';
   }
-}
-
-function esc(str: string): string {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
 }

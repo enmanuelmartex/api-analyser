@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BasePlugin } from '../scanner/types/scanner.types';
 import { PluginCategory, PluginManifest } from '../scanner/types/plugin-manifest.types';
 import { collectDeclaredRuleIds, findRuleDeclarationProblems } from './rule-declarations.util';
+import { computeOwaspCoverage, type OwaspCoverageSummary } from './owasp-coverage';
 
 // ─── Built-in plugins ──────────────────────────────────────────────────────
 import { SecurityHeadersPlugin } from '../scanner/plugins/headers/security-headers.plugin';
@@ -15,12 +16,41 @@ import { MassAssignmentPlugin } from '../scanner/plugins/mass-assignment/mass-as
 import { RateLimitPlugin } from '../scanner/plugins/rate-limit/rate-limit.plugin';
 import { SensitiveDataPlugin } from '../scanner/plugins/sensitive-data/sensitive-data.plugin';
 import { SsrfPlugin } from '../scanner/plugins/ssrf/ssrf.plugin';
+import { BusinessFlowsPlugin } from '../scanner/plugins/business-flows/business-flows.plugin';
+import { InventoryPlugin } from '../scanner/plugins/inventory/inventory.plugin';
+import { ApiConsumptionPlugin } from '../scanner/plugins/api-consumption/api-consumption.plugin';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 export interface PluginWithMeta {
   plugin: BasePlugin;
   manifest: PluginManifest;
+}
+
+/**
+ * The built-in security checks, in registration order.
+ *
+ * Exported so that anything needing the real set — notably the OWASP coverage
+ * assertion — reads the same list the registry does. A second hand-maintained
+ * copy is exactly how the product came to claim eleven checks while shipping
+ * ten.
+ */
+export function createBuiltinPlugins(): BasePlugin[] {
+  return [
+    new SecurityHeadersPlugin(),
+    new CorsPlugin(),
+    new BrokenAuthPlugin(),
+    new JwtAnalysisPlugin(),
+    new BolaPlugin(),
+    new BflaPlugin(),
+    new MassAssignmentPlugin(),
+    new RateLimitPlugin(),
+    new SensitiveDataPlugin(),
+    new SsrfPlugin(),
+    new BusinessFlowsPlugin(),
+    new InventoryPlugin(),
+    new ApiConsumptionPlugin(),
+  ];
 }
 
 // ─── Registry ──────────────────────────────────────────────────────────────
@@ -86,18 +116,7 @@ export class PluginRegistryService implements OnModuleInit {
   }
 
   private registerBuiltins(): void {
-    const builtins: BasePlugin[] = [
-      new SecurityHeadersPlugin(),
-      new CorsPlugin(),
-      new BrokenAuthPlugin(),
-      new JwtAnalysisPlugin(),
-      new BolaPlugin(),
-      new BflaPlugin(),
-      new MassAssignmentPlugin(),
-      new RateLimitPlugin(),
-      new SensitiveDataPlugin(),
-      new SsrfPlugin(),
-    ];
+    const builtins = createBuiltinPlugins();
 
     for (const plugin of builtins) {
       this.register(plugin);
@@ -179,6 +198,16 @@ export class PluginRegistryService implements OnModuleInit {
 
   getAllManifests(): PluginManifest[] {
     return this.getAll().map((p) => p.manifest);
+  }
+
+  /**
+   * OWASP API Top 10 coverage as it actually stands, derived from manifests.
+   *
+   * The single source the UI, the reports and the docs all read, so a coverage
+   * claim can never be written by hand again.
+   */
+  getOwaspCoverage(): OwaspCoverageSummary {
+    return computeOwaspCoverage(this.getAllManifests());
   }
 
   has(id: string): boolean {

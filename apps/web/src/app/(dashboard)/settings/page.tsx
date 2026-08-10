@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTheme } from 'next-themes';
 import {
   IconSettings2,
   IconShieldLock,
@@ -22,11 +23,13 @@ import {
   IconUsers,
   IconHistory,
   IconShield,
+  IconCoin,
 } from '@tabler/icons-react';
 import { cn } from '@/lib/utils';
-import { authApi } from '@/lib/api';
+import { authApi, pluginsApi, systemApi } from '@/lib/api';
 import { toast } from 'sonner';
 import { AiConfigTab } from './ai-config-tab';
+import { AiUsageTab } from './ai-usage-tab';
 import { UsersTab } from './users-tab';
 import { AuditLogsTab } from './audit-logs-tab';
 import { PageContainer } from '@/components/layout/page-container';
@@ -35,13 +38,18 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
+
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  OwaspCoverageMatrix,
+  OwaspCoverageSummaryLine,
+} from '@/components/security/owasp-coverage-matrix';
 import { appBrand } from '@/lib/brand';
 import { AppLogoMark } from '@/components/brand/app-logo-mark';
 
-type TabId = 'general' | 'security' | 'tokens' | 'notifications' | 'ai' | 'system' | 'about' | 'users' | 'audit-logs';
+type TabId = 'general' | 'security' | 'tokens' | 'notifications' | 'ai' | 'ai-usage' | 'system' | 'about' | 'users' | 'audit-logs';
 
 const ALL_TABS: { id: TabId; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
   { id: 'general', label: 'General', icon: IconSettings2 },
@@ -49,6 +57,8 @@ const ALL_TABS: { id: TabId; label: string; icon: React.ElementType; adminOnly?:
   { id: 'tokens', label: 'API Tokens', icon: IconKey },
   { id: 'notifications', label: 'Notifications', icon: IconBell },
   { id: 'ai', label: 'AI Configuration', icon: IconSparkles },
+  // Admin-only: spend is platform-wide, matching the AI provider config guard.
+  { id: 'ai-usage', label: 'AI Usage', icon: IconCoin, adminOnly: true },
   { id: 'system', label: 'System', icon: IconCpu },
   { id: 'about', label: 'About', icon: IconInfoCircle },
   { id: 'users', label: 'Users', icon: IconUsers, adminOnly: true },
@@ -65,7 +75,10 @@ export default function SettingsPage() {
   const tabParam = searchParams.get('tab');
   const activeTab: TabId = (VALID_TAB_IDS as string[]).includes(tabParam ?? '') ? (tabParam as TabId) : 'general';
 
-  function setActiveTab(id: TabId) {
+  // The tab lives in the URL so a section stays linkable and survives reload.
+  // `replace` rather than `push`: nine tab changes should not mean nine presses
+  // of the back button to leave Settings.
+  function selectTab(id: TabId) {
     router.replace(`${pathname}?tab=${id}`, { scroll: false });
   }
 
@@ -85,18 +98,14 @@ export default function SettingsPage() {
    * General rather than rendering nothing.
    */
   const resolvedTab: TabId =
-    !isAdmin && (activeTab === 'users' || activeTab === 'audit-logs') ? 'general' : activeTab;
+    !isAdmin && (activeTab === 'users' || activeTab === 'audit-logs' || activeTab === 'ai-usage')
+      ? 'general'
+      : activeTab;
+
+  const visibleTabs = ALL_TABS.filter((tab) => !tab.adminOnly || isAdmin);
 
   return (
     <PageContainer>
-      {/*
-        No in-page navigation.
-        Settings used to render its own vertical menu listing the same nine
-        entries as the global sidebar, which meant two menus, two simultaneous
-        active states, and a 12rem column of duplicated links stealing width
-        from the content. The sidebar's Settings group is now the single source
-        of navigation; this page renders only the selected section.
-      */}
       <PageHeader
         title="Settings"
         description="Manage your account, security preferences and integrations"
@@ -107,12 +116,49 @@ export default function SettingsPage() {
         }
       />
 
+      {/*
+        Settings is a single sidebar entry, so its section navigation lives
+        here. It was previously nine sidebar children mirroring these tabs,
+        which gave one destination two menus and two simultaneous active
+        states. A horizontal strip also costs no content width, unlike the
+        12rem vertical menu this replaces.
+      */}
+      <div
+        role="tablist"
+        aria-label="Settings sections"
+        className="mb-6 flex gap-1 overflow-x-auto border-b border-border pb-px"
+      >
+        {visibleTabs.map((tab) => {
+          const selected = tab.id === resolvedTab;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => selectTab(tab.id)}
+              className={cn(
+                'flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                selected
+                  ? 'border-primary font-medium text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <tab.icon className="h-4 w-4" aria-hidden="true" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="min-w-0">
         {resolvedTab === 'general' && <GeneralTab user={me} />}
         {resolvedTab === 'security' && <SecurityTab />}
         {resolvedTab === 'tokens' && <TokensTab />}
         {resolvedTab === 'notifications' && <NotificationsTab />}
         {resolvedTab === 'ai' && <AiConfigTab />}
+        {resolvedTab === 'ai-usage' && isAdmin && <AiUsageTab />}
         {resolvedTab === 'system' && <SystemTab />}
         {resolvedTab === 'about' && <AboutTab />}
         {resolvedTab === 'users' && isAdmin && <UsersTab currentUserId={me?.id ?? ''} />}
@@ -124,8 +170,42 @@ export default function SettingsPage() {
 
 // ─── GENERAL ──────────────────────────────────────────────────────────────────
 
+/**
+ * Every control here either persists or says plainly that it does not.
+ *
+ * Previously "Save changes" raised a success toast and wrote nothing, and the
+ * theme, timezone and language selects were React state that reset on reload.
+ * A settings screen that reports success without saving is worse than one with
+ * no controls at all — the user believes the change took effect.
+ */
 function GeneralTab({ user }: { user: any }) {
+  const queryClient = useQueryClient();
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [name, setName] = useState(user?.name ?? '');
+
+  // next-themes resolves against localStorage on the client only; reading
+  // `theme` before mount renders the wrong option as selected.
+  useEffect(() => setMounted(true), []);
+  useEffect(() => setName(user?.name ?? ''), [user?.name]);
+
+  const saveProfile = useMutation({
+    mutationFn: (newName: string) => authApi.updateMe({ name: newName }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['me'], updated);
+      queryClient.invalidateQueries({ queryKey: ['me'] });
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('iasa_user', JSON.stringify(updated));
+      }
+      toast.success('Profile updated');
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.message ?? 'Could not update your profile');
+    },
+  });
+
+  const trimmed = name.trim();
+  const dirty = trimmed !== (user?.name ?? '').trim();
 
   return (
     <div className="space-y-6">
@@ -145,72 +225,88 @@ function GeneralTab({ user }: { user: any }) {
           </div>
 
           <Field label="Display Name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name"
+              maxLength={80}
+              aria-describedby="display-name-hint"
+            />
+            <p id="display-name-hint" className="mt-1.5 text-xs text-muted-foreground">
+              Shown on issues you are assigned and in the audit log.
+            </p>
           </Field>
 
           <Field label="Email Address">
             <Input value={user?.email ?? ''} readOnly className="cursor-not-allowed text-muted-foreground" />
-            <p className="mt-1.5 text-xs text-muted-foreground">Email changes require support contact</p>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Your email identifies your sign-in account and cannot be changed here.
+            </p>
           </Field>
 
-          <Button onClick={() => toast.success('Profile updated')}>Save changes</Button>
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={() => saveProfile.mutate(trimmed)}
+              disabled={!dirty || trimmed.length === 0 || saveProfile.isPending}
+            >
+              {saveProfile.isPending ? 'Saving…' : 'Save changes'}
+            </Button>
+            {dirty && !saveProfile.isPending && (
+              <Button variant="ghost" size="sm" onClick={() => setName(user?.name ?? '')}>
+                Cancel
+              </Button>
+            )}
+          </div>
         </div>
       </Section>
 
-      <Section title="Preferences" description="Interface and behavior">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between border-b border-border py-3">
-            <div>
-              <p className="text-sm text-foreground">Theme</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">Application color scheme</p>
-            </div>
-            <Select defaultValue="dark">
-              <SelectTrigger className="h-8 w-[160px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="dark">Dark (Default)</SelectItem>
-                <SelectItem value="light">Light</SelectItem>
-                <SelectItem value="system">System</SelectItem>
-              </SelectContent>
-            </Select>
+      <Section title="Appearance" description="Stored in this browser">
+        <div className="flex items-center justify-between py-1">
+          <div>
+            <p className="text-sm text-foreground">Theme</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Applies immediately and persists on this device.
+            </p>
           </div>
+          <Select value={mounted ? theme ?? 'system' : 'system'} onValueChange={setTheme}>
+            <SelectTrigger className="h-8 w-[160px] text-xs" aria-label="Theme">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="dark">Dark</SelectItem>
+              <SelectItem value="light">Light</SelectItem>
+              <SelectItem value="system">System</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </Section>
 
+      {/*
+        Timezone and language were selects backed by nothing. They are stated
+        as facts instead: both are genuinely true of the running product, and
+        neither pretends to be adjustable.
+      */}
+      <Section title="Regional" description="Not configurable yet">
+        <div className="space-y-0">
           <div className="flex items-center justify-between border-b border-border py-3">
             <div>
               <p className="text-sm text-foreground">Timezone</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">Used for timestamps and scheduling</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Timestamps are rendered in your browser&apos;s timezone.
+              </p>
             </div>
-            <Select defaultValue="UTC">
-              <SelectTrigger className="h-8 w-[160px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {['UTC', 'America/New_York', 'America/Los_Angeles', 'Europe/London', 'Europe/Berlin', 'Asia/Tokyo'].map((tz) => (
-                  <SelectItem key={tz} value={tz}>
-                    {tz}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <span className="text-sm font-medium text-foreground">
+              {mounted ? Intl.DateTimeFormat().resolvedOptions().timeZone : '—'}
+            </span>
           </div>
-
           <div className="flex items-center justify-between py-3">
             <div>
               <p className="text-sm text-foreground">Language</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">Interface language</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                The interface is English only. Additional languages are not available yet.
+              </p>
             </div>
-            <Select defaultValue="en">
-              <SelectTrigger className="h-8 w-[160px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="en">English (Default)</SelectItem>
-                <SelectItem value="es">Spanish</SelectItem>
-                <SelectItem value="pt">Portuguese</SelectItem>
-                <SelectItem value="fr">French</SelectItem>
-              </SelectContent>
-            </Select>
+            <span className="text-sm font-medium text-foreground">English</span>
           </div>
         </div>
       </Section>
@@ -384,50 +480,56 @@ function TokensTab() {
 
 // ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
 
+/**
+ * Honestly unavailable, in the same spirit as the API Tokens tab.
+ *
+ * This tab previously rendered five switches over `useState` with a "preference
+ * updated" toast on every toggle. Nothing was persisted and no notification of
+ * any kind is delivered by the product — there is no notification table, no
+ * dispatcher and no scheduler. Toggles that survive until reload and then
+ * silently reset are a worse failure than an empty state, because the user
+ * believes they have configured alerting they will never receive.
+ *
+ * The switches are removed rather than disabled: a row of greyed-out switches
+ * still implies the capability exists and is merely switched off.
+ */
 function NotificationsTab() {
-  const [prefs, setPrefs] = useState({
-    scanComplete: true,
-    criticalFindings: true,
-    weeklyDigest: false,
-    scanFailed: true,
-    newReports: false,
-  });
-
-  function toggle(key: keyof typeof prefs) {
-    setPrefs((prev) => ({ ...prev, [key]: !prev[key] }));
-    toast.success('Notification preference updated');
-  }
-
-  const items = [
-    { key: 'scanComplete' as const, label: 'Scan completed', desc: 'When a security assessment finishes' },
-    { key: 'criticalFindings' as const, label: 'Critical findings', desc: 'Immediate alert for critical vulnerabilities' },
-    { key: 'scanFailed' as const, label: 'Scan failed', desc: 'When an assessment fails or is cancelled' },
-    { key: 'newReports' as const, label: 'New reports', desc: 'When a new security report is generated' },
-    { key: 'weeklyDigest' as const, label: 'Weekly digest', desc: 'Summary of your security posture each week' },
+  const planned = [
+    { label: 'Scan completed', desc: 'When a security assessment finishes' },
+    { label: 'Critical findings', desc: 'Immediate alert for critical vulnerabilities' },
+    { label: 'Scan failed', desc: 'When an assessment fails or is cancelled' },
+    { label: 'New reports', desc: 'When a security report is generated' },
+    { label: 'Weekly digest', desc: 'Summary of your security posture each week' },
   ];
 
   return (
     <div className="space-y-6">
-      <Section title="In-App Notifications" description={`What you see inside ${appBrand.name}`}>
-        <div className="divide-y divide-border">
-          {items.map(({ key, label, desc }) => (
-            <div key={key} className="flex items-center justify-between py-3.5">
-              <div>
-                <p className="text-sm text-foreground">{label}</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
-              </div>
-              <Switch checked={prefs[key]} onCheckedChange={() => toggle(key)} />
-            </div>
-          ))}
+      <Section title="Notifications" description="Not available yet">
+        <div className="py-6 text-center">
+          <IconBell className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" aria-hidden="true" />
+          <p className="text-sm text-foreground">Notifications are not available yet</p>
+          <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
+            {appBrand.name} does not send notifications of any kind today — in-app, email or
+            webhook. Scan results appear on the Scans and Issues screens as soon as a scan
+            finishes.
+          </p>
         </div>
       </Section>
 
-      <Section title="Email Notifications" description="Coming in v0.2">
-        <div className="py-6 text-center">
-          <IconBell className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
-          <p className="text-sm text-muted-foreground">Email notifications are not configured yet</p>
-          <p className="mt-1 text-xs text-muted-foreground/70">Configure SMTP settings in the system panel to enable this feature</p>
-        </div>
+      <Section title="Planned Alerts" description="What this tab will control once delivery exists">
+        <ul className="divide-y divide-border">
+          {planned.map(({ label, desc }) => (
+            <li key={label} className="flex items-center justify-between py-3.5">
+              <div>
+                <p className="text-sm text-muted-foreground">{label}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground/70">{desc}</p>
+              </div>
+              <Badge variant="outline" className="h-5 px-1.5 text-[10px] text-muted-foreground">
+                Planned
+              </Badge>
+            </li>
+          ))}
+        </ul>
       </Section>
     </div>
   );
@@ -435,20 +537,79 @@ function NotificationsTab() {
 
 // ─── SYSTEM ───────────────────────────────────────────────────────────────────
 
+/**
+ * Every value here is read from `GET /system/info`.
+ *
+ * This tab used to be a hardcoded list. It claimed "11 OWASP Plugins Active"
+ * against ten checks, showed SSRF as disabled while it was enabled in the
+ * database, and listed seven OWASP categories with no indication that three
+ * others exist and are untested.
+ */
 function SystemTab() {
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['system', 'info'],
+    queryFn: systemApi.info,
+    staleTime: 60_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <Section title="System Information" description="Runtime and infrastructure details">
+          <div className="space-y-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-5 w-full" />
+            ))}
+          </div>
+        </Section>
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <Section title="System Information" description="Runtime and infrastructure details">
+        <div className="py-8 text-center">
+          <IconCpu className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
+          <p className="text-sm text-foreground">Could not load system information</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {(error as any)?.response?.data?.message ??
+              'The API did not respond. System details are unavailable rather than estimated.'}
+          </p>
+          <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      </Section>
+    );
+  }
+
+  const { product, runtime, securityChecks, owasp } = data;
+
   return (
     <div className="space-y-6">
       <Section title="System Information" description="Runtime and infrastructure details">
         <div className="space-y-0">
           {[
-            { label: 'Platform', value: `${appBrand.name} API v1` },
-            { label: 'Runtime', value: 'Bun 1.x + NestJS 10' },
-            { label: 'Database', value: 'PostgreSQL 16' },
-            { label: 'Queue', value: 'Redis 7 + BullMQ 5' },
-            { label: 'Frontend', value: 'Next.js 15 + React 19' },
-            { label: 'Scanner Plugins', value: '11 OWASP Plugins Active' },
+            { label: 'Platform', value: `${product.name} API v1` },
+            { label: 'Version', value: product.version },
+            { label: 'Environment', value: runtime.environment },
+            {
+              label: 'Runtime',
+              value: runtime.bunVersion
+                ? `Bun ${runtime.bunVersion} + ${runtime.apiFramework}`
+                : `Node ${runtime.nodeVersion} + ${runtime.apiFramework}`,
+            },
+            { label: 'API uptime', value: formatUptime(runtime.uptimeSeconds) },
+            {
+              label: 'Security checks',
+              value: `${securityChecks.enabled} of ${securityChecks.total} enabled · ${securityChecks.totalRules} rules`,
+            },
           ].map(({ label, value }) => (
-            <div key={label} className="flex items-center justify-between border-b border-border py-3 last:border-0">
+            <div
+              key={label}
+              className="flex items-center justify-between border-b border-border py-3 last:border-0"
+            >
               <span className="text-sm text-muted-foreground">{label}</span>
               <span className="text-sm font-medium text-foreground">{value}</span>
             </div>
@@ -456,23 +617,42 @@ function SystemTab() {
         </div>
       </Section>
 
-      <Section title="Scanner Configuration" description="Active security plugins">
-        <div className="space-y-2">
-          {[
-            { id: 'API1:2023', name: 'BOLA — Broken Object Level Authorization', active: true },
-            { id: 'API2:2023', name: 'Broken Authentication', active: true },
-            { id: 'API3:2023', name: 'Mass Assignment', active: true },
-            { id: 'API4:2023', name: 'Unrestricted Resource Consumption', active: true },
-            { id: 'API5:2023', name: 'BFLA — Broken Function Level Authorization', active: true },
-            { id: 'API7:2023', name: 'Server Side Request Forgery (SSRF)', active: false },
-            { id: 'API8:2023', name: 'Security Misconfiguration', active: true },
-          ].map(({ id, name, active }) => (
-            <div key={id} className="flex items-center gap-3 py-2">
-              <div className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', active ? 'bg-success' : 'bg-muted-foreground/40')} />
-              <span className="w-20 flex-shrink-0 font-mono text-[10px] text-muted-foreground">{id.split(':')[0]}</span>
-              <span className="flex-1 text-sm text-foreground">{name}</span>
-              <span className={cn('text-[10px] font-semibold uppercase', active ? 'text-success' : 'text-muted-foreground')}>
-                {active ? 'Active' : 'Disabled'}
+      <Section
+        title="OWASP API Security Top 10"
+        description="Which categories the installed checks actually test"
+      >
+        <OwaspCoverageSummaryLine coverage={owasp} className="mb-4" />
+        <OwaspCoverageMatrix coverage={owasp} />
+      </Section>
+
+      <Section
+        title="Installed Security Checks"
+        description="Enablement is read from the database, not assumed"
+      >
+        <div className="space-y-1">
+          {securityChecks.checks.map((check) => (
+            <div key={check.id} className="flex items-center gap-3 py-2">
+              <div
+                className={cn(
+                  'h-1.5 w-1.5 flex-shrink-0 rounded-full',
+                  check.isEnabled ? 'bg-success' : 'bg-muted-foreground/40',
+                )}
+                aria-hidden="true"
+              />
+              <span className="w-24 flex-shrink-0 font-mono text-[10px] text-muted-foreground">
+                {check.owaspMappings.map((m) => m.split(':')[0]).join(', ') || '—'}
+              </span>
+              <span className="flex-1 truncate text-sm text-foreground">{check.name}</span>
+              <span className="flex-shrink-0 text-xs tabular-nums text-muted-foreground">
+                {check.ruleCount} {check.ruleCount === 1 ? 'rule' : 'rules'}
+              </span>
+              <span
+                className={cn(
+                  'w-16 flex-shrink-0 text-right text-[10px] font-semibold uppercase',
+                  check.isEnabled ? 'text-success' : 'text-muted-foreground',
+                )}
+              >
+                {check.isEnabled ? 'Enabled' : 'Disabled'}
               </span>
             </div>
           ))}
@@ -482,9 +662,29 @@ function SystemTab() {
   );
 }
 
+/** Renders seconds as a short human duration, e.g. "3d 4h" or "12m". */
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
 // ─── ABOUT ────────────────────────────────────────────────────────────────────
 
 function AboutTab() {
+  // The capability tiles below state what the product does. They are read from
+  // the registry rather than written here, because the hand-written version
+  // claimed eleven checks and full Top 10 coverage while ten checks were
+  // installed and three categories had nothing behind them at all.
+  const { data: coverage } = useQuery({
+    queryKey: ['plugins', 'owasp-coverage'],
+    queryFn: pluginsApi.owaspCoverage,
+    staleTime: 5 * 60_000,
+  });
+
   return (
     <div className="space-y-6">
       <Card>
@@ -513,10 +713,24 @@ function AboutTab() {
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {(
             [
-              { icon: IconBolt, label: '11 OWASP Plugins', desc: 'Full API Top 10 2023 coverage' },
+              {
+                icon: IconBolt,
+                label: coverage
+                  ? `${coverage.checkCount} security checks`
+                  : 'Security checks',
+                desc: coverage
+                  ? `${coverage.ruleCount} rules across ${coverage.coveredCount} of ${coverage.totalCount} OWASP categories`
+                  : 'Loading coverage…',
+              },
               { icon: IconGitBranch, label: 'Open Source', desc: 'MIT License — free forever' },
               { icon: IconTerminal2, label: 'API-First', desc: 'REST API with Swagger docs' },
-              { icon: IconShield, label: 'OWASP Aligned', desc: 'API Security Top 10 2023' },
+              {
+                icon: IconShield,
+                label: 'OWASP Aligned',
+                desc: coverage
+                  ? `API Security Top 10 2023 — ${coverage.label} covered`
+                  : 'API Security Top 10 2023',
+              },
             ] as const
           ).map(({ icon: Icon, label, desc }) => (
             <div key={label} className="rounded-xl border border-border bg-muted/40 p-3.5">

@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException, ForbiddenException, OnModuleInit } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PluginRegistryService } from './plugin-registry.service';
 
 interface CreateProfileDto {
   name: string;
@@ -9,7 +10,15 @@ interface CreateProfileDto {
   pluginConfigs?: Record<string, any>;
 }
 
-const SYSTEM_PROFILES = [
+/**
+ * The profiles every installation gets, seeded at boot.
+ *
+ * Exported so the checks they name can be asserted against the real registry:
+ * each of these lists is hand-written, and two of them make a promise in their
+ * own description — "all available security plugins", "all OWASP API Security
+ * Top 10 categories" — that a typo or a newly added check would quietly break.
+ */
+export const SYSTEM_PROFILES = [
   {
     id: 'full-scan',
     name: 'Full Scan',
@@ -18,6 +27,7 @@ const SYSTEM_PROFILES = [
     enabledPlugins: [
       'security-headers', 'cors', 'broken-authentication', 'jwt-analysis',
       'bola', 'bfla', 'mass-assignment', 'rate-limit', 'sensitive-data', 'ssrf',
+      'business-flows', 'inventory', 'api-consumption',
     ],
   },
   {
@@ -46,9 +56,12 @@ const SYSTEM_PROFILES = [
     name: 'OWASP API Top 10',
     description: 'Covers all OWASP API Security Top 10 categories (2023).',
     icon: 'list',
+    // One check per category, in category order, so the profile's name is
+    // literally true: every category of the 2023 edition has something behind it.
     enabledPlugins: [
-      'bola', 'broken-authentication', 'mass-assignment', 'rate-limit',
-      'bfla', 'sensitive-data', 'ssrf', 'security-headers', 'cors', 'jwt-analysis',
+      'bola', 'broken-authentication', 'jwt-analysis', 'mass-assignment',
+      'sensitive-data', 'rate-limit', 'bfla', 'business-flows', 'ssrf',
+      'security-headers', 'cors', 'inventory', 'api-consumption',
     ],
   },
   {
@@ -62,7 +75,37 @@ const SYSTEM_PROFILES = [
 
 @Injectable()
 export class ProfilesService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly registry: PluginRegistryService,
+  ) {}
+
+  /**
+   * Rejects a selection containing checks that are not installed.
+   *
+   * Nothing validated this before, so a profile could be saved naming checks
+   * that do not exist. The damage was bounded — `createAndRun` rejects unknown
+   * ids before enqueueing — but the user only discovered the broken profile at
+   * the moment they tried to scan with it, with an error pointing at the scan
+   * rather than at the profile. Failing here names the offending ids instead.
+   */
+  private assertChecksExist(enabledPlugins?: string[]): void {
+    if (!enabledPlugins) return;
+
+    const unknown = enabledPlugins.filter((id) => !this.registry.has(id));
+    if (unknown.length > 0) {
+      throw new BadRequestException(
+        `Unknown security check${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}`,
+      );
+    }
+
+    const duplicates = enabledPlugins.filter((id, index) => enabledPlugins.indexOf(id) !== index);
+    if (duplicates.length > 0) {
+      throw new BadRequestException(
+        `Duplicate security check${duplicates.length > 1 ? 's' : ''}: ${[...new Set(duplicates)].join(', ')}`,
+      );
+    }
+  }
 
   async onModuleInit() {
     await this.seedSystemProfiles();
@@ -99,6 +142,8 @@ export class ProfilesService implements OnModuleInit {
   // ── Create custom profile ─────────────────────────────────────────────────
 
   async create(userId: string, dto: CreateProfileDto) {
+    this.assertChecksExist(dto.enabledPlugins);
+
     return this.prisma.scanProfile.create({
       data: { ...dto, userId, isSystem: false },
     });
@@ -111,6 +156,8 @@ export class ProfilesService implements OnModuleInit {
     if (!profile) throw new NotFoundException('Scan profile not found');
     if (profile.isSystem) throw new ForbiddenException('Cannot modify system profiles');
     if (profile.userId !== userId) throw new ForbiddenException();
+
+    this.assertChecksExist(dto.enabledPlugins);
 
     return this.prisma.scanProfile.update({ where: { id: profileId }, data: dto });
   }

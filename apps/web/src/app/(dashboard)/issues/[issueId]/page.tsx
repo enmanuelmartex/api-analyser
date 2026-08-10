@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { IconArrowLeft, IconBug, IconRobot, IconSearch } from '@tabler/icons-react';
@@ -13,6 +14,9 @@ import { PageHeader } from '@/components/layout/page-header';
 import { SeverityBadge } from '@/components/security/severity-badge';
 import { StatusBadge } from '@/components/security/finding-status-badge';
 import { MethodBadge } from '@/components/security/method-badge';
+import { IssueTriageDialog } from '@/components/issues/issue-triage-dialog';
+import { IssueAssigneeSelect } from '@/components/issues/issue-assignee-select';
+import { AiSecurityGuidance } from '@/components/issues/ai-security-guidance';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,23 +42,55 @@ export default function IssueDetailPage() {
     enabled: Boolean(issueId),
   });
 
+  /*
+   * Triage runs through a real dialog rather than `window.prompt`.
+   *
+   * The justification captured here becomes an immutable `IssueStatusChange`
+   * row — the audit record of a security decision — so it needs validation, a
+   * character budget, and somewhere to put the ACCEPTED_RISK expiry date that
+   * the API accepts and the prompt had no way to collect.
+   */
+  const [pendingStatus, setPendingStatus] = useState<IssueStatus | null>(null);
+
   const mutation = useMutation({
-    mutationFn: (next: IssueStatus) => {
-      let reason: string | undefined;
-      if (ISSUE_STATUSES_REQUIRING_REASON.includes(next)) {
-        const entered = window.prompt(`Why are you marking this issue as ${next.replace(/_/g, ' ').toLowerCase()}?`);
-        if (!entered?.trim()) throw new Error('A reason is required for this decision.');
-        reason = entered.trim();
-      }
-      return issuesApi.updateStatus(issueId, { status: next, reason });
-    },
+    mutationFn: (payload: { status: IssueStatus; reason?: string; acceptedRiskUntil?: string }) =>
+      issuesApi.updateStatus(issueId, payload),
     onSuccess: (issue) => {
       queryClient.setQueryData(['issues', issueId], issue);
       queryClient.invalidateQueries({ queryKey: ['issues'] });
+      queryClient.invalidateQueries({ queryKey: ['issue-stats'] });
+      setPendingStatus(null);
       toast.success('Issue updated');
     },
-    onError: (error: Error) => toast.error(error.message || 'Could not update the issue'),
+    onError: (error: any) =>
+      toast.error(error?.response?.data?.message ?? 'Could not update the issue'),
   });
+
+  const assignMutation = useMutation({
+    mutationFn: (assigneeId: string | null) => issuesApi.assign(issueId, assigneeId),
+    onSuccess: (issue, assigneeId) => {
+      queryClient.setQueryData(['issues', issueId], issue);
+      queryClient.invalidateQueries({ queryKey: ['issues'] });
+      toast.success(assigneeId ? 'Issue assigned' : 'Issue unassigned');
+    },
+    onError: (error: any) =>
+      toast.error(error?.response?.data?.message ?? 'Could not change the assignee'),
+  });
+
+  /**
+   * A status with no required justification is applied directly.
+   *
+   * OPEN and ACKNOWLEDGED state where the work stands; RESOLVED,
+   * FALSE_POSITIVE and ACCEPTED_RISK assert something about the risk itself
+   * and must be explained.
+   */
+  function requestStatusChange(next: IssueStatus) {
+    if (ISSUE_STATUSES_REQUIRING_REASON.includes(next)) {
+      setPendingStatus(next);
+    } else {
+      mutation.mutate({ status: next });
+    }
+  }
 
   if (query.isLoading) {
     return (
@@ -109,6 +145,13 @@ export default function IssueDetailPage() {
               <p className="leading-relaxed text-muted-foreground">{issue.description}</p>
             </CardContent>
           </Card>
+
+          {/*
+            AI guidance sits AFTER scanner evidence and in its own card, never
+            interleaved with it. Evidence is authoritative; guidance is advisory
+            and may be absent or wrong.
+          */}
+          <AiSecurityGuidance issueId={issueId} />
 
           {/*
             Occurrence history is what distinguishes an issue from a detection:
@@ -196,18 +239,36 @@ export default function IssueDetailPage() {
             <CardHeader>
               <CardTitle className="text-base">Triage</CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-wrap gap-2">
-              {STATUSES.map((next) => (
-                <Button
-                  key={next}
-                  variant={issue.status === next ? 'default' : 'outline'}
-                  size="sm"
-                  disabled={mutation.isPending || issue.status === next}
-                  onClick={() => mutation.mutate(next)}
-                >
-                  {next.replace(/_/g, ' ')}
-                </Button>
-              ))}
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {STATUSES.map((next) => (
+                  <Button
+                    key={next}
+                    variant={issue.status === next ? 'default' : 'outline'}
+                    size="sm"
+                    disabled={mutation.isPending || issue.status === next}
+                    onClick={() => requestStatusChange(next)}
+                  >
+                    {next.replace(/_/g, ' ')}
+                  </Button>
+                ))}
+              </div>
+
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-muted-foreground">Assignee</p>
+                <IssueAssigneeSelect
+                  assigneeId={issue.assigneeId}
+                  disabled={assignMutation.isPending}
+                  onChange={(assigneeId) => assignMutation.mutate(assigneeId)}
+                />
+              </div>
+
+              {issue.acceptedRiskUntil && issue.status === 'ACCEPTED_RISK' && (
+                <p className="text-xs text-muted-foreground">
+                  Risk accepted until {formatDate(issue.acceptedRiskUntil)}. The issue reopens
+                  after that date if it is still detected.
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -229,6 +290,15 @@ export default function IssueDetailPage() {
           </Card>
         </div>
       </div>
+
+      <IssueTriageDialog
+        open={pendingStatus !== null}
+        onOpenChange={(next) => !next && setPendingStatus(null)}
+        targetStatus={pendingStatus}
+        currentStatus={issue.status}
+        isSubmitting={mutation.isPending}
+        onConfirm={(payload) => mutation.mutate(payload)}
+      />
     </PageContainer>
   );
 }

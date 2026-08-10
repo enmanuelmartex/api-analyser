@@ -129,6 +129,22 @@ export class AuthService {
     });
   }
 
+  /**
+   * Updates the caller's own profile.
+   *
+   * Scoped to the authenticated id — the id is never taken from the request
+   * body, so this cannot be pointed at another account. Returns the same shape
+   * as `me()` so the client can replace its cached user directly.
+   */
+  async updateProfile(userId: string, data: { name: string }) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { name: data.name },
+    });
+
+    return this.me(userId);
+  }
+
   async exchangeSession(sessionToken: string) {
     const session = await (this.prisma as any).session.findFirst({
       where: { token: sessionToken, expiresAt: { gt: new Date() } },

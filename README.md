@@ -1,7 +1,12 @@
-# IASA — Intelligent API Security Assessment
+# API Analyser
 
 > Automated API security testing and vulnerability detection platform.
-> "Trivy for APIs" — scan REST APIs against OWASP API Security Top 10 in minutes.
+> Scan REST APIs against the OWASP API Security Top 10 in minutes.
+
+<sub>Formerly **IASA** (Intelligent API Security Assessment). The `iasa` identifier
+survives in infrastructure contracts — the repository directory, the Postgres
+database name, Docker image and container names, and `IASA_*` CI secrets —
+because renaming those breaks deployments for no user benefit.</sub>
 
 [![CI](https://github.com/your-org/iasa/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/iasa/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-violet.svg)](LICENSE)
@@ -22,38 +27,84 @@ bun run db:seed
 bun dev
 ```
 
-Open **http://localhost:3000** and sign in:
+Open **http://localhost:3000** and register an account.
 
-| Role     | Email                  | Password      |
-|----------|------------------------|---------------|
-| Admin    | admin@iasa.local       | Admin@123!    |
-| Analyst  | analyst@iasa.local     | Analyst@123!  |
+> **The seeded accounts do not work for web sign-in.** The web app authenticates
+> through Better Auth, which needs a row in the `accounts` table. `bun run db:seed`
+> creates `admin@iasa.local` and `analyst@iasa.local` as `users` rows only, so they
+> authenticate against the REST API directly (`POST /api/v1/auth/login`) but are
+> rejected by the login form. Register through the UI to get a web-usable account.
+
+| Account                | Works for                          |
+|------------------------|------------------------------------|
+| Registered via the UI  | Web app **and** API                |
+| `admin@iasa.local`     | API only — `POST /api/v1/auth/login` |
+| `analyst@iasa.local`   | API only — `POST /api/v1/auth/login` |
 
 ---
 
 ## What It Does
 
-IASA automatically assesses REST API security by:
+API Analyser automatically assesses REST API security by:
 
 1. **Parsing** OpenAPI/Swagger specifications (URL or file upload)
 2. **Discovering** all endpoints, methods, parameters, and schemas
-3. **Running** 10 OWASP API Security Top 10 plugin checks
-4. **Analyzing** results with AI (OpenAI / Amazon Bedrock)
-5. **Generating** professional reports in HTML, JSON, SARIF, Markdown
+3. **Running** 13 security checks covering all 10 OWASP API Top 10 categories
+4. **Analyzing** results with AI — OpenAI, Claude, Gemini, Grok or Ollama (optional)
+5. **Generating** reports in PDF, HTML, JSON, SARIF and Markdown
 
 ---
 
-## OWASP API Security Top 10 Coverage
+## OWASP API Security Top 10 (2023) Coverage
 
-| ID         | Category                                | Plugin                            |
-|------------|-----------------------------------------|-----------------------------------|
-| API1:2023  | Broken Object Level Authorization       | `bola`                            |
-| API2:2023  | Broken Authentication                   | `broken-auth` + `jwt-analysis`    |
-| API3:2023  | Broken Object Property Level Auth       | `mass-assignment` + `sensitive-data` |
-| API4:2023  | Unrestricted Resource Consumption       | `rate-limit`                      |
-| API5:2023  | Broken Function Level Authorization     | `bfla`                            |
-| API7:2023  | Server Side Request Forgery             | `ssrf`                            |
-| API8:2023  | Security Misconfiguration               | `cors` + `security-headers`       |
+**13 security checks · 49 rules · 10 of 10 categories covered.**
+
+Coverage is computed from the check manifests at runtime
+(`GET /api/v1/plugins/owasp-coverage`) and asserted in
+`apps/api/src/modules/plugins/owasp-coverage.spec.ts`, so this table cannot
+quietly drift from the code.
+
+| ID         | Category                                | Status      | Security check                       |
+|------------|-----------------------------------------|-------------|--------------------------------------|
+| API1:2023  | Broken Object Level Authorization       | Covered     | `bola`                               |
+| API2:2023  | Broken Authentication                   | Covered     | `broken-authentication`, `jwt-analysis` |
+| API3:2023  | Broken Object Property Level Auth       | Covered     | `mass-assignment`, `sensitive-data`  |
+| API4:2023  | Unrestricted Resource Consumption       | Covered     | `rate-limit`                         |
+| API5:2023  | Broken Function Level Authorization     | Covered     | `bfla`                               |
+| API6:2023  | Unrestricted Access to Sensitive Business Flows | Covered † | `business-flows`             |
+| API7:2023  | Server Side Request Forgery             | Covered     | `ssrf`                               |
+| API8:2023  | Security Misconfiguration               | Covered     | `cors`, `security-headers`, `sensitive-data` |
+| API9:2023  | Improper Inventory Management           | Covered †   | `inventory`                          |
+| API10:2023 | Unsafe Consumption of APIs              | Covered †   | `api-consumption`                    |
+
+**† Covered is not the same as exhaustive.** Three categories describe more than
+a black-box scan can see, and their checks say where they stop. The limits are
+carried in the coverage API, the UI and every report — not only here.
+
+- **API6** — flows are identified from the naming in the specification, and each
+  finding names the term that matched so the classification can be judged. A
+  flow named in terms the vocabulary does not recognise is not examined. What is
+  observed is the absence of a control in front of the flow: no throttle, no bot
+  mitigation, no captcha or OTP field, no authentication, no idempotency key.
+  Probes carry a payload the target is expected to reject, so the flow itself is
+  not executed, and DELETE operations are never probed.
+- **API9** — probing is confined to the host under assessment: undocumented
+  versions beside the documented ones, deprecated operations still answering,
+  and exposed documentation, actuator, metrics and debug surfaces. Every claim
+  is made against a baseline request to a path that does not exist, so a host
+  with a catch-all route produces no findings. A shadow API on a *different*
+  hostname cannot be found this way — that needs an asset inventory the scanner
+  is not given, and probing hosts nobody nominated would be scanning something
+  nobody authorised.
+- **API10** — only what crosses the client boundary is observable: upstream
+  references returned over plain HTTP, upstream errors relayed verbatim, and
+  inbound webhooks that accept unverified senders. Whether the service validates
+  what its upstreams return cannot be settled from outside; that needs code or
+  egress analysis.
+
+A tick with a footnote is the honest shape of these three. A tick without one
+would claim more than the product can demonstrate, and no check at all left
+users reading "no findings" as "nothing to find".
 
 ---
 
@@ -81,6 +132,10 @@ iasa/
 │   │   │   │           ├── sensitive-data/  # Data Exposure (API3)
 │   │   │   │           ├── mass-assignment/ # Mass Assignment (API3)
 │   │   │   │           ├── ssrf/            # SSRF (API7)
+│   │   │   │           ├── business-flows/  # Sensitive Business Flows (API6)
+│   │   │   │           ├── inventory/       # Inventory & Exposure (API9)
+│   │   │   │           ├── api-consumption/ # Third-Party Consumption (API10)
+│   │   │   │           ├── shared/          # Baseline comparison, tokenising
 │   │   │   │           └── ai-analysis/     # OpenAI enrichment
 │   │   │   └── prisma/          # Prisma ORM service
 │   │   └── prisma/

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import type { PrismaClient } from '@prisma/client';
 import { ScoringService } from './scoring.service';
+import { SCORE_VERSION } from './score-engine';
 import { ComparisonService } from './comparison.service';
 import { IssueLifecycleService } from '../issues/issue-lifecycle.service';
 import type { ScanFinding } from '../scanner/types/scanner.types';
@@ -109,11 +110,22 @@ afterAll(async () => {
   await teardownTestDatabase();
 });
 
+// Posture picks the most recent scan by `createdAt`, so both scans must have
+// pinned dates. SCAN_A previously defaulted to `now()` while SCAN_B was fixed
+// to a date in the past: the test passed only while the wall clock happened to
+// sit before that date, then started failing on its own with no code change.
+const SCAN_A_CREATED_AT = new Date('2026-07-19T10:00:00Z');
+const SCAN_B_CREATED_AT = new Date('2026-07-20T10:00:00Z');
+
 beforeEach(async () => {
   await resetTestDatabase(prisma);
   await seedProjectAndAssessment(prisma, { projectId: PROJECT_ID, assessmentId: SCAN_A });
+  await prisma.assessment.update({
+    where: { id: SCAN_A },
+    data: { createdAt: SCAN_A_CREATED_AT },
+  });
   await prisma.assessment.create({
-    data: { id: SCAN_B, projectId: PROJECT_ID, status: 'RUNNING', createdAt: new Date('2026-07-20T10:00:00Z') },
+    data: { id: SCAN_B, projectId: PROJECT_ID, status: 'RUNNING', createdAt: SCAN_B_CREATED_AT },
   });
 });
 
@@ -124,7 +136,9 @@ describe('persisted score snapshot', () => {
     const summary = await prisma.assessmentSummary.findUniqueOrThrow({ where: { assessmentId: SCAN_A } });
     expect(summary.securityScore).toBe(80);
     expect(summary.scoreStatus).toBe('FINAL');
-    expect(summary.scoreVersion).toBe('score-v1');
+    // The engine stamps its own version; pinning a literal here only asserted
+    // which version happened to be current when the test was written.
+    expect(summary.scoreVersion).toBe(SCORE_VERSION);
     expect(summary.coveragePercent).toBe(100);
 
     const explanation = summary.scoreExplanation as any;
@@ -283,6 +297,113 @@ describe('comparison', () => {
     expect(result.comparability).toBe('PARTIALLY_COMPARABLE');
     expect(result.scopeChanges!.addedChecks).toContain('cors');
     expect(result.scopeChanges!.sharedChecks).toContain('security-headers');
+  });
+
+  /**
+   * The comparison payload is a published contract, not an internal shape.
+   *
+   * `ScanComparison` in `apps/web/src/types/index.ts` is a hand-maintained
+   * mirror of it — the two apps share no package — and a hand-written mirror
+   * drifts. It already did: the UI was written against
+   * `scopeChanges.{added,removed,failedNow}` while the service returns
+   * `{sharedChecks,addedChecks,removedChecks}`, which crashed the scan detail
+   * page at runtime with "Cannot read properties of undefined".
+   *
+   * Renaming any key below is therefore a breaking change: this test fails,
+   * and the frontend mirror has to be updated in the same commit.
+   */
+  it('returns the exact key set the web client is written against', async () => {
+    await runScan(SCAN_A, [finding()], { plannedChecks: 1, successfulChecks: 1 });
+    await runScan(SCAN_B, [finding()], { plannedChecks: 1, successfulChecks: 1 });
+
+    const result = await comparison.compare(SCAN_B, USER_ID, SCAN_A);
+
+    expect(Object.keys(result).sort()).toEqual([
+      'baseline',
+      'changes',
+      'comparability',
+      'coverageDelta',
+      'current',
+      'scopeChanges',
+      'scoreDelta',
+      'warnings',
+    ]);
+
+    // Both sides carry the same fields, so the UI can render them identically.
+    for (const side of [result.current, result.baseline!]) {
+      expect(Object.keys(side).sort()).toEqual([
+        'assessmentId',
+        'coveragePercent',
+        'createdAt',
+        'failedChecks',
+        'plannedChecks',
+        'scoreStatus',
+        'scoreVersion',
+        'securityScore',
+        'skippedChecks',
+        'successfulChecks',
+      ]);
+    }
+
+    expect(Object.keys(result.scopeChanges!).sort()).toEqual([
+      'addedChecks',
+      'removedChecks',
+      'sharedChecks',
+    ]);
+
+    // Every change bucket is always present, even when empty — the UI iterates
+    // the six kinds unconditionally and must never index undefined.
+    expect(Object.keys(result.changes).sort()).toEqual([
+      'NEW',
+      'NOT_TESTED',
+      'OUT_OF_SCOPE',
+      'PERSISTING',
+      'REOPENED',
+      'RESOLVED',
+    ]);
+    for (const entries of Object.values(result.changes)) {
+      expect(Array.isArray(entries)).toBe(true);
+    }
+  });
+
+  /**
+   * Baseline candidates nest their score under `summary`.
+   *
+   * They are selected through a Prisma relation include, so the fields are NOT
+   * flattened onto the candidate. The first version of the picker read
+   * `candidate.securityScore` and rendered "—/100" for every option.
+   */
+  it('returns baseline candidates with score data nested under summary', async () => {
+    await runScan(SCAN_A, [finding()]);
+    await runScan(SCAN_B, [finding()]);
+
+    const candidates = await comparison.getComparisonCandidates(SCAN_B, USER_ID);
+
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(Object.keys(candidates[0]).sort()).toEqual(['createdAt', 'id', 'summary']);
+    expect(Object.keys(candidates[0].summary!).sort()).toEqual([
+      'coveragePercent',
+      'scoreStatus',
+      'scoreVersion',
+      'securityScore',
+    ]);
+    // The scan being compared is never offered as its own baseline.
+    expect(candidates.some((candidate) => candidate.id === SCAN_B)).toBe(false);
+  });
+
+  it('gives every change entry the fields the UI renders', async () => {
+    await runScan(SCAN_A, []);
+    await runScan(SCAN_B, [finding()]);
+
+    const result = await comparison.compare(SCAN_B, USER_ID, SCAN_A);
+    const entry = result.changes.NEW[0];
+
+    expect(entry).toBeDefined();
+    for (const key of ['fingerprint', 'issueId', 'title', 'severity', 'pluginId', 'ruleId', 'route']) {
+      expect(entry).toHaveProperty(key);
+    }
+    // `route` is pre-joined "METHOD /path" — the UI does not build it.
+    expect(entry.route).toBe('GET /users/{id}');
   });
 
   it('is COMPARABLE when version, scope and status all match', async () => {

@@ -1,5 +1,6 @@
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
 import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
+import { appBrand } from '../../../../brand/brand';
 
 export class JwtAnalysisPlugin extends BasePlugin {
   readonly manifest: PluginManifest = {
@@ -8,7 +9,7 @@ export class JwtAnalysisPlugin extends BasePlugin {
     version: '1.0.0',
     description: 'Analyzes JWT tokens for security weaknesses',
     longDescription: 'Decodes and inspects the configured JWT token checking for dangerous algorithms (none, RS→HS confusion), weak secrets, missing claims, and token expiration issues.',
-    author: 'IASA Core Team',
+    author: appBrand.pluginAuthor,
     license: 'MIT',
     category: PluginCategory.AUTHENTICATION,
     owaspMappings: ['API2:2023'],

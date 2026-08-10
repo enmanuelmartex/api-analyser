@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
 import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
+import { appBrand } from '../../../../brand/brand';
 
 interface HeaderCheck {
   header: string;
@@ -27,7 +28,7 @@ export class SecurityHeadersPlugin extends BasePlugin {
     version: '1.0.0',
     description: 'Tests for API8:2023 - Security Misconfiguration (HTTP Security Headers)',
     longDescription: 'Audits HTTP response headers for the presence and correct configuration of security directives such as HSTS, CSP, X-Content-Type-Options, and X-Frame-Options.',
-    author: 'IASA Core Team',
+    author: appBrand.pluginAuthor,
     license: 'MIT',
     category: PluginCategory.HEADERS,
     owaspMappings: ['API8:2023'],

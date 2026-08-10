@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
 import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
+import { appBrand } from '../../../../brand/brand';
 
 export class RateLimitPlugin extends BasePlugin {
   readonly manifest: PluginManifest = {
@@ -9,7 +10,7 @@ export class RateLimitPlugin extends BasePlugin {
     version: '1.0.0',
     description: 'Tests for API4:2023 - Unrestricted Resource Consumption (Rate Limiting)',
     longDescription: 'Fires bursts of rapid requests against selected endpoints and checks for 429 responses or rate-limit headers to detect missing throttling controls.',
-    author: 'IASA Core Team',
+    author: appBrand.pluginAuthor,
     license: 'MIT',
     category: PluginCategory.PERFORMANCE,
     owaspMappings: ['API4:2023'],
@@ -52,7 +53,7 @@ export class RateLimitPlugin extends BasePlugin {
       const requestStart = Date.now();
 
       await Promise.all(
-        Array.from({ length: numRequests }, async (_, i) => {
+        Array.from({ length: numRequests }, async () => {
           try {
             const resp = await axios.request({
               method: endpoint.method as any,

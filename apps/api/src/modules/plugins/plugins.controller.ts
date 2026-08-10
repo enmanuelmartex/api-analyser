@@ -38,6 +38,16 @@ export class PluginsController {
     return Object.values(PluginCategory).filter((category) => inUse.has(category));
   }
 
+  /**
+   * GET /plugins/owasp-coverage — what the installed checks actually cover.
+   *
+   * Declared before `:id` so the literal path wins the route match.
+   */
+  @Get('owasp-coverage')
+  getOwaspCoverage() {
+    return this.registry.getOwaspCoverage();
+  }
+
   // GET /plugins/:id — plugin detail with stats
   @Get(':id')
   findOne(@Param('id') id: string, @Request() req: any) {

@@ -6,7 +6,6 @@ import { IconLoader2 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { authClient, AUTH_BASE_URL } from '@/lib/auth-client';
 import { authApi } from '@/lib/api';
-import { appBrand } from '@/lib/brand';
 import { AppLogo } from '@/components/brand/app-logo';
 
 // OAuth callback page — landed here after Google OAuth completes.

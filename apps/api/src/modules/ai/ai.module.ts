@@ -10,6 +10,10 @@ import { AiProviderFactory } from './ai-provider.factory';
 import { AiConfigService } from './ai-config.service';
 import { AiService } from './ai.service';
 import { AiController } from './ai.controller';
+import { GuidanceContextResolver } from './guidance/guidance-context.resolver';
+import { SecurityKnowledgeRegistry } from './guidance/security-knowledge.registry';
+import { IssueGuidanceService } from './guidance/issue-guidance.service';
+import { AiUsageService } from './guidance/ai-usage.service';
 
 @Module({
   imports: [PrismaModule],
@@ -27,8 +31,13 @@ import { AiController } from './ai.controller';
     AiProviderFactory,
     // Public service consumed by the scanner
     AiService,
+    // Structured security guidance: retrieval, context and persistence
+    GuidanceContextResolver,
+    SecurityKnowledgeRegistry,
+    IssueGuidanceService,
+    AiUsageService,
   ],
   controllers: [AiController],
-  exports: [AiService, AiConfigService],
+  exports: [AiService, AiConfigService, IssueGuidanceService, SecurityKnowledgeRegistry],
 })
 export class AiModule {}

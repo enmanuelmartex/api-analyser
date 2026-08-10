@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
 import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
+import { appBrand } from '../../../../brand/brand';
 
 interface DataPattern {
   /** Declared explicitly: part of the issue fingerprint, so it must not follow the display name. */
@@ -20,7 +21,7 @@ export class SensitiveDataPlugin extends BasePlugin {
     version: '1.0.0',
     description: 'Tests for API3:2023 and API8:2023 - Sensitive data in API responses',
     longDescription: 'Scans API responses for regex patterns matching credit card numbers, SSNs, private keys, AWS access keys, and generic secrets accidentally returned in payloads.',
-    author: 'IASA Core Team',
+    author: appBrand.pluginAuthor,
     license: 'MIT',
     category: PluginCategory.COMPLIANCE,
     owaspMappings: ['API3:2023', 'API8:2023'],

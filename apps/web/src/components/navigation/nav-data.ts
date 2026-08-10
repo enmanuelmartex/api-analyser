@@ -5,18 +5,8 @@ import {
   IconActivity,
   IconBug,
   IconFileText,
-  IconPuzzle,
-  IconStack2,
+  IconShieldCheck,
   IconSettings,
-  IconUser,
-  IconShieldLock,
-  IconKey,
-  IconBell,
-  IconRobot,
-  IconServer2,
-  IconInfoCircle,
-  IconUsers,
-  IconHistory,
 } from '@tabler/icons-react';
 
 export interface NavLeaf {
@@ -42,42 +32,41 @@ export interface NavGroup {
   items: NavLeaf[];
 }
 
+/**
+ * The product's primary navigation.
+ *
+ * Three naming decisions, all about not misleading the user:
+ *
+ *  - "Scans", not "Assessments". The user runs a scan; "assessment" is the
+ *    persistence model's word and leaks internal vocabulary into the UI. The
+ *    `/assessments` routes are unchanged — this is a label, not a migration.
+ *
+ *  - "Security Checks", not "Plugins" / "Installed Plugins". The checks are
+ *    compiled into the scanner. Calling them installed plugins implies a
+ *    package registry, optional installation and third-party checks, none of
+ *    which exist.
+ *
+ *  - Settings is one entry. It previously expanded into nine sidebar children
+ *    that duplicated the page's own sections, producing two active states for
+ *    one destination. The tab strip now lives inside the Settings page, where
+ *    a tabbed screen's navigation belongs.
+ */
 export const NAV_MAIN: NavLeaf[] = [
   { title: 'Dashboard', url: '/dashboard', icon: IconLayoutDashboard, exact: true },
   { title: 'Projects', url: '/projects', icon: IconFolder },
-  { title: 'Assessments', url: '/assessments', icon: IconActivity },
+  { title: 'Scans', url: '/assessments', icon: IconActivity },
   { title: 'Issues', url: '/issues', icon: IconBug },
   { title: 'Reports', url: '/reports', icon: IconFileText },
+  { title: 'Security Checks', url: '/plugins', icon: IconShieldCheck },
+  { title: 'Settings', url: '/settings', icon: IconSettings },
 ];
 
-export const NAV_COLLAPSIBLE: NavGroup[] = [
-  {
-    title: 'Plugins',
-    icon: IconPuzzle,
-    items: [
-      { title: 'Installed Plugins', url: '/plugins', icon: IconPuzzle, exact: true },
-      { title: 'Profiles', url: '/plugins/profiles', icon: IconStack2 },
-    ],
-  },
-  {
-    title: 'Settings',
-    icon: IconSettings,
-    items: [
-      { title: 'General', url: '/settings?tab=general', icon: IconUser },
-      { title: 'Security', url: '/settings?tab=security', icon: IconShieldLock },
-      { title: 'API Tokens', url: '/settings?tab=tokens', icon: IconKey },
-      { title: 'Notifications', url: '/settings?tab=notifications', icon: IconBell },
-      { title: 'AI Configuration', url: '/settings?tab=ai', icon: IconRobot },
-      { title: 'System', url: '/settings?tab=system', icon: IconServer2 },
-      { title: 'About', url: '/settings?tab=about', icon: IconInfoCircle },
-      // Administration is admin-only. Hiding these is a UI affordance, not a
-      // control: the backend guards on /users and /audit-logs still reject a
-      // non-admin who types the URL.
-      { title: 'Users', url: '/settings?tab=users', icon: IconUsers, adminOnly: true, section: 'Administration' },
-      { title: 'Audit Logs', url: '/settings?tab=audit-logs', icon: IconHistory, adminOnly: true, section: 'Administration' },
-    ],
-  },
-];
+/**
+ * Kept as an empty list rather than deleted: `NavCollapsible` and the group
+ * types are still the mechanism for any future grouped section, and removing
+ * them would be a larger change than this rename warrants.
+ */
+export const NAV_COLLAPSIBLE: NavGroup[] = [];
 
 export function isLeafActive(pathname: string, search: string, item: NavLeaf): boolean {
   const [itemPath, itemQuery] = item.url.split('?');
@@ -87,7 +76,8 @@ export function isLeafActive(pathname: string, search: string, item: NavLeaf): b
     return pathname === itemPath && currentTab === itemTab;
   }
   if (item.exact) return pathname === itemPath;
-  if (itemPath === '/plugins') return pathname === '/plugins' || /^\/plugins\/(?!profiles)/.test(pathname);
+  // Security Checks owns every /plugins route, profiles included — profiles is
+  // a tab within that screen, not a separate destination.
   return pathname === itemPath || pathname.startsWith(`${itemPath}/`);
 }
 

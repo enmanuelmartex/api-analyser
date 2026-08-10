@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
 import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
+import { appBrand } from '../../../../brand/brand';
 
 export class BolaPlugin extends BasePlugin {
   readonly manifest: PluginManifest = {
@@ -9,7 +10,7 @@ export class BolaPlugin extends BasePlugin {
     version: '1.0.0',
     description: 'Tests for API1:2023 - BOLA/IDOR vulnerabilities',
     longDescription: 'Probes endpoints with ID path parameters using multiple object IDs to detect missing ownership checks that allow accessing other users\' resources.',
-    author: 'IASA Core Team',
+    author: appBrand.pluginAuthor,
     license: 'MIT',
     category: PluginCategory.AUTHORIZATION,
     owaspMappings: ['API1:2023'],

@@ -4,6 +4,7 @@ import {
   redactObject,
   redactUrl,
 } from '../../../common/utils/redact.util';
+import { appBrand } from '../../../brand/brand';
 
 export interface ScanContext {
   assessmentId: string;
@@ -177,7 +178,7 @@ export abstract class BasePlugin {
 
   protected getAuthHeaders(auth: AuthConfig): Record<string, string> {
     const headers: Record<string, string> = {
-      'User-Agent': 'IASA-Scanner/1.0',
+      'User-Agent': appBrand.scannerUserAgent,
       'Accept': 'application/json, */*',
     };
 

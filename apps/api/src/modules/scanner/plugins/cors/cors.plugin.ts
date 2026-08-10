@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
 import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
+import { appBrand } from '../../../../brand/brand';
 
 export class CorsPlugin extends BasePlugin {
   readonly manifest: PluginManifest = {
@@ -9,7 +10,7 @@ export class CorsPlugin extends BasePlugin {
     version: '1.0.0',
     description: 'Tests for API8:2023 - Security Misconfiguration (CORS)',
     longDescription: 'Probes CORS configuration using malicious and crafted origins to detect wildcards combined with credentials, origin reflection, and permissive cross-origin policies.',
-    author: 'IASA Core Team',
+    author: appBrand.pluginAuthor,
     license: 'MIT',
     category: PluginCategory.HEADERS,
     owaspMappings: ['API8:2023'],

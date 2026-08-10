@@ -95,6 +95,57 @@ export class IssuesService {
     };
   }
 
+  /**
+   * AI guidance for one issue, or an explicit unavailable state.
+   *
+   * Never throws when guidance is missing — "no guidance yet" is a normal
+   * outcome (AI disabled, provider unconfigured, scan predates the feature) and
+   * must be distinguishable from "we tried and it failed". Ownership is checked
+   * against the issue, so guidance cannot be read for another user's project.
+   */
+  async getGuidance(id: string, userId: string) {
+    const issue = await this.prisma.securityIssue.findFirst({
+      where: { id, project: { userId } },
+      select: { id: true },
+    });
+    if (!issue) throw new NotFoundException('Issue not found');
+
+    const guidance = await (this.prisma as any).issueGuidance.findUnique({
+      where: { issueId: id },
+    });
+
+    if (!guidance) {
+      return {
+        status: 'UNAVAILABLE',
+        reason:
+          'No AI guidance has been generated for this issue. It may predate AI analysis, or AI analysis may be disabled.',
+        guidance: null,
+      };
+    }
+
+    return {
+      status: guidance.status,
+      reason:
+        guidance.status === 'FAILED'
+          ? describeGuidanceFailure(guidance.errorCode)
+          : null,
+      guidance: guidance.payload ?? null,
+      metadata: {
+        provider: guidance.provider,
+        model: guidance.model,
+        promptVersion: guidance.promptVersion,
+        knowledgeVersion: guidance.knowledgeVersion,
+        schemaVersion: guidance.schemaVersion,
+        playbookIds: guidance.playbookIds,
+        confidence: guidance.confidence,
+        generatedAt: guidance.generatedAt,
+        tokensInput: guidance.tokensInput,
+        tokensOutput: guidance.tokensOutput,
+        estimatedCostUsd: guidance.costUsd,
+      },
+    };
+  }
+
   /** One issue with its occurrence history and full triage timeline. */
   async findOne(id: string, userId: string) {
     const issue = await this.prisma.securityIssue.findFirst({
@@ -187,6 +238,25 @@ export class IssuesService {
     });
     if (!issue) throw new NotFoundException('Issue not found');
 
+    /*
+     * The assignee is verified before the write.
+     *
+     * `SecurityIssue.assigneeId` carries a foreign key, so an unknown id used
+     * to surface as a Prisma constraint violation and reach the client as a
+     * 500. It is a bad request, not a server fault, and it should say so.
+     * Inactive accounts are rejected for the same reason they are absent from
+     * the picker: assigning work to a disabled account hides the issue.
+     */
+    if (assigneeId) {
+      const assignee = await this.prisma.user.findFirst({
+        where: { id: assigneeId, isActive: true },
+        select: { id: true },
+      });
+      if (!assignee) {
+        throw new BadRequestException('Assignee must be an active user.');
+      }
+    }
+
     await this.prisma.securityIssue.update({ where: { id }, data: { assigneeId } });
     return this.findOne(id, userId);
   }
@@ -255,5 +325,21 @@ export class IssuesService {
       );
     }
     return normalized as Severity;
+  }
+}
+
+/** Turns a stored failure code into something a user can act on. */
+function describeGuidanceFailure(errorCode: string | null): string {
+  switch (errorCode) {
+    case 'PROVIDER_UNAVAILABLE':
+      return 'The AI provider rejected the request — it may be rate limited, out of quota, or misconfigured. Scanner evidence is unaffected.';
+    case 'NOT_JSON':
+    case 'NOT_AN_OBJECT':
+    case 'MISSING_REQUIRED_FIELDS':
+      return 'The AI provider returned a response that could not be validated. Scanner evidence is unaffected.';
+    case 'EMPTY_RESPONSE':
+      return 'The AI provider returned an empty response. Scanner evidence is unaffected.';
+    default:
+      return 'AI guidance could not be generated for this issue. Scanner evidence is unaffected.';
   }
 }

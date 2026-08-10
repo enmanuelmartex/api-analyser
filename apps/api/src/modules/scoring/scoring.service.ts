@@ -3,7 +3,6 @@ import type { Severity } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   computeScore,
-  SCORE_VERSION,
   type ScorableIssue,
   type ScoreResult,
 } from './score-engine';

@@ -164,7 +164,7 @@ export class IssueLifecycleService {
     reopened: boolean;
     recurring: boolean;
   }> {
-    const { finding, identity, occurrenceKey } = detection;
+    const { finding, identity } = detection;
     const severity = finding.severity as Severity;
 
     return this.prisma.$transaction(async (tx) => {

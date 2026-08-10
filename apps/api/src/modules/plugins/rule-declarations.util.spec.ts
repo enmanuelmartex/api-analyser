@@ -108,11 +108,11 @@ describe('the real built-in plugins', () => {
     (registry as any).registerBuiltins();
 
     const manifests = registry.getAllManifests();
-    expect(manifests).toHaveLength(10);
+    expect(manifests).toHaveLength(13);
     expect(findRuleDeclarationProblems(manifests)).toEqual([]);
   });
 
-  it('declare every rule id exactly once across all 10 plugins', async () => {
+  it('declare every rule id exactly once across every plugin', async () => {
     const { PluginRegistryService } = await import('./plugin-registry.service');
     const registry = new PluginRegistryService({} as any);
     (registry as any).registerBuiltins();

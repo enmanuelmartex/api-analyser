@@ -9,6 +9,7 @@ import { issuesApi } from '@/lib/api';
 import type { IssueStatus, Paginated, SecurityIssue, Severity } from '@/types';
 import { PageContainer } from '@/components/layout/page-container';
 import { PageHeader } from '@/components/layout/page-header';
+import { IssueStatsStrip } from '@/components/issues/issue-stats-strip';
 import { DataTable } from '@/components/tables/data-table';
 import { DataTableColumnHeader } from '@/components/tables/data-table-column-header';
 import { SeverityBadge } from '@/components/security/severity-badge';
@@ -117,6 +118,8 @@ export default function IssuesPage() {
         title="Issues"
         description="Vulnerabilities that persist across scans. Each appears once, however many times it has been detected."
       />
+
+      <IssueStatsStrip />
 
       <div className="flex flex-wrap gap-2">
         <FilterGroup label="Severity" value={severity} options={SEVERITIES} onChange={(v) => { setSeverity(v); setPage(1); }} />

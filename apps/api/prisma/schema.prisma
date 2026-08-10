@@ -549,7 +549,15 @@ model AssessmentSummary {
   /// successfulChecks / plannedChecks × 100. Null when nothing was planned.
   coveragePercent  Float?
 
-  owaspCoverage Json? // OWASP categories covered
+  /// MISNOMER, kept for compatibility: this is a COUNT OF FINDINGS per OWASP
+  /// category, not a coverage measure. A category with no security check behind
+  /// it stores 0 here, exactly like a category that was tested and came back
+  /// clean — which is why the dashboard radar built on this field made
+  /// untested categories look secure. Real coverage comes from the check
+  /// registry (`GET /plugins/owasp-coverage`). Renaming the column would
+  /// rewrite historical scan summaries, so the name stays and every consumer
+  /// treats it as finding counts.
+  owaspCoverage Json? // findings per OWASP category (see note above)
   pluginResults Json? // PluginExecutionPlan — available / executed / skipped / versions / durationMs / findingCounts
   aiStatus      Json? // AiAnalysisMeta — provider / model / available / analyzed / skipped / durationMs / tokensUsed / reason
 
@@ -665,6 +673,7 @@ model SecurityIssue {
 
   occurrences   FindingOccurrence[]
   statusChanges IssueStatusChange[]
+  guidance      IssueGuidance?
 
   /// The core deduplication guarantee: one logical vulnerability per project per
   /// fingerprint formula. A rescan finds this row instead of inserting a duplicate.
@@ -1007,4 +1016,65 @@ model AuditLog {
   /// Audit log filtered by user.
   @@index([userId, createdAt])
   @@map("audit_logs")
+}
+
+
+/// AI-generated remediation guidance for one issue.
+///
+/// Separate from SecurityIssue on purpose. Scanner evidence and AI advice must
+/// never share a row: the scanner's findings are authoritative and immutable,
+/// while guidance is advisory, regenerable, and may fail or be disabled
+/// entirely. A failed enrichment writes a row with status FAILED and no
+/// payload, so "we tried and could not" is distinguishable from "never tried".
+///
+/// One row per issue (guidance replaces its predecessor rather than
+/// accumulating): the metadata below records which prompt and knowledge pack
+/// produced the current answer, which is what makes it auditable.
+model IssueGuidance {
+  id      String        @id @default(cuid())
+  issueId String        @unique
+  issue   SecurityIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  status    GuidanceStatus
+  /// Validated SecurityGuidance payload. Null unless status is READY.
+  payload   Json?
+  /// Machine-readable failure cause, e.g. NOT_JSON, RATE_LIMITED, TIMEOUT.
+  errorCode String?
+
+  // ── Reproducibility ────────────────────────────────────────────────────────
+  /// Shape of the payload, e.g. `guidance-v1`.
+  schemaVersion    String
+  /// Prompt that produced it, e.g. `guidance-prompt-v3`.
+  promptVersion    String
+  /// Knowledge pack consulted, e.g. `knowledge-2026.08.1`.
+  knowledgeVersion String
+  /// Ids of the playbooks actually retrieved for this finding.
+  playbookIds      String[]
+
+  // ── Provenance ─────────────────────────────────────────────────────────────
+  provider String
+  model    String
+  /// Model's self-reported confidence, 0–1. Null when it did not give one.
+  confidence Float?
+
+  // ── Cost accounting ────────────────────────────────────────────────────────
+  tokensInput  Int   @default(0)
+  tokensOutput Int   @default(0)
+  /// Estimated, not billed. Always labelled as an estimate in the UI.
+  costUsd      Float @default(0)
+
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  /// "Show me everything a given provider produced" and usage roll-ups.
+  @@index([provider, generatedAt])
+  @@index([status])
+  @@map("issue_guidance")
+}
+
+enum GuidanceStatus {
+  READY
+  FAILED
+  /// The provider is configured but analysis was not requested for this scan.
+  SKIPPED
 }

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { AuditModule } from '../audit/audit.module';
 import { PluginRegistryService } from './plugin-registry.service';
 import { PluginsService } from './plugins.service';
 import { PluginExecutorService } from './plugin-executor.service';
@@ -8,7 +9,7 @@ import { PluginsController } from './plugins.controller';
 import { ProfilesController } from './profiles.controller';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, AuditModule],
   providers: [
     PluginRegistryService,
     PluginsService,

@@ -54,6 +54,22 @@ export class UsersService {
     return user;
   }
 
+  /**
+   * Accounts that may be set as an issue assignee.
+   *
+   * A narrower projection than `SELECT_PUBLIC` on purpose: this is reachable by
+   * any authenticated user, so it returns only what a picker renders. Inactive
+   * accounts are excluded — assigning work to a disabled account silently
+   * parks the issue with nobody.
+   */
+  async findAssignable() {
+    return this.prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, email: true, role: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   async create(dto: CreateUserDto, actorId: string) {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existing) throw new ConflictException('Email already registered');

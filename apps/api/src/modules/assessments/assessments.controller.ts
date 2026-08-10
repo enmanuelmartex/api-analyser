@@ -11,18 +11,23 @@ import {
   MessageEvent,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { AuditAction } from '@prisma/client';
 import { Observable } from 'rxjs';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AssessmentsService } from './assessments.service';
 import { RunAssessmentDto } from './dto/run-assessment.dto';
+import { AuditService } from '../audit/audit.service';
 
 @ApiTags('Assessments')
 @ApiBearerAuth('JWT')
 @UseGuards(JwtAuthGuard)
 @Controller('assessments')
 export class AssessmentsController {
-  constructor(private assessmentsService: AssessmentsService) {}
+  constructor(
+    private assessmentsService: AssessmentsService,
+    private audit: AuditService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List assessments' })
@@ -64,18 +69,47 @@ export class AssessmentsController {
 
   @Post('projects/:projectId/run')
   @ApiOperation({ summary: 'Create and run a new assessment' })
-  createAndRun(
+  async createAndRun(
     @Param('projectId') projectId: string,
     @CurrentUser() user: any,
     @Body() config: RunAssessmentDto,
   ) {
-    return this.assessmentsService.createAndRun(projectId, user.id, config);
+    const assessment = await this.assessmentsService.createAndRun(projectId, user.id, config);
+
+    /*
+     * Audited after the call, so a rejected run (unknown check id, project not
+     * ready) does not leave a record claiming a scan started. The metadata
+     * carries the execution mode and the resolved selection — enough to answer
+     * "what was actually tested" later — and no credential or target secret.
+     */
+    this.audit.log({
+      userId: user.id,
+      action: AuditAction.SCAN_START,
+      resource: 'assessment',
+      resourceId: assessment?.id,
+      metadata: {
+        projectId,
+        executionMode: config?.executionMode ?? 'all',
+        scanProfileId: config?.scanProfileId,
+      },
+    });
+
+    return assessment;
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Cancel a running assessment' })
-  cancel(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.assessmentsService.cancel(id, user.id);
+  async cancel(@Param('id') id: string, @CurrentUser() user: any) {
+    const result = await this.assessmentsService.cancel(id, user.id);
+
+    this.audit.log({
+      userId: user.id,
+      action: AuditAction.SCAN_STOP,
+      resource: 'assessment',
+      resourceId: id,
+    });
+
+    return result;
   }
 
   @Sse(':id/progress')

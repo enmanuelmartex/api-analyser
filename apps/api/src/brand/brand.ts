@@ -36,6 +36,18 @@ export const appBrand = {
   /** User-Agent the scanner presents to a target under test. */
   scannerUserAgent: 'APIAnalyser-Scanner/1.0',
 
+  /**
+   * Header stamped on probe traffic, and the property name marking a probe
+   * payload the target is meant to reject.
+   *
+   * Both are read by a stranger — the operator of the target, reading their own
+   * logs during a scan — so they carry the product name rather than the legacy
+   * internal one. Someone seeing repeated requests against their checkout
+   * endpoint should be able to attribute them in seconds.
+   */
+  scannerProbeHeader: 'X-APIAnalyser-Probe',
+  scannerProbeField: '__apianalyser_probe',
+
   /** Attribution on built-in scanner plugins. */
   pluginAuthor: 'API Analyser Core Team',
 } as const;

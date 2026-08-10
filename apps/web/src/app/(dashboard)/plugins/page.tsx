@@ -7,7 +7,6 @@ import {
   IconPuzzle,
   IconShieldLock,
   IconSearch,
-  IconFilter,
   IconToggleLeft,
   IconToggleRight,
   IconChevronRight,
@@ -27,8 +26,8 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { PageContainer } from '@/components/layout/page-container';
 import { PageHeader } from '@/components/layout/page-header';
+import { SecurityChecksTabs } from '@/components/navigation/security-checks-tabs';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -92,18 +91,17 @@ export default function PluginsPage() {
 
   return (
     <PageContainer>
+      {/*
+        "Security Checks", not "Plugins": these checks are compiled into the
+        scanner. The old name implied a package registry and third-party
+        installation, neither of which exists.
+      */}
       <PageHeader
-        title="Plugins"
-        description={`Manage security plugins · ${enabledCount} of ${plugins.length} enabled`}
-        actions={
-          <Button asChild variant="outline">
-            <Link href="/plugins/profiles">
-              <IconFilter className="h-3.5 w-3.5" />
-              Profiles
-            </Link>
-          </Button>
-        }
+        title="Security Checks"
+        description={`${enabledCount} of ${plugins.length} enabled`}
       />
+
+      <SecurityChecksTabs active="checks" />
 
       {/* Stats strip */}
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">

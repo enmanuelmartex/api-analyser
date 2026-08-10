@@ -1,13 +1,19 @@
 import {
   Controller, Get, Post, Put, Delete, Param, Body, UseGuards, Request,
 } from '@nestjs/common';
+import { AuditAction } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ProfilesService } from './profiles.service';
+import { AuditService } from '../audit/audit.service';
+import { CreateScanProfileDto, UpdateScanProfileDto } from './dto/scan-profile.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('plugins/profiles')
 export class ProfilesController {
-  constructor(private readonly profilesService: ProfilesService) {}
+  constructor(
+    private readonly profilesService: ProfilesService,
+    private readonly audit: AuditService,
+  ) {}
 
   // GET /plugins/profiles
   @Get()
@@ -23,38 +29,52 @@ export class ProfilesController {
 
   // POST /plugins/profiles
   @Post()
-  create(
-    @Body() body: {
-      name: string;
-      description?: string;
-      icon?: string;
-      enabledPlugins: string[];
-      pluginConfigs?: Record<string, any>;
-    },
-    @Request() req: any,
-  ) {
-    return this.profilesService.create(req.user.id, body);
+  async create(@Body() body: CreateScanProfileDto, @Request() req: any) {
+    const profile = await this.profilesService.create(req.user.id, body);
+
+    this.audit.log({
+      userId: req.user.id,
+      action: AuditAction.CREATE,
+      resource: 'scanProfile',
+      resourceId: profile?.id,
+      metadata: { name: body.name, checks: body.enabledPlugins },
+    });
+
+    return profile;
   }
 
   // PUT /plugins/profiles/:id
   @Put(':id')
-  update(
+  async update(
     @Param('id') id: string,
-    @Body() body: {
-      name?: string;
-      description?: string;
-      icon?: string;
-      enabledPlugins?: string[];
-      pluginConfigs?: Record<string, any>;
-    },
+    @Body() body: UpdateScanProfileDto,
     @Request() req: any,
   ) {
-    return this.profilesService.update(id, req.user.id, body);
+    const profile = await this.profilesService.update(id, req.user.id, body);
+
+    this.audit.log({
+      userId: req.user.id,
+      action: AuditAction.UPDATE,
+      resource: 'scanProfile',
+      resourceId: id,
+      metadata: { fields: Object.keys(body ?? {}) },
+    });
+
+    return profile;
   }
 
   // DELETE /plugins/profiles/:id
   @Delete(':id')
-  remove(@Param('id') id: string, @Request() req: any) {
-    return this.profilesService.remove(id, req.user.id);
+  async remove(@Param('id') id: string, @Request() req: any) {
+    const result = await this.profilesService.remove(id, req.user.id);
+
+    this.audit.log({
+      userId: req.user.id,
+      action: AuditAction.DELETE,
+      resource: 'scanProfile',
+      resourceId: id,
+    });
+
+    return result;
   }
 }

@@ -239,7 +239,7 @@ export class ReportsService {
         )._max.version ?? 0) + 1
       : 1;
 
-    const snapshot = this.renderSnapshot(assessment, type, format);
+    const snapshot = this.renderSnapshot(assessment, type, format, { version: nextVersion });
 
     let report;
     try {
@@ -287,14 +287,29 @@ export class ReportsService {
   ) {
     const assessment = await this.generator.getAssessmentData(assessmentId, userId);
     const projectName = (assessment.project as any)?.name ?? 'Report';
-    const snapshot = this.renderSnapshot(assessment, type, format);
     const report = await this.prisma.report.findUniqueOrThrow({ where: { id: reportId } });
+    const snapshot = this.renderSnapshot(assessment, type, format, {
+      reportId: report.id,
+      version: report.version,
+    });
     const materialised = await this.materialise(report, projectName, snapshot);
     return this.withArtifactState(materialised);
   }
 
-  /** The frozen document source for a format. PDFs store the HTML they print from. */
-  private renderSnapshot(assessment: any, type: ReportType, format: ReportFormat): string {
+  /**
+   * The frozen document source for a format. PDFs store the HTML they print from.
+   *
+   * The identity of the artifact — its report id and version — is baked into
+   * the document rather than passed to the printer, because a re-print reads
+   * only the stored snapshot and would otherwise lose the reference printed in
+   * the page footer.
+   */
+  private renderSnapshot(
+    assessment: any,
+    type: ReportType,
+    format: ReportFormat,
+    identity: { reportId?: string; version?: number } = {},
+  ): string {
     switch (format) {
       case 'JSON':
         return this.generator.generateJson(assessment);
@@ -305,7 +320,7 @@ export class ReportsService {
       case 'PDF':
       case 'HTML':
       default:
-        return this.generator.generateHtml(assessment, type);
+        return this.generator.generateHtml(assessment, type, identity);
     }
   }
 

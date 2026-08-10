@@ -3,11 +3,11 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { IconArrowLeft, IconBug, IconDownload, IconFileReport, IconSparkles, IconTerminal2 } from '@tabler/icons-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { IconArrowLeft, IconBug, IconChartBar, IconDownload, IconFileReport, IconPlayerStop, IconSparkles, IconTerminal2 } from '@tabler/icons-react';
 import { toast } from 'sonner';
-import { assessmentsApi, reportsApi } from '@/lib/api';
-import type { Assessment, ScanProgress } from '@/types';
+import { assessmentsApi, reportsApi, scoringApi } from '@/lib/api';
+import type { Assessment, AssessmentScore, ScanProgress } from '@/types';
 import { PageContainer } from '@/components/layout/page-container';
 import { PageHeader } from '@/components/layout/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +18,10 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SeverityBadge } from '@/components/security/severity-badge';
 import { StatusBadge } from '@/components/security/finding-status-badge';
+import { ScoreDisplay } from '@/components/security/score-display';
+import { ScoreBreakdown } from '@/components/security/score-breakdown';
+import { ScanComparison } from '@/components/assessments/scan-comparison';
+import { DeleteConfirmationDialog } from '@/components/shared/delete-confirmation-dialog';
 import { formatDate, formatDuration } from '@/lib/utils';
 
 const TERMINAL = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
@@ -57,6 +61,28 @@ export default function AssessmentDetailPage() {
     return () => stream.close();
   }, [assessmentId, query.data?.status, queryClient]);
 
+  const isTerminal = TERMINAL.has(query.data?.status ?? '');
+
+  // Declared before the early returns below: hook order must not depend on
+  // whether the scan happens to have loaded yet.
+  const scoreQuery = useQuery<AssessmentScore>({
+    queryKey: ['assessment-score', assessmentId],
+    queryFn: () => scoringApi.assessmentScore(assessmentId),
+    enabled: Boolean(assessmentId) && isTerminal,
+  });
+
+  const cancelScan = useMutation({
+    mutationFn: () => assessmentsApi.cancel(assessmentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['assessments'] });
+      queryClient.invalidateQueries({ queryKey: ['assessments', assessmentId] });
+      toast.success('Scan cancelled');
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.message ?? 'Could not cancel this scan');
+    },
+  });
+
   if (query.isLoading) return <PageContainer><Skeleton className="h-9 w-72" /><Skeleton className="mt-6 h-72 w-full" /></PageContainer>;
   if (query.isError || !query.data) return <PageContainer><EmptyState icon={IconBug} title="Assessment not found" description="It may have been deleted or you may not have access." action={<Button asChild variant="outline"><Link href="/assessments">Back to assessments</Link></Button>} /></PageContainer>;
 
@@ -64,6 +90,7 @@ export default function AssessmentDetailPage() {
   const running = !TERMINAL.has(assessment.status);
   const summary = assessment.summary;
   const ai = summary?.aiStatus;
+
   /**
    * Exports a format from this scan.
    *
@@ -93,8 +120,37 @@ export default function AssessmentDetailPage() {
       <PageHeader
         title={`Assessment ${assessment.id.slice(0, 8)}`}
         description={`${assessment.project?.name ?? 'Project'} · ${formatDate(assessment.createdAt)}`}
-        breadcrumb={<Link href="/assessments" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><IconArrowLeft className="size-3" />Assessments</Link>}
-        actions={<><StatusBadge status={assessment.status} />{assessment.project && <Button asChild variant="outline"><Link href={`/projects/${assessment.project.id}`}>Open project</Link></Button>}</>}
+        breadcrumb={<Link href="/assessments" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><IconArrowLeft className="size-3" />Scans</Link>}
+        actions={
+          <>
+            <StatusBadge status={assessment.status} />
+            {/*
+              Cancel was implemented on the server — it removes the BullMQ job
+              and marks the scan CANCELLED — but nothing in the UI ever called
+              it, so a stuck scan could not be stopped from the product.
+            */}
+            {running && (
+              <DeleteConfirmationDialog
+                title="Cancel this scan?"
+                description="The scan stops where it is. Findings already persisted are kept, but the scan will not produce a score or a report."
+                confirmLabel="Cancel scan"
+                /* Not the default "Cancel": next to "Cancel scan" it would be
+                   ambiguous which button aborts the scan. */
+                cancelLabel="Keep running"
+                deletingLabel="Cancelling…"
+                isDeleting={cancelScan.isPending}
+                onConfirm={() => cancelScan.mutateAsync()}
+                trigger={
+                  <Button variant="outline" className="text-destructive hover:text-destructive">
+                    <IconPlayerStop className="size-4" />
+                    Cancel scan
+                  </Button>
+                }
+              />
+            )}
+            {assessment.project && <Button asChild variant="outline"><Link href={`/projects/${assessment.project.id}`}>Open project</Link></Button>}
+          </>
+        }
       />
 
       <Card className={running ? 'border-primary/30' : undefined}>
@@ -103,11 +159,59 @@ export default function AssessmentDetailPage() {
       </Card>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label="Security score" value={summary ? `${summary.securityScore ?? "—"}/100` : '—'} />
+        {/*
+          The score is rendered with its status, not as a bare number.
+          This card previously showed `securityScore ?? "—"` and dropped
+          `scoreStatus` entirely, so a PROVISIONAL score — a real measurement
+          over incomplete coverage — was presented exactly like a FINAL one.
+          That is precisely the confusion the ScoreStatus enum exists to stop.
+        */}
+        <Card>
+          <CardHeader className="gap-1">
+            <CardDescription>Security score</CardDescription>
+            <ScoreDisplay
+              score={summary?.securityScore ?? null}
+              status={(summary?.scoreStatus ?? 'UNAVAILABLE') as any}
+              coveragePercent={summary?.coveragePercent ?? null}
+              size="md"
+            />
+          </CardHeader>
+        </Card>
         <Metric label="Endpoints tested" value={summary ? `${summary.testedEndpoints}/${summary.totalEndpoints}` : '—'} />
         <Metric label="Findings" value={summary?.totalFindings ?? assessment._count?.occurrences ?? '—'} />
         <Metric label="Duration" value={assessment.duration ? formatDuration(assessment.duration) : '—'} />
       </div>
+
+      {/* Score explanation and comparison: both back existing, tested services
+          that had no UI at all before this. */}
+      {!running && (
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <Card className="min-w-0">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <IconChartBar className="size-4 text-primary" />
+                Score breakdown
+              </CardTitle>
+              <CardDescription>Why this scan scored what it did.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {scoreQuery.isLoading ? (
+                <Skeleton className="h-32 w-full" />
+              ) : scoreQuery.data ? (
+                <ScoreBreakdown score={scoreQuery.data} />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No score snapshot is available for this scan.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="min-w-0">
+            <ScanComparison assessmentId={assessment.id} />
+          </div>
+        </div>
+      )}
 
       {/* Grid items default to `min-width: auto`, meaning they refuse to shrink
           below their content's min-content width. `min-w-0` on both children is

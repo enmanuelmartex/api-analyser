@@ -77,7 +77,14 @@ export class PluginsService {
 
     return {
       ...plugin,
-      isEnabled: userConfig !== undefined ? userConfig.isEnabled : plugin.isEnabled,
+      /*
+       * `findUnique` resolves to `null`, not `undefined`, when there is no
+       * per-user row. The previous `userConfig !== undefined` test was
+       * therefore always true and dereferenced null, so this endpoint returned
+       * 500 for every user who had never overridden this check — which is
+       * every user by default. That is why nothing in the UI consumed it.
+       */
+      isEnabled: userConfig?.isEnabled ?? plugin.isEnabled,
       userConfig: (userConfig?.config as Record<string, any>) ?? null,
       stats: {
         totalExecutions,

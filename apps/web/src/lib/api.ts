@@ -1,10 +1,15 @@
 import axios, { AxiosInstance } from 'axios';
 import type {
+  AiUsageSummary,
+  AssignableUser,
+  IssueGuidanceResponse,
+  OwaspCoverageSummary,
   Report,
   ReportFormat,
   ReportFormatAvailability,
   ReportStats,
   ReportType,
+  SystemInfo,
 } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
@@ -56,6 +61,11 @@ export const authApi = {
   register: (data: { name: string; email: string; password: string }) =>
     api.post('/auth/register', data).then((r) => r.data),
   me: () => api.get('/auth/me').then((r) => r.data),
+  /**
+   * Self-service profile update. Separate from `usersApi.update`, which is
+   * admin-only — a non-admin cannot call it even for their own account.
+   */
+  updateMe: (data: { name: string }) => api.patch('/auth/me', data).then((r) => r.data),
   // Exchange a Better Auth session token for a JWT used by all domain routes
   exchangeSession: (sessionToken: string) =>
     api.post('/auth/exchange-session', { token: sessionToken }).then((r) => r.data),
@@ -139,6 +149,14 @@ export const issuesApi = {
   assign: (id: string, assigneeId: string | null) =>
     api.patch(`/issues/${id}/assignee`, { assigneeId }).then((r) => r.data),
 
+  /**
+   * AI security guidance for an issue. Separate from the issue payload because
+   * it is advisory and may be absent, failed or disabled — the issue screen
+   * must render fully without it.
+   */
+  guidance: (id: string): Promise<IssueGuidanceResponse> =>
+    api.get(`/issues/${id}/guidance`).then((r) => r.data),
+
   /** Detections produced by one scan — immutable history, not current state. */
   occurrencesByAssessment: (assessmentId: string) =>
     api.get(`/issues/occurrences/assessment/${assessmentId}`).then((r) => r.data),
@@ -157,6 +175,21 @@ export const pluginsApi = {
   run: (id: string, projectId: string, pluginConfig?: Record<string, any>) =>
     api.post(`/plugins/${id}/run`, { projectId, pluginConfig }).then((r) => r.data),
   categories: () => api.get('/plugins/categories').then((r) => r.data),
+
+  /**
+   * What the installed checks genuinely cover, per OWASP API Top 10 (2023).
+   *
+   * Derived on the server from the check manifests. Anything in the UI that
+   * states coverage must read this — the previous hardcoded "Full API Top 10
+   * 2023 coverage" claim was wrong in both directions.
+   */
+  owaspCoverage: (): Promise<OwaspCoverageSummary> =>
+    api.get('/plugins/owasp-coverage').then((r) => r.data),
+};
+
+// System
+export const systemApi = {
+  info: (): Promise<SystemInfo> => api.get('/system/info').then((r) => r.data),
 };
 
 // Scan Profiles
@@ -191,11 +224,19 @@ export const aiApi = {
   testProvider:        (provider: string, data: any) => api.post(`/ai/config/${provider}/test`, data).then((r) => r.data),
   deleteProviderConfig:(provider: string) => api.delete(`/ai/config/${provider}`).then((r) => r.data),
   getEnvStatus:        () => api.get('/ai/config/env-status').then((r) => r.data),
+  /** Token and estimated-cost roll-up from real stored enrichments (admin). */
+  usage:               (): Promise<AiUsageSummary> => api.get('/ai/usage').then((r) => r.data),
 };
 
 // Users (admin)
 export const usersApi = {
   list: () => api.get('/users').then((r) => r.data),
+  /**
+   * Active accounts that can be set as an issue assignee. Unlike the rest of
+   * this object it is not admin-only — triage is ordinary work.
+   */
+  assignable: (): Promise<AssignableUser[]> =>
+    api.get('/users/assignable').then((r) => r.data),
   get: (id: string) => api.get(`/users/${id}`).then((r) => r.data),
   create: (data: { name: string; email: string; password: string; role?: string }) =>
     api.post('/users', data).then((r) => r.data),

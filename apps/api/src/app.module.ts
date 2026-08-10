@@ -18,6 +18,7 @@ import { ScannerModule } from './modules/scanner/scanner.module';
 import { PluginsModule } from './modules/plugins/plugins.module';
 import { AiModule } from './modules/ai/ai.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { SystemModule } from './modules/system/system.module';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { AuditModule } from './modules/audit/audit.module';
     PluginsModule,
     AiModule,
     AuditModule,
+    SystemModule,
   ],
 })
 export class AppModule {}

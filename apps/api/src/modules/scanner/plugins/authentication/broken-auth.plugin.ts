@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { BasePlugin, ScanContext, PluginResult, ScanFinding } from '../../types/scanner.types';
 import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
+import { appBrand } from '../../../../brand/brand';
 
 export class BrokenAuthPlugin extends BasePlugin {
   readonly manifest: PluginManifest = {
@@ -9,7 +10,7 @@ export class BrokenAuthPlugin extends BasePlugin {
     version: '1.0.0',
     description: 'Tests for API2:2023 - Broken Authentication vulnerabilities',
     longDescription: 'Attempts to access protected endpoints without credentials and with malformed tokens to detect missing or weak authentication controls.',
-    author: 'IASA Core Team',
+    author: appBrand.pluginAuthor,
     license: 'MIT',
     category: PluginCategory.AUTHENTICATION,
     owaspMappings: ['API2:2023'],
@@ -31,7 +32,10 @@ export class BrokenAuthPlugin extends BasePlugin {
     const findings: ScanFinding[] = [];
     let tested = 0;
 
-    const authHeaders = this.getAuthHeaders(context.auth);
+    // No `getAuthHeaders` call here on purpose: both checks below are about
+    // what the target accepts *without* valid credentials — one sends no
+    // Authorization header at all, the other a deliberately malformed token.
+    // Sending the project's real credentials would defeat both.
     const testEndpoints = context.endpoints
       .filter((e) => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(e.method))
       .slice(0, 15);
@@ -47,7 +51,7 @@ export class BrokenAuthPlugin extends BasePlugin {
         const resp = await axios.request({
           method: endpoint.method as any,
           url,
-          headers: { 'User-Agent': 'IASA-Scanner/1.0', 'Accept': 'application/json' },
+          headers: { 'User-Agent': appBrand.scannerUserAgent, 'Accept': 'application/json' },
           timeout: context.config.timeoutMs,
           validateStatus: () => true,
         });
@@ -80,7 +84,7 @@ export class BrokenAuthPlugin extends BasePlugin {
             httpRequest: this.buildRequestString(
               endpoint.method,
               url,
-              { 'User-Agent': 'IASA-Scanner/1.0', Accept: 'application/json' },
+              { 'User-Agent': appBrand.scannerUserAgent, Accept: 'application/json' },
             ),
             httpResponse: this.buildResponseString(
               resp.status,
@@ -104,7 +108,7 @@ export class BrokenAuthPlugin extends BasePlugin {
             url,
             headers: {
               'Authorization': 'Bearer invalid.token.here',
-              'User-Agent': 'IASA-Scanner/1.0',
+              'User-Agent': appBrand.scannerUserAgent,
               'Accept': 'application/json',
             },
             timeout: context.config.timeoutMs,
@@ -136,7 +140,7 @@ export class BrokenAuthPlugin extends BasePlugin {
               },
               httpRequest: this.buildRequestString(endpoint.method, url, {
                 Authorization: 'Bearer invalid.token.here',
-                'User-Agent': 'IASA-Scanner/1.0',
+                'User-Agent': appBrand.scannerUserAgent,
               }),
               httpResponse: this.buildResponseString(resp.status, resp.headers as any, null),
               remediation: 'Implement strict JWT/token validation including signature verification, expiration checks, and issuer validation. Reject all malformed or invalid tokens with a 401 response.',
