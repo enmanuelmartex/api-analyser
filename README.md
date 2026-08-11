@@ -86,9 +86,13 @@ does not lie about the download.
 ## Editing the content
 
 **`lib/site.ts` is the only file with product facts in it.** The counts (13 checks, 49 rules,
-10/10 categories), the OWASP table, the install commands and the environment variables are all
+10/10 categories), the OWASP table, the install commands and the default administrator are all
 transcribed from the product's `README.md` at the root of `main`. They are a copy, so they can
 drift — when the README changes, `lib/site.ts` is the file to re-check.
+
+`defaultAdmin` is the pair the API's `AdminBootstrapService` creates on first boot. Publishing
+it is deliberate — it is a known default in the shape of Wazuh's or Grafana's, and a visitor who
+cannot find it cannot get in. If that service's defaults change, this must change with them.
 
 The three OWASP categories carrying a `scopeNote` are deliberate. The product marks those with
 a dagger in its own README, its coverage API, its UI and every report it generates, because a

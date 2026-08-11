@@ -26,10 +26,18 @@ interface CodeBlockProps {
   /** Filename or context shown in the block's title bar. Omit for no bar. */
   label?: string;
   tone?: Tone;
+  /**
+   * Drops the type a step, for blocks inside a two-column card.
+   *
+   * The clone URL is 59 characters and is the single most important line on the
+   * page; at the default size it overflowed its column by about one character,
+   * which reads as a broken command rather than as a scrollable block.
+   */
+  dense?: boolean;
   className?: string;
 }
 
-export function CodeBlock({ code, label, tone = 'shell', className }: CodeBlockProps) {
+export function CodeBlock({ code, label, tone = 'shell', dense = false, className }: CodeBlockProps) {
   const lines = code.split('\n');
 
   return (
@@ -53,7 +61,12 @@ export function CodeBlock({ code, label, tone = 'shell', className }: CodeBlockP
         </div>
       )}
 
-      <pre className="overflow-x-auto px-4 py-3.5 font-mono text-[13px] leading-relaxed">
+      <pre
+        className={cn(
+          'overflow-x-auto px-4 py-3.5 font-mono leading-relaxed',
+          dense ? 'text-[12px]' : 'text-[13px]',
+        )}
+      >
         <code>
           {lines.map((line, index) => (
             <span key={index} className="block whitespace-pre">

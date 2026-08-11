@@ -212,37 +212,87 @@ export const techStack = [
 ] as const;
 
 /** From "Quick Start" and "Development" in the README. */
-export const quickStart = {
-  prerequisites: [
-    { name: 'Bun 1.x', note: 'the runtime and package manager for the whole monorepo' },
-    { name: 'Docker', note: 'brings up PostgreSQL 16 and Redis 7 with one command' },
-    { name: 'Git', note: 'to clone the repository' },
-  ],
-  clone: `git clone ${repo.cloneUrl}
-cd ${repo.name}`,
-  install: `cp .env.example .env
-bun i
-docker compose up -d
-bun run db:migrate
-bun run db:seed
-bun dev`,
-  env: `# Required
-DATABASE_URL=postgresql://api_analyser:password@localhost:5432/api_analyser
-REDIS_URL=redis://:password@localhost:6379
-JWT_SECRET=your-32-char-minimum-secret-here
-ENCRYPTION_KEY=your-32-char-encryption-key-here
-
-# Optional — enables AI-powered vulnerability analysis
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o-mini`,
-  scripts: [
-    { command: 'bun dev', description: 'API on :4000 and web on :3000, together' },
-    { command: 'bun dev:api', description: 'the NestJS API alone' },
-    { command: 'bun dev:web', description: 'the Next.js front end alone' },
-    { command: 'bun run db:studio', description: 'Prisma Studio against the local database' },
-    { command: 'bun test', description: 'the API and web test suites' },
-  ],
+/**
+ * The account a fresh install comes with.
+ *
+ * There is no sign-up-from-nothing and no OAuth: the API creates this
+ * administrator the first time it starts against an empty database, and that
+ * admin creates everyone else. Published on purpose — it is a known default in
+ * the shape of Wazuh's or Grafana's, and hiding it would only mean nobody can
+ * get in. Kept in sync with `AdminBootstrapService` in the API.
+ */
+export const defaultAdmin = {
+  email: 'admin@apianalyser.local',
+  password: 'admin1234',
 } as const;
+
+/**
+ * The two supported ways to run it.
+ *
+ * `docker` is the one to put first: it is three commands and needs nothing on
+ * the machine but Docker. `source` is for someone who intends to change the
+ * code — it wants Bun, and a Postgres and Redis from somewhere.
+ *
+ * Both are transcribed from the repository's README and are wrong the moment it
+ * changes.
+ */
+export const installPaths = [
+  {
+    id: 'docker',
+    label: 'With Docker',
+    badge: 'Recommended',
+    summary:
+      'Brings up PostgreSQL, Redis, the API and the web app together, on one network, already wired to each other. Nothing else gets installed on your machine.',
+    prerequisites: 'Docker with the Compose plugin · Git',
+    steps: [
+      {
+        title: 'Clone the repository',
+        code: `git clone ${repo.cloneUrl}
+cd ${repo.name}`,
+      },
+      {
+        title: 'Start the stack',
+        code: 'docker compose up -d',
+        note: 'First run builds the images and takes a few minutes. Secrets are generated and kept on a volume, so no .env is required.',
+      },
+    ],
+  },
+  {
+    id: 'source',
+    label: 'From source',
+    summary:
+      'For changing the code. Runs the API and the web app on your machine with hot reload; the database and queue still come from Docker unless you point it at your own.',
+    prerequisites: 'Bun 1.x · Git · a PostgreSQL 16 and a Redis 7 from somewhere',
+    steps: [
+      {
+        title: 'Clone and configure',
+        code: `git clone ${repo.cloneUrl}
+cd ${repo.name}
+bun run setup:env`,
+        note: 'setup:env copies .env.example to .env and generates the three secrets the API refuses to start without.',
+      },
+      {
+        title: 'Start the data stores',
+        code: 'docker compose up -d postgres redis',
+        note: 'Skip this and edit DATABASE_URL and REDIS_URL in .env if you already run your own.',
+      },
+      {
+        title: 'Install, migrate and run',
+        code: `bun install
+bun run db:migrate
+bun dev`,
+      },
+    ],
+  },
+] as const;
+
+export const scripts = [
+  { command: 'bun dev', description: 'API on :4000 and web on :3000, together' },
+  { command: 'bun dev:api', description: 'the NestJS API alone' },
+  { command: 'bun dev:web', description: 'the Next.js front end alone' },
+  { command: 'bun run db:studio', description: 'Prisma Studio against the local database' },
+  { command: 'bun test', description: 'the API and web test suites' },
+] as const;
 
 /** From "CI/CD Security Gate" in the README. */
 export const ciWorkflow = `- name: API Analyser security gate

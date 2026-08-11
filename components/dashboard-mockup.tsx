@@ -231,8 +231,8 @@ export function DashboardMockup() {
             <ChartCard title="Security score" subtitle="Last 12 months">
               <ScoreTrend />
             </ChartCard>
-            <ChartCard title="Findings by severity" subtitle="Last 6 scans">
-              <SeverityBars />
+            <ChartCard title="Findings by Severity" subtitle="Last 8 weeks">
+              <SeverityRadial />
             </ChartCard>
             <ChartCard title="Open issues by OWASP category" subtitle="API1 – API10">
               <OwaspRadar />
@@ -364,35 +364,105 @@ function ScoreTrend() {
   );
 }
 
-/** Stacked severity bars, in the product's ramp. */
-function SeverityBars() {
-  const scans = [
-    [3, 6, 9, 5],
-    [2, 7, 8, 6],
-    [4, 5, 11, 4],
-    [1, 4, 7, 8],
-    [2, 3, 6, 7],
-    [1, 3, 5, 6],
-  ];
-  const colors = ['#ef4444', '#f97316', '#f59e0b', '#38bdf8'];
-  const max = Math.max(...scans.map((scan) => scan.reduce((a, b) => a + b, 0)));
+/**
+ * Findings by severity — the product's radial chart, redrawn.
+ *
+ * The app plots this as a Recharts `RadialBarChart`: one concentric band per
+ * severity, Critical outermost, each arc's sweep proportional to that
+ * severity's share of the largest one, over a circular polar grid. This used to
+ * be a stack of vertical bars here, which was a different chart entirely and
+ * made the hero misrepresent the screen it is a picture of.
+ *
+ * Hand-drawn arcs rather than the real library: the stage renders this inside a
+ * plane rotated on three axes, and pulling Recharts onto the landing for one
+ * decorative chart would cost more JavaScript than the rest of the page.
+ */
+const SEVERITY_TOTALS = [
+  { name: 'Critical', value: 3, color: '#ef4444' },
+  { name: 'High', value: 18, color: '#f97316' },
+  { name: 'Medium', value: 42, color: '#f59e0b' },
+  { name: 'Low', value: 11, color: '#38bdf8' },
+  { name: 'Informational', value: 6, color: '#918f9a' },
+] as const;
+
+function SeverityRadial() {
+  const size = 150;
+  const center = size / 2;
+  const outerRadius = 68;
+  const innerRadius = 20;
+  const gap = 3;
+  const band = (outerRadius - innerRadius) / SEVERITY_TOTALS.length;
+  const max = Math.max(...SEVERITY_TOTALS.map((s) => s.value));
+
+  /** Arc path for one band, swept clockwise from twelve o'clock. */
+  const arc = (radius: number, fraction: number) => {
+    // A full circle cannot be expressed as a single arc — its start and end
+    // points coincide — so it is drawn as two half sweeps.
+    const angle = Math.min(fraction, 0.9999) * 360;
+    const point = (deg: number) => {
+      const rad = ((deg - 90) * Math.PI) / 180;
+      return [center + Math.cos(rad) * radius, center + Math.sin(rad) * radius];
+    };
+    const [x0, y0] = point(0);
+    const [x1, y1] = point(angle);
+    const largeArc = angle > 180 ? 1 : 0;
+    return `M${x0},${y0} A${radius},${radius} 0 ${largeArc} 1 ${x1},${y1}`;
+  };
 
   return (
-    <div className="flex h-full items-end gap-2.5">
-      {scans.map((scan, index) => {
-        const total = scan.reduce((a, b) => a + b, 0);
-        return (
-          <div key={index} className="flex flex-1 flex-col-reverse gap-[2px]" style={{ height: `${(total / max) * 100}%` }}>
-            {scan.map((count, level) => (
-              <div
-                key={level}
-                className="w-full rounded-[2px]"
-                style={{ height: `${(count / total) * 100}%`, backgroundColor: colors[level] }}
+    <div className="flex h-full flex-col gap-2">
+      <svg viewBox={`0 0 ${size} ${size}`} className="mx-auto h-[104px]">
+        {/* Polar grid — `gridType="circle"` in the real chart. */}
+        {[0.4, 0.7, 1].map((scale) => (
+          <circle
+            key={scale}
+            cx={center}
+            cy={center}
+            r={outerRadius * scale}
+            fill="none"
+            stroke="#27272a"
+            strokeWidth="1"
+          />
+        ))}
+
+        {SEVERITY_TOTALS.map((severity, index) => {
+          const radius = outerRadius - band * index - band / 2;
+          const thickness = band - gap;
+          return (
+            <g key={severity.name}>
+              <path
+                d={arc(radius, 1)}
+                fill="none"
+                stroke="#1c1c1f"
+                strokeWidth={thickness}
+                strokeLinecap="round"
               />
-            ))}
+              {severity.value > 0 && (
+                <path
+                  d={arc(radius, severity.value / max)}
+                  fill="none"
+                  stroke={severity.color}
+                  strokeWidth={thickness}
+                  strokeLinecap="round"
+                />
+              )}
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* The totals list the real card carries under the chart. */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+        {SEVERITY_TOTALS.map((severity) => (
+          <div key={severity.name} className="flex items-center justify-between gap-2 text-[10px]">
+            <span className="flex min-w-0 items-center gap-1.5 text-zinc-500">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: severity.color }} />
+              <span className="truncate">{severity.name}</span>
+            </span>
+            <span className="shrink-0 font-medium tabular-nums text-zinc-300">{severity.value}</span>
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 }
