@@ -38,7 +38,7 @@ function serviceWith(generator: ReportGeneratorService) {
 
 beforeAll(async () => {
   prisma = await setupTestDatabase();
-  storageRoot = mkdtempSync(join(tmpdir(), 'iasa-report-errors-'));
+  storageRoot = mkdtempSync(join(tmpdir(), 'api-analyser-report-errors-'));
   process.env.REPORTS_DIR = storageRoot;
 });
 

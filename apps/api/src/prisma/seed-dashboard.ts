@@ -34,7 +34,7 @@ type Sev = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
 const DEMO = {
   projectId: 'seed-dashboard-project',
   projectName: 'Dashboard Demo Project',
-  userEmail: process.env.SEED_DASHBOARD_EMAIL ?? 'admin@iasa.local',
+  userEmail: process.env.SEED_DASHBOARD_EMAIL ?? 'admin@apianalyser.local',
   /** Only used if the target user does not exist yet. */
   fallbackPassword: 'Admin@123!',
 } as const;

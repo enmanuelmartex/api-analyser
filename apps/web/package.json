@@ -1,8 +1,8 @@
 {
-  "name": "@iasa/web",
+  "name": "@api-analyser/web",
   "version": "0.1.0",
   "private": true,
-  "description": "IASA — Frontend (Next.js 15)",
+  "description": "API Analyser — Frontend (Next.js 15)",
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",

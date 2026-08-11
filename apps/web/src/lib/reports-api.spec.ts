@@ -37,7 +37,7 @@ beforeEach(() => {
         data: new Blob(['%PDF-1.4']),
         headers: {
           'content-type': 'application/pdf',
-          'content-disposition': 'attachment; filename="iasa-payments-technical-2026-07-27.pdf"',
+          'content-disposition': 'attachment; filename="api-analyser-payments-technical-2026-07-27.pdf"',
         },
       };
     }
@@ -88,7 +88,7 @@ describe('download', () => {
 
   it('saves under the file name the server chose, not one re-derived here', async () => {
     await reportsApi.download('report-123');
-    expect((globalThis as any).__anchor.download).toBe('iasa-payments-technical-2026-07-27.pdf');
+    expect((globalThis as any).__anchor.download).toBe('api-analyser-payments-technical-2026-07-27.pdf');
   });
 
   it('issues no POST — downloading can never create a resource', async () => {

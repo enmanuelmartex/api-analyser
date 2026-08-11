@@ -39,8 +39,8 @@ export function DashboardShell({
   } | null>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("iasa_token");
-    const userData = localStorage.getItem("iasa_user");
+    const token = localStorage.getItem("api_analyser_token");
+    const userData = localStorage.getItem("api_analyser_user");
 
     if (!token) {
       router.push("/login");

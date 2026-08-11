@@ -1,5 +1,5 @@
 // =============================================================================
-// IASA — Prisma Schema
+// API Analyser — Prisma Schema
 // Intelligent API Security Assessment
 // =============================================================================
 
@@ -875,7 +875,7 @@ model Plugin {
   version            String         @default("1.0.0")
   description        String
   longDescription    String?
-  author             String         @default("IASA Core Team")
+  author             String         @default("API Analyser Core Team")
   category           PluginCategory
   owaspMappings      String[]
   cweIds             String[]       @default([])

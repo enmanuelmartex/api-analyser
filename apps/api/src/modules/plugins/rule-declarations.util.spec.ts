@@ -10,7 +10,7 @@ function manifest(overrides: Partial<PluginManifest>): PluginManifest {
     name: 'Test Plugin',
     version: '1.0.0',
     description: 'test',
-    author: 'IASA',
+    author: 'API Analyser',
     license: 'MIT',
     category: 'Headers' as any,
     owaspMappings: ['API8:2023'],

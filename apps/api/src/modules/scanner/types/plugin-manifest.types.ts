@@ -63,7 +63,7 @@ export interface PluginManifest {
   defaultConfig?: Record<string, any>;
   documentationUrl?: string;
   changelog?: string;
-  /** Minimum IASA core version required */
+  /** Minimum API Analyser core version required */
   minimumCoreVersion: string;
   isBuiltin: boolean;
 

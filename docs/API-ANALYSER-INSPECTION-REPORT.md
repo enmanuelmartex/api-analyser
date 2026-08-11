@@ -1,4 +1,4 @@
-# IASA — Inspection Report (Phase −1)
+# API Analyser — Inspection Report (Phase −1)
 
 **Date:** 2026-07-19
 **Commit inspected:** `0739fe4` (+ pre-existing uncommitted working tree)
@@ -198,7 +198,7 @@ Every dashboard/report aggregate walks these unindexed. Cheap, high-value fix in
 
 ### 2.5 Seed (`src/prisma/seed.ts`)
 
-Creates exactly: admin (`admin@iasa.local`), analyst (`analyst@iasa.local`), one project `demo-project-001` (PetStore).
+Creates exactly: admin (`admin@apianalyser.local`), analyst (`analyst@apianalyser.local`), one project `demo-project-001` (PetStore).
 
 Gaps:
 - Does **not** seed `Plugin` rows — not needed: `PluginRegistryService.onModuleInit` upserts all 10 plugins on boot (`plugin-registry.service.ts:34-37, 73-120`). Correct design.
@@ -208,7 +208,7 @@ Gaps:
 ### 2.6 Can the DB be regenerated cleanly?
 
 **Yes — and it should be.** Recommended Phase 1B sequence (not executed):
-1. `docker compose down -v` (or drop/recreate the `iasa` database).
+1. `docker compose down -v` (or drop/recreate the `api_analyser` database).
 2. Delete the two stub migration folders.
 3. `prisma migrate dev --name init` → produces a real initial migration containing the full `CREATE TABLE` set **plus** the new domain models and indexes from Phase 1A.
 4. `prisma migrate deploy` verified against a genuinely empty database.
@@ -317,7 +317,7 @@ Note: `User.ownerId` self-relation (`schema.prisma:154,159-160`) hints at a work
 | Item | Evidence |
 |---|---|
 | Finance | `apps/api/src/modules/finance/` **empty dir**; `financeApi` calls 2 non-existent routes; nav entry `nav-data.ts:45`; page `(dashboard)/finance/page.tsx` |
-| `MOCK_TOKENS` | `settings/page.tsx:364-383`; state-only CRUD; `copyToken(preview)` copies the **masked placeholder** `iasa_••••••••••••efg3` |
+| `MOCK_TOKENS` | `settings/page.tsx:364-383`; state-only CRUD; `copyToken(preview)` copies the **masked placeholder** `api_analyser_••••••••••••efg3` |
 | Empty plugin categories | `PluginCategory` has 13 values; only **6** are used (AUTHENTICATION, AUTHORIZATION, HEADERS, PERFORMANCE, COMPLIANCE, INFRASTRUCTURE). `GET /plugins/categories` returns all 13, exposing INJECTION, API_DESIGN, AI, CLOUD, GRAPHQL, GRPC, SOAP with zero implementations |
 | Empty component dirs | `components/examples/`, `components/findings/` — both empty |
 | AI Usage | tokens captured in `aiMeta` → stored inside `AssessmentSummary.aiStatus` JSON only. No queryable usage table, no cost. Cannot back a real "AI Usage" page |

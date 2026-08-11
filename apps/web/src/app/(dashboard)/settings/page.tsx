@@ -195,7 +195,7 @@ function GeneralTab({ user }: { user: any }) {
       queryClient.setQueryData(['me'], updated);
       queryClient.invalidateQueries({ queryKey: ['me'] });
       if (typeof window !== 'undefined') {
-        localStorage.setItem('iasa_user', JSON.stringify(updated));
+        localStorage.setItem('api_analyser_user', JSON.stringify(updated));
       }
       toast.success('Profile updated');
     },

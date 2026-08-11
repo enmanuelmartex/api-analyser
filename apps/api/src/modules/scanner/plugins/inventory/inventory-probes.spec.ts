@@ -30,7 +30,7 @@ describe('isDistinctFromBaseline', () => {
   });
 
   it('ignores a body that differs only by the path echoed back in the error', () => {
-    // `{"error":"Cannot GET /v2/orders"}` against `.../iasa-probe-ab12cd` differs
+    // `{"error":"Cannot GET /v2/orders"}` against `.../api-analyser-probe-ab12cd` differs
     // by a handful of bytes. Reporting that as a shadow API is the classic
     // false positive this check exists to avoid.
     expect(isDistinctFromBaseline({ status: 404, bodyLength: 212 }, baseline)).toBe(false);

@@ -103,7 +103,7 @@ export class BflaPlugin extends BasePlugin {
             method: method as any,
             url,
             headers: { ...authHeaders, 'Content-Type': 'application/json' },
-            data: { test: 'iasa-scan' },
+            data: { test: 'api-analyser-scan' },
             timeout: context.config.timeoutMs,
             validateStatus: () => true,
           });

@@ -8,13 +8,11 @@ import {
 import { Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
-import { Resend } from 'resend';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { appBrand } from '../../brand/brand';
 
 const SELECT_PUBLIC = {
   id: true,
@@ -231,9 +229,11 @@ export class UsersService {
       });
     }
 
-    await this.sendInvitationEmail(email, token, role, actorId).catch((err) => {
-      this.logger.error(`Failed to send invitation email to ${email}: ${err.message}`);
-    });
+    const inviteLink = this.buildInvitationLink(token);
+
+    // Logged as well as returned: an admin who closes the dialog before copying
+    // the link would otherwise have to revoke the invitation and issue a new one.
+    this.logger.log(`Invitation for ${email} (${role}): ${inviteLink}`);
 
     this.audit.log({
       userId: actorId,
@@ -243,7 +243,7 @@ export class UsersService {
       metadata: { email, role, resent: !!pending },
     });
 
-    return { success: true, expiresAt, resent: !!pending };
+    return { success: true, expiresAt, resent: !!pending, inviteLink };
   }
 
   async verifyInvitation(token: string) {
@@ -280,51 +280,18 @@ export class UsersService {
     return { success: true };
   }
 
-  private async sendInvitationEmail(
-    email: string,
-    token: string,
-    role: string,
-    actorId: string,
-  ) {
-    const inviter    = await this.prisma.user.findUnique({
-      where: { id: actorId },
-      select: { name: true },
-    });
+  /**
+   * Where an invited user goes to set their password.
+   *
+   * There is no mail transport here on purpose. This is self-hosted software an
+   * operator runs on their own network — often one with no outbound SMTP and no
+   * account with an email provider — so requiring a third-party API key before
+   * a second user can exist would put a hosted dependency in the middle of a
+   * local install. The link is returned to the admin who created the invitation
+   * and written to the log; how it reaches the invitee is their call.
+   */
+  private buildInvitationLink(token: string): string {
     const frontendUrl = this.config.get('FRONTEND_URL', 'http://localhost:3000');
-    const inviteLink  = `${frontendUrl}/accept-invite?token=${token}`;
-    const apiKey      = this.config.get('RESEND_API_KEY');
-
-    if (!apiKey) {
-      this.logger.warn(`Resend not configured — invitation link for ${email}: ${inviteLink}`);
-      return;
-    }
-
-    const from = this.config.get('RESEND_FROM', 'onboarding@resend.dev');
-    const resend = new Resend(apiKey);
-
-    const { error } = await resend.emails.send({
-      from,
-      to:      email,
-      subject: `You've been invited to ${appBrand.name} by ${inviter?.name ?? 'an admin'}`,
-      html: `
-        <div style="font-family:Inter,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;color:#0A0A0B">
-          <h2 style="color:#0A0A0B;letter-spacing:-0.01em">You're invited to ${appBrand.name}</h2>
-          <p><strong>${inviter?.name ?? 'An admin'}</strong> has invited you to join their
-          security workspace as <strong>${role}</strong>.</p>
-          <p>
-            <a href="${inviteLink}"
-               style="background:#0A6CDB;color:#fff;padding:12px 24px;border-radius:8px;
-                      text-decoration:none;display:inline-block;margin:16px 0;font-weight:600">
-              Accept Invitation
-            </a>
-          </p>
-          <p style="color:#666;font-size:13px">This invitation expires in 7 days.<br>
-          If you didn't expect this, you can safely ignore this email.</p>
-        </div>
-      `,
-    });
-
-    if (error) throw new Error(error.message);
-    this.logger.log(`Invitation email sent to ${email} via Resend`);
+    return `${frontendUrl}/accept-invite?token=${token}`;
   }
 }

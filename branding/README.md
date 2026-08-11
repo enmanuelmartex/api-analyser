@@ -1,4 +1,4 @@
-# API Analyser (IASA) — Brand assets v1.0
+# API Analyser — Brand assets v1.0
 
 Símbolo: apertura de 6 aspas (inspección / lente) + red de 6 nodos (endpoints descubiertos) + núcleo hexagonal con destello de 4 puntas (análisis asistido por IA).
 

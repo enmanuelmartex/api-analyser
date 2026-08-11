@@ -32,8 +32,8 @@ export function NavUser({ user }: NavUserProps) {
   const initial = user?.name?.charAt(0)?.toUpperCase() || "A";
 
   function handleLogout() {
-    localStorage.removeItem("iasa_token");
-    localStorage.removeItem("iasa_user");
+    localStorage.removeItem("api_analyser_token");
+    localStorage.removeItem("api_analyser_user");
     window.location.href = "/login";
   }
 

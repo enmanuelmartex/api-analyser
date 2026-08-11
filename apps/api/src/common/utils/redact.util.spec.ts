@@ -130,14 +130,14 @@ describe('redactHttpMessage', () => {
     const message = [
       'GET https://api.example.com/users/1 HTTP/1.1',
       `Authorization: Bearer ${token}`,
-      'User-Agent: IASA-Scanner/1.0',
+      'User-Agent: APIAnalyser-Scanner/1.0',
     ].join('\n');
 
     const result = redactHttpMessage(message)!;
 
     expect(result).not.toContain(token);
     expect(result).toContain('Authorization:');
-    expect(result).toContain('User-Agent: IASA-Scanner/1.0');
+    expect(result).toContain('User-Agent: APIAnalyser-Scanner/1.0');
   });
 
   it('redacts Cookie and X-API-Key lines', () => {

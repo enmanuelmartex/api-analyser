@@ -1,4 +1,4 @@
-# IASA — Architecture and Product Audit
+# API Analyser — Architecture and Product Audit
 
 > Fase de análisis. No se modificó código de producción durante esta auditoría.
 > Convenciones: **[C]** confirmado en código · **[I]** inferido del código · **[R]** recomendación · **[?]** no verificable sin ejecutar el sistema.
@@ -7,7 +7,7 @@
 
 ## 1. Executive Summary
 
-**Estado general.** IASA tiene un núcleo técnico mejor de lo que sugiere su superficie. El motor de escaneo, la resolución de plugins y el aislamiento multi-tenant están bien resueltos. El producto falla en la **capa de dominio**: el modelo de datos no sabe qué es una vulnerabilidad persistente, solo qué es un hallazgo dentro de un escaneo. Eso invalida el triaje, impide la comparación entre escaneos y contamina todas las métricas.
+**Estado general.** API Analyser tiene un núcleo técnico mejor de lo que sugiere su superficie. El motor de escaneo, la resolución de plugins y el aislamiento multi-tenant están bien resueltos. El producto falla en la **capa de dominio**: el modelo de datos no sabe qué es una vulnerabilidad persistente, solo qué es un hallazgo dentro de un escaneo. Eso invalida el triaje, impide la comparación entre escaneos y contamina todas las métricas.
 
 **Fortalezas confirmadas.**
 - **[C]** La selección de plugins se congela en `resolvedPlugins` al encolar y el worker se niega explícitamente a caer en «todos» si la selección es inválida (`scanner.processor.ts:69-90`). El frontend y el backend ejecutan lo mismo.
@@ -35,7 +35,7 @@
 ## 2. Repository and Architecture Map
 
 ```
-iasa/
+api_analyser/
 ├─ apps/
 │  ├─ api/                       NestJS · puerto 4000 · API en /api/v1
 │  │  ├─ prisma/schema.prisma     23 modelos · 14 enums
