@@ -58,6 +58,20 @@ const nextConfig: NextConfig = {
         source: '/api/:path*',
         destination: `${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:4000'}/api/:path*`,
       },
+      /**
+       * `/` has no page of its own (see the removed `app/page.tsx`) — it
+       * serves `/dashboard`'s content directly. That used to be a
+       * `redirect('/dashboard')` in a page component, which cost every
+       * landing visit a full extra HTTP round trip (a 307, then the browser
+       * re-requesting `/dashboard`) before anything could render. A rewrite
+       * resolves server-side in the same request: the URL bar still reads
+       * `/`, but there is no redirect for Lighthouse — or a real user on a
+       * slow connection — to pay for.
+       */
+      {
+        source: '/',
+        destination: '/dashboard',
+      },
     ];
   },
 };

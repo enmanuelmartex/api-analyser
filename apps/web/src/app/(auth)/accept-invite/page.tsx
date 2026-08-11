@@ -119,32 +119,32 @@ function AcceptInviteForm() {
   // ── Loading / error states ────────────────────────────────────────────────────
   if (verifying) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background" aria-busy="true">
+      <main className="min-h-screen flex items-center justify-center bg-background" aria-busy="true">
         <IconLoader2 className="h-6 w-6 animate-spin text-primary" aria-label="Verifying invitation" />
-      </div>
+      </main>
     );
   }
 
   if (inviteError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background px-4">
+      <main className="min-h-screen flex items-center justify-center bg-background px-4">
         <div className="text-center max-w-sm">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
             <IconAlertTriangle className="h-6 w-6 text-destructive" />
           </div>
           <h1 className="mb-2 text-lg font-semibold text-foreground">Invalid Invitation</h1>
           <p className="mb-6 text-sm text-muted-foreground">{inviteError}</p>
-          <Link href="/login" className="text-sm text-primary hover:underline">
+          <Link href="/login" className="text-sm text-primary underline underline-offset-2 hover:text-primary/80">
             Back to sign in
           </Link>
         </div>
-      </div>
+      </main>
     );
   }
 
   // ── Registration form ─────────────────────────────────────────────────────────
   return (
-    <div className="grid-bg flex min-h-screen items-center justify-center bg-background px-4">
+    <main className="grid-bg flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-3">
@@ -214,7 +214,7 @@ function AcceptInviteForm() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                  className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <IconEyeOff className="h-4 w-4" /> : <IconEye className="h-4 w-4" />}
@@ -253,13 +253,13 @@ function AcceptInviteForm() {
 
           <p className="text-center text-sm text-muted-foreground mt-6">
             Already have an account?{' '}
-            <Link href="/login" className="text-primary hover:underline">
+            <Link href="/login" className="text-primary underline underline-offset-2 hover:text-primary/80">
               Sign in
             </Link>
           </p>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 

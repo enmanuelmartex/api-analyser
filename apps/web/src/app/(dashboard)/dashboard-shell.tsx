@@ -3,12 +3,34 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import { IconLoader2 } from "@tabler/icons-react";
-import { AppSidebar } from "@/components/layout/app-sidebar";
-import { SiteHeader } from "@/components/layout/site-header";
-import { CommandMenuProvider } from "@/components/layout/command-menu";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { authApi } from "@/lib/api";
+
+/**
+ * `ssr: false` is safe (not just an optimisation) here: `ready` — the only
+ * condition under which this renders — depends on `hasToken`, which starts
+ * `null` on every server render because the server cannot read
+ * `localStorage`. This chunk is therefore never part of the server-rendered
+ * HTML regardless; deferring it to a dynamic import just stops the client
+ * from paying to parse and execute it before it's needed too. See
+ * `dashboard-chrome.tsx` for what that buys.
+ */
+const DashboardChrome = dynamic(
+  () => import("./dashboard-chrome").then((m) => m.DashboardChrome),
+  {
+    ssr: false,
+    loading: () => <SessionSpinner />,
+  },
+);
+
+function SessionSpinner() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background" aria-busy="true">
+      <IconLoader2 className="h-6 w-6 animate-spin text-primary" aria-label="Checking session" />
+    </div>
+  );
+}
 
 function clearSession() {
   localStorage.removeItem("api_analyser_token");
@@ -77,30 +99,12 @@ export function DashboardShell({
   const ready = hasToken === true && !isLoading && !isError && !!user;
 
   if (!ready) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background" aria-busy="true">
-        <IconLoader2 className="h-6 w-6 animate-spin text-primary" aria-label="Checking session" />
-      </div>
-    );
+    return <SessionSpinner />;
   }
 
   return (
-    <CommandMenuProvider>
-      <SidebarProvider
-        defaultOpen={defaultSidebarOpen}
-        style={
-          {
-            "--sidebar-width": "18rem",
-            "--sidebar-width-icon": "3.25rem",
-          } as React.CSSProperties
-        }
-      >
-        <AppSidebar user={user} />
-        <SidebarInset>
-          <SiteHeader />
-          <main className="flex-1 overflow-auto">{children}</main>
-        </SidebarInset>
-      </SidebarProvider>
-    </CommandMenuProvider>
+    <DashboardChrome user={user} defaultSidebarOpen={defaultSidebarOpen}>
+      {children}
+    </DashboardChrome>
   );
 }

@@ -66,8 +66,15 @@ EXPOSE 3000
 
 ENV PORT=3000
 ENV NODE_ENV=production
+# Docker sets HOSTNAME to the container ID for every container, unasked. The
+# standalone server does `process.env.HOSTNAME || '0.0.0.0'`, so without this
+# override it binds only to that container-ID hostname's address — not to
+# 0.0.0.0 — and loopback requests (like the HEALTHCHECK below, which runs
+# inside this container) get connection refused even though the app is up and
+# the published port works fine from the host. Explicit beats implicit here.
+ENV HOSTNAME=0.0.0.0
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost:3000/api/health || exit 1
+  CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
 
 CMD ["node", "server.js"]
