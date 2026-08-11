@@ -13,7 +13,7 @@ import { brand, repo } from '@/lib/site';
  */
 export function CallToAction() {
   return (
-    <section className="relative bg-brand-canvas pb-24 pt-24 sm:pb-32">
+    <section className="relative bg-brand-canvas pb-16 pt-16 sm:pb-24 sm:pt-24 lg:pb-32">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-x-0 top-0 h-px"

@@ -19,7 +19,10 @@ export function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className={cn('relative bg-brand-canvas py-24 sm:py-32', className)}>
+    // The vertical rhythm steps with the viewport. 96px of padding above and
+    // below reads as generous on a desktop and as dead space on a phone, where
+    // it was adding roughly 1,500px of nothing to a page already 16 screens long.
+    <section id={id} className={cn('relative bg-brand-canvas py-16 sm:py-24 lg:py-32', className)}>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-x-0 top-0 h-px"

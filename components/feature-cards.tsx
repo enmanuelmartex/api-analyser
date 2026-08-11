@@ -55,11 +55,15 @@ export function FeatureCards() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: '-60px' }}
             transition={{ duration: 0.5, delay: index * 0.08 }}
-            className="group relative flex h-[380px] flex-col justify-end overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900/30 transition-colors hover:border-zinc-700"
+            // The card is a fixed frame with the illustration pinned to its top
+            // and the words to its bottom. In one full-width column the words
+            // wrap less, so the same frame opens a hole in the middle — the
+            // frame and the illustration shrink together to close it.
+            className="group relative flex h-[340px] flex-col justify-end overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900/30 transition-colors hover:border-zinc-700 sm:h-[380px]"
           >
             <div
               aria-hidden="true"
-              className="absolute inset-x-0 top-0 h-[240px]"
+              className="absolute inset-x-0 top-0 h-[200px] sm:h-[240px]"
               style={{
                 maskImage: 'linear-gradient(#000 62%, transparent 96%)',
                 WebkitMaskImage: 'linear-gradient(#000 62%, transparent 96%)',

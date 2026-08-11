@@ -63,7 +63,7 @@ export function Coverage() {
 
             {'scopeNote' in row && row.scopeNote && (
               <details className="group px-5 pb-4 md:pl-[8.75rem]">
-                <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-xs text-zinc-500 transition-colors hover:text-zinc-300">
+                <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-xs text-zinc-500 transition-colors hover:text-zinc-300 sm:min-h-0">
                   <Info className="h-3.5 w-3.5" />
                   Covered is not the same as exhaustive — what this check can see
                 </summary>

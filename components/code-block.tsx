@@ -56,7 +56,11 @@ export function CodeBlock({ code, label, tone = 'shell', dense = false, classNam
           <CopyButton code={code} />
         </div>
       ) : (
-        <div className="absolute right-2 top-2 z-10 opacity-0 transition-opacity focus-within:opacity-100 group-hover/code:opacity-100">
+        // Revealing this on hover alone hid it completely on a phone, where the
+        // commands are exactly as necessary and there is no hover to give. It is
+        // visible by default and only fades out on devices that can actually
+        // hover, which is the one place a resting button is worth hiding.
+        <div className="absolute right-2 top-2 z-10 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover/code:opacity-100">
           <CopyButton code={code} />
         </div>
       )}
@@ -104,7 +108,9 @@ function CopyButton({ code }: { code: string }) {
       onClick={copy}
       aria-label={state === 'copied' ? 'Copied to clipboard' : 'Copy to clipboard'}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors',
+        // Sized for a thumb first. The blur matters now that the button rests on
+        // top of the code on touch devices rather than appearing over it.
+        'inline-flex min-h-9 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs backdrop-blur-sm transition-colors sm:min-h-0 sm:py-1',
         state === 'copied'
           ? 'border-brand-cyan/40 bg-brand-cyan/10 text-brand-ice'
           : state === 'failed'

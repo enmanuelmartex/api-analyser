@@ -128,7 +128,12 @@ export function Hero() {
         */}
         <div
           aria-hidden="true"
-          className="relative -mt-4 h-[300px] [--stage-scale:0.55] [--stage-top:20px] sm:h-[440px] sm:[--stage-scale:0.8] sm:[--stage-top:130px] lg:h-[620px] lg:[--stage-scale:1.2] lg:[--stage-top:240px]"
+          // The plane is rotated about its own top-left corner, so its painted
+          // top edge sits well above the box that reserves room for it. With
+          // little room to reserve it rose 66px over the clone command — the one
+          // line on this page someone is here to copy. The stage is pushed clear
+          // on the sizes where that happens; from `lg` it already clears.
+          className="relative mt-16 h-[300px] [--stage-scale:0.55] [--stage-top:20px] sm:mt-2 sm:h-[440px] sm:[--stage-scale:0.8] sm:[--stage-top:130px] lg:-mt-4 lg:h-[620px] lg:[--stage-scale:1.2] lg:[--stage-top:240px]"
           style={{
             width: '100vw',
             marginLeft: '-50vw',
@@ -184,7 +189,7 @@ export function Hero() {
         </div>
 
         {/* The headline numbers, sitting in the stage's fade-out. */}
-        <div className="relative z-20 mx-auto -mt-8 w-full max-w-5xl px-5 pb-24 sm:px-6">
+        <div className="relative z-20 mx-auto -mt-8 w-full max-w-5xl px-5 pb-16 sm:px-6 sm:pb-24">
           <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-800/40 sm:grid-cols-4">
             {stats.map((stat) => (
               <div key={stat.label} className="bg-brand-canvas px-5 py-6 text-center">

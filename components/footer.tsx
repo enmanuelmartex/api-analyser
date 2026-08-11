@@ -45,15 +45,17 @@ export function Footer() {
   return (
     <footer className="border-t border-zinc-800/80 bg-brand-canvas">
       <div className="mx-auto w-full max-w-6xl px-5 py-16 sm:px-6">
-        <div className="grid gap-12 md:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))]">
-          <div>
+        {/* Three link columns stacked into one on a phone made the footer four
+            screens tall on its own. They pair up first, then spread out. */}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-10 md:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))] md:gap-12">
+          <div className="col-span-2 md:col-span-1">
             <BrandLogo type="horizontal" size={34} />
             <p className="mt-5 max-w-xs text-sm leading-relaxed text-zinc-500">{brand.description}</p>
             <a
               href={repo.url}
               target="_blank"
               rel="noreferrer noopener"
-              className="mt-5 inline-flex items-center gap-2 text-sm text-zinc-400 transition-colors hover:text-white"
+              className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm text-zinc-400 transition-colors hover:text-white"
             >
               <GitHubIcon className="h-4 w-4" />
               {repo.owner}/{repo.name}
@@ -63,13 +65,13 @@ export function Footer() {
           {COLUMNS.map((column) => (
             <div key={column.heading}>
               <h2 className="text-sm font-medium text-zinc-200">{column.heading}</h2>
-              <ul className="mt-4 space-y-3">
+              <ul className="mt-2 space-y-0.5 sm:mt-3">
                 {column.links.map((link) => (
                   <li key={link.label}>
                     <a
                       href={link.href}
                       {...(link.external ? { target: '_blank', rel: 'noreferrer noopener' } : {})}
-                      className="text-sm text-zinc-500 transition-colors hover:text-zinc-200"
+                      className="flex min-h-10 items-center text-sm text-zinc-500 transition-colors hover:text-zinc-200"
                     >
                       {link.label}
                     </a>
