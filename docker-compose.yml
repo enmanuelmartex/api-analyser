@@ -53,14 +53,24 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: ${NODE_ENV:-development}
-      PORT: ${API_PORT:-4000}
+      # Fixed, not ${API_PORT}. The published mapping below is `API_PORT:4000`,
+      # so the container must always listen on 4000 — feeding API_PORT in here
+      # made the process bind the *host* port number inside the container, and
+      # any API_PORT other than the default left nothing behind the mapping.
+      PORT: 4000
       DATABASE_URL: postgresql://${POSTGRES_USER:-api_analyser}:${POSTGRES_PASSWORD:-api_analyser_dev_password}@postgres:5432/${POSTGRES_DB:-api_analyser}
       REDIS_URL: redis://:${REDIS_PASSWORD:-api_analyser_redis_dev}@redis:6379
-      JWT_SECRET: ${JWT_SECRET:-change-this-in-production-minimum-32-chars}
+      # Left empty on purpose. These four have no safe default: the API refuses
+      # to boot on a placeholder secret, and shipping a real-looking one in a
+      # public compose file would mean every install shared the key that
+      # encrypts its stored target credentials. The entrypoint generates them on
+      # first boot and persists them on the api_secrets volume; set them here or
+      # in .env to use your own instead.
+      JWT_SECRET: ${JWT_SECRET:-}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
-      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-change-refresh-secret-in-production}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-encryption-key-32-chars-min}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
@@ -76,15 +86,14 @@ services:
       # host-gateway resolves to a private IP, so the SSRF check rejects it
       # unless private targets are allowed. Set false for hosted deployments.
       ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
-      # Better Auth — generate a strong secret: openssl rand -base64 32
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-api-analyser-dev-secret-change-in-production-min-32-chars!!}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:4000}
-      # Google OAuth (optional — leave empty to disable the Google button)
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      # Resend for invitation emails (optional — invite links appear in API logs when not set)
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      RESEND_FROM: ${RESEND_FROM:-onboarding@resend.dev}
+      # The administrator created on the very first boot, when the user table is
+      # empty. Change these BEFORE the first `up` if you do not want the
+      # published defaults; changing them afterwards does nothing, because the
+      # bootstrap only ever runs against an empty database.
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@apianalyser.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin1234}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -96,6 +105,7 @@ services:
       - ./apps/api/nest-cli.json:/app/nest-cli.json
       - ./apps/api/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh
       - api_reports:/app/reports
+      - api_secrets:/app/.secrets
     networks:
       - api-analyser-network
 
@@ -113,7 +123,6 @@ services:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000/api/v1}
       NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-API Analyser}
       NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-0.1.0}
-      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
       - "${WEB_PORT:-3000}:3000"
     volumes:
@@ -158,6 +167,7 @@ volumes:
   postgres_data:
   redis_data:
   api_reports:
+  api_secrets:
   prometheus_data:
   grafana_data:
 

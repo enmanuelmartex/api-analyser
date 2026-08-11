@@ -148,7 +148,7 @@ La estrategia JWT acepta el token también por query string (`?token=`), especí
 
 Listado, CRUD, cambio de rol, activación/desactivación, reseteo de contraseña, logs de auditoría, y un sistema completo de invitaciones (`invite` / `verify-invite` / `accept-invite`) con tokens de 32 bytes y expiración.
 
-El envío de correo usa **Resend**. Si no está configurado, escribe el enlace de invitación en el log con nivel `warn` en lugar de fallar. Práctico en desarrollo, pero **filtra un token de invitación válido a los logs**.
+**Actualizado (2026-08-11):** ya no hay envío de correo. Resend se eliminó — el producto es autoalojado y exigir una API key de un tercero para crear el segundo usuario metía una dependencia hospedada en medio de una instalación local. `POST /users/invite` devuelve el enlace al admin que lo creó y lo escribe también en el log; el diálogo de Settings lo muestra para copiar. El token sigue quedando en el log, ahora deliberadamente y documentado en la UI.
 
 Es el único módulo (junto con `auth`) que escribe en `AuditLog`.
 
@@ -435,7 +435,7 @@ Dos de estos duelen especialmente:
 | Token JWT en query string del SSU | Media | Va a logs de acceso e historial del navegador. Limitación real de `EventSource`; mitigable con un token efímero de un solo uso. |
 | Perfiles sin DTO ni validación de registro | Baja-Media | Se pueden persistir IDs de plugin inexistentes. |
 | `saveAuth` con `@Body() any` | Baja | Está validado y filtrado a mano, correctamente — pero fuera del `ValidationPipe`. |
-| Enlace de invitación en logs | Baja | Cuando Resend no está configurado, un token válido queda en el log. |
+| Enlace de invitación en logs | Baja | Un token válido queda en el log. Desde 2026-08-11 es una decisión explícita: no hay transporte de correo y el enlace se devuelve al admin. |
 | `PluginExecution.errorMessage` sin redactar | Baja | El mensaje crudo del plugin se persiste; puede arrastrar detalles del objetivo. |
 | Casi nada se audita | Baja | Escaneos, exportaciones y cambios de proyecto no dejan rastro. |
 

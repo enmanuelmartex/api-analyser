@@ -24,16 +24,17 @@ export const auth = betterAuth({
     minPasswordLength: 8,
   },
 
-  socialProviders: {
-    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
-      ? {
-          google: {
-            clientId: process.env.GOOGLE_CLIENT_ID,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-          },
-        }
-      : {}),
-  },
+  /*
+   * No social providers, deliberately.
+   *
+   * This is a self-hosted security scanner that an operator runs on their own
+   * network, in the shape of Wazuh or Grafana: the first boot creates an admin
+   * account, that admin creates the rest. An OAuth button would make the
+   * install depend on a third party reaching the browser and on the operator
+   * registering an application with Google before they can log in to software
+   * running on their own laptop — for an audience that is, by construction,
+   * running this somewhere that may not reach the internet at all.
+   */
 
   // Bearer plugin: session token is returned in the response body and sent via
   // Authorization header instead of cookies — required for cross-origin SPA usage.

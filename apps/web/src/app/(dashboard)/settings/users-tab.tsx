@@ -59,19 +59,49 @@ function StatusBadge({ isActive }: { isActive: boolean }) {
 
 // ── Invite by Email Modal ─────────────────────────────────────────────────────
 
+/**
+ * Creates an invitation and hands the admin the link.
+ *
+ * It used to promise an email and, on the overwhelmingly common install with no
+ * mail provider configured, send nothing — the link went to the API log, which
+ * an admin using the web UI has no reason to be reading. There is no mail
+ * transport at all now, so the dialog stays open on success and shows the link
+ * to copy. Closing it does not lose the invitation: it is also in the API log,
+ * and issuing another one for the same address renews the same invite.
+ */
 function InviteUserDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('ANALYST');
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const inviteMut = useMutation({
     mutationFn: () => usersApi.invite({ email: email.trim(), role }),
     onSuccess: (data: any) => {
-      toast.success(data?.resent ? `Invitation resent to ${email}` : `Invitation sent to ${email}`);
-      setEmail('');
-      onClose();
+      toast.success(data?.resent ? `Invitation renewed for ${email}` : `Invitation created for ${email}`);
+      setInviteLink(data?.inviteLink ?? null);
     },
-    onError: (err: any) => toast.error(err.response?.data?.message ?? 'Failed to send invitation'),
+    onError: (err: any) => toast.error(err.response?.data?.message ?? 'Failed to create invitation'),
   });
+
+  function handleClose() {
+    setEmail('');
+    setInviteLink(null);
+    setCopied(false);
+    onClose();
+  }
+
+  async function copyLink() {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access needs a secure origin; the link is selectable either way.
+      toast.error('Could not copy — select the link and copy it manually');
+    }
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -80,17 +110,35 @@ function InviteUserDialog({ open, onClose }: { open: boolean; onClose: () => voi
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+    <Dialog open={open} onOpenChange={(next) => !next && handleClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Invite a team member</DialogTitle>
           <DialogDescription>
-            They&apos;ll receive an email with a link to create their account.
-            {!process.env.NEXT_PUBLIC_SMTP_CONFIGURED && (
-              <span className="mt-1 block text-severity-medium">Note: SMTP not configured — the invite link will appear in API logs.</span>
-            )}
+            Creates a single-use link, valid for 7 days, that lets them set their own password.
+            Send it to them however you like — this install does not send email.
           </DialogDescription>
         </DialogHeader>
+
+        {inviteLink ? (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="invite-link">Invitation link for {email}</Label>
+              <div className="flex gap-2">
+                <Input id="invite-link" readOnly value={inviteLink} onFocus={(e) => e.currentTarget.select()} className="font-mono text-xs" />
+                <Button type="button" variant="outline" onClick={copyLink} className="shrink-0">
+                  {copied ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Anyone holding this link can create the account. It is also written to the API log.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button type="button" onClick={handleClose}>Done</Button>
+            </DialogFooter>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="invite-email">Email address</Label>
@@ -109,14 +157,15 @@ function InviteUserDialog({ open, onClose }: { open: boolean; onClose: () => voi
             </Select>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={handleClose}>
               Cancel
             </Button>
             <Button type="submit" loading={inviteMut.isPending} disabled={!email.trim()}>
-              Send invitation
+              Create invitation
             </Button>
           </DialogFooter>
         </form>
+        )}
       </DialogContent>
     </Dialog>
   );

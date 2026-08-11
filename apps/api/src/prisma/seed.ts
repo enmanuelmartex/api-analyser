@@ -15,14 +15,11 @@
  * create a second, drifting definition.
  */
 import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 /** Stable ids so repeated runs update rather than insert. */
 const IDS = {
-  adminUser: 'seed-user-admin',
-  analystUser: 'seed-user-analyst',
   demoProject: 'seed-project-petstore',
 } as const;
 
@@ -103,40 +100,34 @@ const DEMO_ENDPOINTS = [
 // truth and produced duplicate names in the UI ("Quick Scan" twice, "OWASP API
 // Top 10" twice) because the two lists used different ids.
 
-async function seedUsers() {
-  // Local development credentials only — see the file header.
-  const adminPassword = await bcrypt.hash('Admin@123!', 12);
-  const analystPassword = await bcrypt.hash('Analyst@123!', 12);
-
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@apianalyser.local' },
-    // Password intentionally not in `update`: re-seeding must not silently
-    // reset a password an operator changed locally.
-    update: { name: 'API Analyser Admin', role: 'ADMIN', isActive: true },
-    create: {
-      id: IDS.adminUser,
-      email: 'admin@apianalyser.local',
-      name: 'API Analyser Admin',
-      password: adminPassword,
-      role: 'ADMIN',
-      emailVerified: true,
-    },
+/**
+ * Finds the account the demo data will belong to.
+ *
+ * This used to create `admin@apianalyser.local` and `analyst@apianalyser.local`
+ * itself, with passwords printed at the end of the run. That made two sources of
+ * truth for the same account once `AdminBootstrapService` started creating the
+ * first administrator on boot - and worse, the accounts it made were Nest-only:
+ * they had a bcrypt `users.password` but no Better Auth `accounts` row, so they
+ * could call the REST API and were rejected by the login form. That trap is what
+ * the README used to spend a warning box explaining.
+ *
+ * The seed no longer makes users. It attaches demo data to the administrator
+ * that already exists, which on any normal install is the bootstrapped one.
+ */
+async function resolveOwner() {
+  const owner = await prisma.user.findFirst({
+    where: { role: 'ADMIN', isActive: true },
+    orderBy: { createdAt: 'asc' },
   });
 
-  const analyst = await prisma.user.upsert({
-    where: { email: 'analyst@apianalyser.local' },
-    update: { name: 'Security Analyst', role: 'ANALYST', isActive: true },
-    create: {
-      id: IDS.analystUser,
-      email: 'analyst@apianalyser.local',
-      name: 'Security Analyst',
-      password: analystPassword,
-      role: 'ANALYST',
-      emailVerified: true,
-    },
-  });
+  if (!owner) {
+    throw new Error(
+      'No administrator found. Start the API once so it can create the first ' +
+        'account, then run the seed again.',
+    );
+  }
 
-  return { admin, analyst };
+  return owner;
 }
 
 async function seedDemoProject(ownerId: string) {
@@ -231,17 +222,13 @@ async function seedDemoProject(ownerId: string) {
 
 
 async function main() {
-  console.log('Seeding API Analyser database...');
+  console.log('Seeding API Analyser demo data...');
 
-  const { admin, analyst } = await seedUsers();
-  const { project } = await seedDemoProject(analyst.id);
+  const owner = await resolveOwner();
+  const { project } = await seedDemoProject(owner.id);
 
-  console.log(`  users            ${admin.email}, ${analyst.email}`);
+  console.log(`  owner            ${owner.email}`);
   console.log(`  demo project     ${project.name} (READY, ${DEMO_ENDPOINTS.length} endpoints)`);
-  console.log('');
-  console.log('Development credentials (local only):');
-  console.log('  admin@apianalyser.local   / Admin@123!');
-  console.log('  analyst@apianalyser.local / Analyst@123!');
   console.log('');
   console.log('Built-in security checks are registered by the API on startup.');
 }

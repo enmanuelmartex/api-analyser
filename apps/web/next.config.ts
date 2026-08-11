@@ -4,6 +4,21 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   serverExternalPackages: [],
   /**
+   * Emits `.next/standalone` — a self-contained server with only the modules it
+   * actually imports, which is what the production Docker stage copies.
+   *
+   * Without it the image built but had nothing to run: the Dockerfile's
+   * `COPY --from=builder /app/.next/standalone ./` matched an empty path, and
+   * `CMD ["node", "server.js"]` started a container that exited immediately.
+   *
+   * Opt-in rather than always on, because tracing a standalone bundle symlinks
+   * every traced dependency — and creating a symlink on Windows needs elevation
+   * or Developer Mode, so an ordinary `bun run build:web` on a Windows machine
+   * failed with EPERM on a build that had otherwise succeeded. The Dockerfile
+   * sets NEXT_OUTPUT=standalone; Linux CI and containers get it, laptops do not.
+   */
+  ...(process.env.NEXT_OUTPUT === 'standalone' ? { output: 'standalone' as const } : {}),
+  /**
    * `next build` and `next dev` cannot share an output directory — a build wipes
    * the manifests the running dev server is serving from. Setting NEXT_DIST_DIR
    * lets a production build (or a Lighthouse run against one) happen alongside a

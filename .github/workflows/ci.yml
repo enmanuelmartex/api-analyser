@@ -33,7 +33,7 @@ jobs:
         run: bun run lint:web
 
       - name: Type check API
-        run: bun run --cwd apps/api exec tsc --noEmit
+        run: bun run --cwd apps/api type-check
 
       - name: Type check Web
         run: bun run --cwd apps/web type-check

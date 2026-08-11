@@ -11,7 +11,11 @@ WORKDIR /app
 # Install system deps for Prisma
 RUN apk add --no-cache openssl
 
-COPY package.json bun.lockb* ./
+# The workspace lockfile lives at the repository root, outside this build
+# context, so it cannot be copied here — `bun install` resolves within the
+# semver ranges in package.json instead. The previous `bun.lockb*` glob matched
+# nothing (the repo uses the text `bun.lock` format) and only looked reproducible.
+COPY package.json ./
 # Copy schema BEFORE bun install so @prisma/client postinstall can generate
 # with the correct schema and populate Bun's internal package cache correctly
 COPY prisma ./prisma
@@ -38,9 +42,9 @@ WORKDIR /app
 
 RUN apk add --no-cache openssl
 
-COPY package.json bun.lockb* ./
+COPY package.json ./
 COPY prisma ./prisma
-RUN bun install --frozen-lockfile
+RUN bun install
 
 COPY . .
 RUN bunx prisma generate

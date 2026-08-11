@@ -16,30 +16,62 @@ the rename, see [Upgrading from IASA](#upgrading-from-iasa).</sub>
 
 ## Quick Start
 
+Two supported ways to run it. Pick the first unless you intend to change the code.
+
+### 1 · With Docker — recommended
+
+Brings up PostgreSQL, Redis, the API and the web app together, on one network,
+already wired to each other. Nothing else is installed on your machine, and no
+`.env` is required.
+
 ```bash
 git clone https://github.com/enmanuelmartex/api-analyser
 cd api-analyser
-cp .env.example .env
-bun i
 docker compose up -d
+```
+
+The first run builds the images and takes a few minutes. Watch it come up with
+`docker compose logs -f api`.
+
+### 2 · From source
+
+For working on the code — the API and the web app run on your machine with hot
+reload, while the data stores still come from Docker.
+
+```bash
+git clone https://github.com/enmanuelmartex/api-analyser
+cd api-analyser
+bun run setup:env               # .env from .env.example, with generated secrets
+docker compose up -d postgres redis
+bun install
 bun run db:migrate
-bun run db:seed
 bun dev
 ```
 
-Open **http://localhost:3000** and register an account.
+`setup:env` exists because the API refuses to start on a missing or placeholder
+secret — see [Environment Variables](#environment-variables). If you already run
+your own PostgreSQL and Redis, skip the compose line and edit `DATABASE_URL` and
+`REDIS_URL` in `.env`.
 
-> **The seeded accounts do not work for web sign-in.** The web app authenticates
-> through Better Auth, which needs a row in the `accounts` table. `bun run db:seed`
-> creates `admin@apianalyser.local` and `analyst@apianalyser.local` as `users` rows only, so they
-> authenticate against the REST API directly (`POST /api/v1/auth/login`) but are
-> rejected by the login form. Register through the UI to get a web-usable account.
+### Then sign in
 
-| Account                | Works for                          |
-|------------------------|------------------------------------|
-| Registered via the UI  | Web app **and** API                |
-| `admin@apianalyser.local`     | API only — `POST /api/v1/auth/login` |
-| `analyst@apianalyser.local`   | API only — `POST /api/v1/auth/login` |
+Open **http://localhost:3000** — the API is on **:4000**.
+
+| | |
+|---|---|
+| **User** | `admin@apianalyser.local` |
+| **Password** | `admin1234` |
+
+The API creates that administrator the first time it starts against an empty
+database, and that account creates every other one from **Settings → Users**.
+There is no public sign-up and no OAuth: this is self-hosted software on your
+own network, in the shape of Wazuh or Grafana.
+
+> **Change the password.** Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` before the
+> first start to pick your own, or change it in the UI afterwards. The bootstrap
+> only ever runs against an empty user table, so it will not resurrect a deleted
+> admin or reset a changed password — but the API logs a warning on every boot
+> while the default is still in use.
 
 ---
 
@@ -177,36 +209,63 @@ api-analyser/
 
 ## Environment Variables
 
-Copy `.env.example` to `.env`:
+**With Docker you can skip this entirely.** The entrypoint generates the four
+secrets on first boot and keeps them on the `api_secrets` volume, so every
+install gets its own and none is published here. Set any of them yourself and
+yours is used instead.
+
+**From source**, run `bun run setup:env` — it copies `.env.example` and fills the
+same four with `crypto.randomBytes`. It refuses to overwrite an existing `.env`,
+because `ENCRYPTION_KEY` decrypts stored target credentials and regenerating it
+strands all of them.
 
 ```bash
-# Required
+# Required — the API refuses to start without these
 DATABASE_URL=postgresql://api_analyser:password@localhost:5432/api_analyser
 REDIS_URL=redis://:password@localhost:6379
-JWT_SECRET=your-32-char-minimum-secret-here
-ENCRYPTION_KEY=your-32-char-encryption-key-here
+JWT_SECRET=<64 hex chars>            # openssl rand -hex 32
+REFRESH_TOKEN_SECRET=<64 hex chars>  # must differ from JWT_SECRET
+ENCRYPTION_KEY=<64 hex chars>        # exactly 64 hex, AES-256-GCM
+
+# The first administrator, created only while the user table is empty
+ADMIN_EMAIL=admin@apianalyser.local
+ADMIN_PASSWORD=admin1234
 
 # Optional — enables AI-powered vulnerability analysis
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
 ```
 
+A placeholder is rejected on purpose: `validateEnv` fails the boot on any secret
+containing `change-in-production`, on anything under 32 characters, and on an
+`ENCRYPTION_KEY` that is not exactly 64 hexadecimal characters.
+
 ---
 
 ## Development
 
 ```bash
+bun run setup:env         # .env with generated secrets (once)
 bun i                     # Install all dependencies
-docker compose up -d      # Start PostgreSQL + Redis
+docker compose up -d postgres redis
 bun run db:migrate        # Apply database migrations
-bun run db:seed           # Create demo users and project
 bun dev                   # Start API (4000) + Web (3000)
 
 # Individual
 bun dev:api               # NestJS API only
 bun dev:web               # Next.js Web only
 bun run db:studio         # Prisma Studio UI
+bun run db:seed           # Optional: a demo PetStore project to scan
+
+# Checks — the same three CI runs
+bun run lint              # API + web
+bun run --cwd apps/api type-check
+bun test                  # API + web suites
 ```
+
+`db:seed` no longer creates accounts. It attaches a demo project to the
+administrator that already exists, so start the API at least once before running
+it.
 
 ---
 
@@ -224,9 +283,7 @@ names on you — or start clean:
 
 ```bash
 docker compose down -v    # destroys the local volumes and their data
-cp .env.example .env
-docker compose up -d
-bun run db:migrate && bun run db:seed
+docker compose up -d      # fresh volumes, fresh secrets, fresh admin
 ```
 
 **Everything else.**

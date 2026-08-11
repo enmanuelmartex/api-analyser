@@ -8,6 +8,7 @@
     "packages/*"
   ],
   "scripts": {
+    "setup:env": "node scripts/setup-env.mjs",
     "dev": "concurrently --names \"API,WEB\" --prefix-colors \"cyan,magenta\" \"bun run dev:api\" \"bun run dev:web\"",
     "dev:api": "bun run --cwd apps/api dev",
     "dev:web": "bun run --cwd apps/web dev",
