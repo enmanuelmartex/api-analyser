@@ -26,6 +26,11 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Generate Prisma client
+        run: bun run --cwd apps/api db:generate
+        env:
+          DATABASE_URL: postgresql://api_analyser:api_analyser@localhost:5432/api_analyser
+
       - name: Lint API
         run: bun run lint:api
 
@@ -121,6 +126,7 @@ jobs:
       - name: Install & Build
         run: |
           bun install
+          bun run --cwd apps/api db:generate
           bun run build:api
         env:
           DATABASE_URL: postgresql://api_analyser:api_analyser_ci_pass@localhost:5432/api_analyser
