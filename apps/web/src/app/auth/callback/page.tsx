@@ -6,7 +6,7 @@ import { IconLoader2 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { authClient, AUTH_BASE_URL } from '@/lib/auth-client';
 import { authApi } from '@/lib/api';
-import { AppLogo } from '@/components/brand/app-logo';
+import { BrandLogo } from '@/components/brand/brand-logo';
 
 // OAuth callback page — landed here after Google OAuth completes.
 // Better Auth sets a session cookie; we read it with getSession() then exchange for JWT.
@@ -66,7 +66,7 @@ function AuthCallbackContent() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background" aria-busy="true">
-      <AppLogo variant="full" size={32} className="mb-6" nameClassName="text-lg" />
+      <BrandLogo type="horizontal" size={40} className="mb-6" />
       <IconLoader2 className="mb-3 h-6 w-6 animate-spin text-primary" />
       <p className="text-sm text-muted-foreground">Completing sign-in…</p>
     </div>

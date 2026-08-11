@@ -18,6 +18,7 @@ import { IconMinus, IconShieldCheck, IconTrendingDown, IconTrendingUp } from '@t
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { EmptyState } from '@/components/ui/empty-state';
+import { brandColors } from '@/lib/brand';
 import { useChartColors } from '@/lib/use-chart-colors';
 import { cn } from '@/lib/utils';
 import { OWASP_CATEGORIES } from './owasp-categories';
@@ -60,7 +61,9 @@ function TrendPill({ percent, invert = false, title = 'Compared with previous pe
   const Icon = up ? IconTrendingUp : down ? IconTrendingDown : IconMinus;
   const good = (up && !invert) || (down && invert);
   const bad = (up && invert) || (down && !invert);
-  const tone = good ? 'bg-emerald-500/15 text-emerald-400' : bad ? 'bg-red-500/15 text-red-400' : 'bg-muted text-muted-foreground';
+  // Theme tokens, so a delta pill is the same green as every other "good" in
+  // the product and adapts to the light theme instead of staying dark-mode ink.
+  const tone = good ? 'bg-success/10 text-success' : bad ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground';
   return (
     <span className={cn('inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium tabular-nums', tone)} title={title}>
       <Icon className="h-3 w-3" aria-hidden="true" />
@@ -146,7 +149,7 @@ export function SecurityScoreChart({ trend, yearAverage }: { trend: ScoreTrendPo
   );
   const hasAnyData = chartData.some((point) => point.averageScore !== null);
   const yearTrend = computeYearTrend(chartData);
-  const config = useMemo(() => ({ averageScore: { label: 'Average Security Score', color: '#638cff' } }) satisfies ChartConfig, []);
+  const config = useMemo(() => ({ averageScore: { label: 'Average Security Score', color: brandColors.blue } }) satisfies ChartConfig, []);
 
   return (
     <Card className="flex h-full min-h-[420px] flex-col shadow-none">
@@ -174,9 +177,11 @@ export function SecurityScoreChart({ trend, yearAverage }: { trend: ScoreTrendPo
             <BarChart data={chartData} margin={{ top: 8, right: 4, left: 4, bottom: 0 }} barCategoryGap="18%">
               <defs>
                 <linearGradient id={SCORE_BAR_GRADIENT_ID} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#7c5cff" />
-                  <stop offset="55%" stopColor="#638cff" />
-                  <stop offset="100%" stopColor="#62d6ff" />
+                  {/* The core gradient, verbatim. Charts are one of the few
+                      places the full Violet → Blue → Cyan ramp is licensed. */}
+                  <stop offset="0%" stopColor={brandColors.violet} />
+                  <stop offset="45%" stopColor={brandColors.blue} />
+                  <stop offset="100%" stopColor={brandColors.cyan} />
                 </linearGradient>
               </defs>
               <YAxis hide domain={[0, MAX_SCORE]} />

@@ -5,6 +5,10 @@ import puppeteer from 'puppeteer-core';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
 import { appBrand, REPORT_TOOL_VERSION } from '../../brand/brand';
 import { renderReportHtml } from './report-template';
+import {
+  countOccurrenceSeverities,
+  findingSummaryFields,
+} from '../assessments/assessment-finding-counts';
 
 type ReportType = 'TECHNICAL' | 'EXECUTIVE' | 'DEVELOPER' | 'COMPLIANCE';
 
@@ -74,8 +78,17 @@ export class ReportGeneratorService {
     });
     if (!assessment) throw new NotFoundException('Assessment not found');
 
+    const findingCounts = countOccurrenceSeverities(assessment.occurrences);
+
     return {
       ...assessment,
+      // All export formats receive the same occurrence-derived counters as the
+      // finding list. This also makes regenerated reports for legacy scans
+      // internally consistent before their stored summary is backfilled.
+      summary: {
+        ...(assessment.summary ?? {}),
+        ...findingSummaryFields(findingCounts),
+      },
       /*
        * Real OWASP coverage, from the check registry.
        *

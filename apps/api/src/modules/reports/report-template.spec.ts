@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { appBrand } from '../../brand/brand';
+import { markDataUri } from '../../brand/brand-assets';
 import { computeOwaspCoverage } from '../plugins/owasp-coverage';
 import { createBuiltinPlugins } from '../plugins/plugin-registry.service';
 import { renderReportHtml, sectionsFor } from './report-template';
@@ -72,6 +73,17 @@ describe('branding', () => {
     expect(html).not.toContain('http://localhost');
   });
 
+  it('draws the mark for the surface it sits on, dark cover and paper alike', () => {
+    // The regression this guards: one file for both surfaces meant the cover
+    // carried artwork drawn in ink on a near-black background, and a `data:`
+    // URI cannot inherit `currentColor` to rescue it.
+    const cover = markDataUri('dark');
+    const page = markDataUri('light');
+    expect(html).toContain(`class="cover-mark" src="${cover}"`);
+    expect(html).toContain(`class="ph-mark" src="${page}"`);
+    expect(cover).not.toBe(page);
+  });
+
   it('loads no webfont, so generation cannot depend on outbound network', () => {
     expect(html).not.toContain('fonts.googleapis');
     expect(html).not.toContain('@font-face');
@@ -86,8 +98,11 @@ describe('print styling', () => {
     expect(html).toContain('-webkit-print-color-adjust: exact');
   });
 
-  it('gives the cover the application\'s dark surface', () => {
-    expect(html).toContain('background: #0a0a0a');
+  it('gives the cover the brand Canvas', () => {
+    // #08080A is Canvas from `branding/README.md` — the same surface the
+    // application shell paints, so a printed cover and the dashboard behind it
+    // are the same black.
+    expect(html).toContain('background: #08080A');
   });
 
   it('protects findings from being split across a page boundary', () => {
@@ -292,6 +307,22 @@ describe('content fidelity', () => {
   it('states an empty result rather than rendering an empty findings section', () => {
     const html = renderReportHtml({ assessment: assessment({ findings: [] }), type: 'TECHNICAL' });
     expect(html).toContain('No findings were recorded');
+  });
+
+  it('counts the findings it renders when a legacy summary is stale', () => {
+    const legacy = assessment({
+      summary: {
+        ...assessment().summary,
+        totalFindings: 14,
+        highCount: 14,
+        mediumCount: 0,
+      },
+    });
+    const html = renderReportHtml({ assessment: legacy, type: 'TECHNICAL' });
+
+    expect(html).toMatch(/<div class="fig-k">Findings<\/div>\s*<div class="fig-v">2<\/div>/);
+    expect(html).toContain('<span class="legend-v">1</span>');
+    expect(html).not.toContain('<span class="legend-v">14</span>');
   });
 
   it('titles the OWASP table for what it counts', () => {

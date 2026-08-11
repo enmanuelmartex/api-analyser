@@ -1,5 +1,5 @@
 import { appBrand } from '../../brand/brand';
-import { logoDataUri } from '../../brand/brand-assets';
+import { markDataUri } from '../../brand/brand-assets';
 import { PAGINATOR_SCRIPT } from './report-paginator';
 
 /**
@@ -71,7 +71,13 @@ const SEVERITY: Record<string, { label: string; color: string; onColor: string }
   INFO:     { label: 'Info',     color: '#64748B', onColor: '#ffffff' },
 };
 
-/** Interior pages: ink on paper. */
+/**
+ * Interior pages: ink on paper.
+ *
+ * `accent` is the brand Blue darkened until it clears 6.5:1 on paper — the
+ * document is read on screen, printed in colour and photocopied in grey, and it
+ * has to survive all three.
+ */
 const P = {
   ink: '#12161c',
   body: '#2f3844',
@@ -80,18 +86,18 @@ const P = {
   rule: '#d8dee6',
   ruleSoft: '#e9edf2',
   wash: '#f5f7f9',
-  accent: '#12489f',
+  accent: '#0F5FC2',
   paper: '#ffffff',
 };
 
-/** The cover: the document's only dark surface. */
+/** The cover: the document's only dark surface. Canvas and brand Blue. */
 const C = {
-  bg: '#0a0a0a',
+  bg: '#08080A',
   ink: '#f7f8f9',
   muted: '#9aa3af',
   faint: '#69717c',
-  rule: '#262b32',
-  accent: '#4D9DFF',
+  rule: '#23262e',
+  accent: '#2E8BF5',
 };
 
 export function esc(value: unknown): string {
@@ -302,7 +308,13 @@ export interface TemplateInput {
 export function renderReportHtml({ assessment, type, reportId, version }: TemplateInput): string {
   const { project, summary, findings } = assessment;
   const sections = sectionsFor(type);
-  const logo = logoDataUri();
+  /*
+   * Two files, not one recoloured file. The cover is the document's only dark
+   * surface, every other page is paper, and a `data:` URI cannot inherit
+   * `currentColor` — so each surface gets the artwork drawn for it.
+   */
+  const coverMark = markDataUri('dark');
+  const pageMark = markDataUri('light');
 
   const generatedAt = new Date();
   const dateLong = generatedAt.toLocaleDateString('en-US', {
@@ -334,10 +346,24 @@ export function renderReportHtml({ assessment, type, reportId, version }: Templa
     : sorted.slice(0, sections.detailedFindingLimit);
   const remainder = sorted.slice(detailed.length);
 
+  /*
+   * The document counts what the document lists.
+   *
+   * These used to be read from the persisted summary counters while the pages
+   * below were built from `sorted`, so a report could open by claiming fourteen
+   * findings and then itemise thirteen — the counters were written from the
+   * scanner's raw detections, the body from the deduplicated occurrences. The
+   * scanner now records the same number, but a report must not be able to
+   * contradict itself if a stored summary is ever stale, so the totals are
+   * derived here from the findings actually being rendered.
+   */
   const counts: Record<string, number> = {};
-  for (const key of SEVERITY_KEYS) counts[key] = summary?.[`${key.toLowerCase()}Count`] ?? 0;
+  for (const key of SEVERITY_KEYS) counts[key] = 0;
+  for (const f of sorted) {
+    if (counts[f.severity] !== undefined) counts[f.severity] += 1;
+  }
   const countedTotal = SEVERITY_KEYS.reduce((sum, key) => sum + counts[key], 0);
-  const totalFindings = summary?.totalFindings ?? sorted.length;
+  const totalFindings = sorted.length;
 
   // ── Findings by OWASP category ────────────────────────────────────────────
   // Named for what it counts. "Coverage" over a table of finding counts implies
@@ -404,10 +430,10 @@ export function renderReportHtml({ assessment, type, reportId, version }: Templa
   const cover = `<section class="sheet sheet-cover" data-sheet="cover">
     <div class="cover-art" aria-hidden="true">
       <svg viewBox="0 0 400 400" preserveAspectRatio="none">
-        <g fill="none" stroke="#4D9DFF" stroke-width="1.1">
+        <g fill="none" stroke="#2E8BF5" stroke-width="1.1">
           ${[110, 170, 230, 290, 350].map((r) => `<circle cx="400" cy="0" r="${r}"></circle>`).join('')}
         </g>
-        <g fill="none" stroke="#7C5CFF" stroke-width="1.1" opacity="0.8">
+        <g fill="none" stroke="#6D4BFF" stroke-width="1.1" opacity="0.8">
           ${[140, 260].map((r) => `<circle cx="400" cy="0" r="${r}"></circle>`).join('')}
         </g>
       </svg>
@@ -415,7 +441,7 @@ export function renderReportHtml({ assessment, type, reportId, version }: Templa
 
     <header class="cover-top">
       <div class="cover-brand">
-        ${logo ? `<img src="${logo}" width="26" height="26" alt="">` : ''}
+        ${coverMark ? `<img class="cover-mark" src="${coverMark}" alt="">` : ''}
         <span>${esc(appBrand.name)}</span>
       </div>
       <div class="cover-doctype">${esc(sections.subtitle)}</div>
@@ -844,7 +870,11 @@ export function renderReportHtml({ assessment, type, reportId, version }: Templa
   }
   .ph { padding-bottom: 2.5mm; margin-bottom: 7mm; border-bottom: 0.5pt solid ${P.rule}; }
   .pf { padding-top: 2.5mm; margin-top: 7mm; border-top: 0.5pt solid ${P.rule}; }
-  .ph-brand { font-weight: 600; color: ${P.ink}; letter-spacing: 0.08em; }
+  .ph-brand { display: inline-flex; align-items: center; gap: 1.8mm;
+              font-weight: 600; color: ${P.ink}; letter-spacing: 0.08em; }
+  /* Furniture scale. The compact artwork exists for exactly this: the node
+     network would be toner speckle at this size. */
+  .ph-mark { width: 4.6mm; height: 4.6mm; }
   .pf-n, .pf-t { font-weight: 600; color: ${P.body}; font-variant-numeric: tabular-nums; }
   /* An opaque identifier is unreadable upper-cased and letter-spaced. */
   .pf-ref { text-transform: none; letter-spacing: 0; font-family: "SFMono-Regular", Consolas, monospace; }
@@ -860,9 +890,12 @@ export function renderReportHtml({ assessment, type, reportId, version }: Templa
   /* Layered wash, drawn on the page itself so it reaches all four trims. */
   .sheet-cover::before {
     content: ''; position: absolute; inset: 0;
+    /* Brand Blue #2E8BF5 and Violet #6D4BFF. These were the previous identity's
+       blue and violet written as rgba(), which is why a hex search for the old
+       palette did not find them and the cover kept printing a warm cast. */
     background:
-      radial-gradient(60% 45% at 88% 10%, rgba(77,157,255,0.20), transparent 70%),
-      radial-gradient(55% 40% at 0% 94%, rgba(124,92,255,0.12), transparent 70%);
+      radial-gradient(60% 45% at 88% 10%, rgba(46,139,245,0.18), transparent 70%),
+      radial-gradient(55% 40% at 0% 94%, rgba(109,75,255,0.10), transparent 70%);
   }
   /* Needs the same specificity as the flow children below, or the decoration is
      pulled back into the flex flow and pushes the lockup down the page.
@@ -881,7 +914,15 @@ export function renderReportHtml({ assessment, type, reportId, version }: Templa
 
   .cover-top { display: flex; justify-content: space-between; align-items: center;
                padding-bottom: 5mm; border-bottom: 0.5pt solid ${C.rule}; }
-  .cover-brand { display: flex; align-items: center; gap: 3mm; font-size: 11pt; font-weight: 600; letter-spacing: -0.01em; }
+  /*
+   * The cover lockup, proportioned from the official horizontal lockup rather
+   * than eyeballed: the artwork sits in a square box whose visible mark is
+   * 0.88 of the side, the wordmark's cap height is 0.381 of the mark height,
+   * and the two are optically centred. A 10 mm box clears the brand's print
+   * minimum and puts the wordmark at 13 pt.
+   */
+  .cover-brand { display: flex; align-items: center; gap: 3.3mm; font-size: 13pt; font-weight: 600; letter-spacing: -0.015em; }
+  .cover-mark { width: 10mm; height: 10mm; }
   .cover-doctype { font-size: 7pt; letter-spacing: 0.2em; text-transform: uppercase; color: ${C.muted}; }
 
   .cover-title { margin-top: auto; padding-bottom: 6mm; }
@@ -1056,7 +1097,7 @@ export function renderReportHtml({ assessment, type, reportId, version }: Templa
 
 <template id="report-furniture">
   <header class="ph">
-    <span class="ph-brand">${esc(appBrand.name)}</span>
+    <span class="ph-brand">${pageMark ? `<img class="ph-mark" src="${pageMark}" alt="">` : ''}${esc(appBrand.name)}</span>
     <span>${esc(sections.subtitle)} — ${esc(projectName)}</span>
   </header>
   <footer class="pf">

@@ -460,7 +460,32 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full items-center gap-3 overflow-hidden rounded-lg px-3 text-left text-sm outline-none ring-sidebar-ring transition-colors duration-200 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-[[data-sidebar=menu-action]]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:[&>span:not(.sr-only)]:hidden [&>svg]:size-5 [&>svg]:shrink-0",
+  [
+    "peer/menu-button relative flex w-full items-center gap-3 overflow-hidden rounded-lg px-3 text-left text-sm outline-none ring-sidebar-ring transition-colors duration-200",
+    "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground",
+    "disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50",
+    "group-has-[[data-sidebar=menu-action]]/menu-item:pr-8",
+    /*
+     * The active row is marked three ways, none of which is a filled block:
+     * a hairline rail in the brand accent, the icon taking that accent, and a
+     * barely-there wash. Colour is never the only signal — the weight change
+     * and `aria-current` carry the state on their own — and the wash stays
+     * under the text rather than competing with it.
+     */
+    "data-[active=true]:bg-sidebar-accent/60 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground",
+    /*
+     * Written as one arbitrary selector, not as `data-[active=true]:[&>svg]:`.
+     * Stacked that way Tailwind emits `… > svg[data-active=true]` — the
+     * attribute lands on the icon instead of the row, and the icon never
+     * takes the accent.
+     */
+    "[&[data-active=true]>svg]:text-sidebar-primary",
+    "data-[active=true]:before:absolute data-[active=true]:before:inset-y-1.5 data-[active=true]:before:left-0 data-[active=true]:before:w-[2px] data-[active=true]:before:rounded-r-full data-[active=true]:before:bg-sidebar-primary",
+    "data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground",
+    // Collapsed to icons there is no row to rail, so the tint carries it alone.
+    "group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:before:hidden group-data-[collapsible=icon]:[&>span:not(.sr-only)]:hidden",
+    "[&>svg]:size-5 [&>svg]:shrink-0",
+  ],
   {
     variants: {
       variant: {
@@ -659,7 +684,9 @@ function SidebarMenuSubButton({
       aria-current={isActive ? "page" : undefined}
       className={cn(
         "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground outline-none ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground",
-        "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
+        // Same language as the top-level rows, one step quieter.
+        "data-[active=true]:bg-sidebar-accent/60 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground",
+        "[&[data-active=true]>svg]:text-sidebar-primary",
         size === "sm" && "text-xs",
         size === "md" && "text-sm",
         "group-data-[collapsible=icon]:hidden",

@@ -2,113 +2,170 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens.
+ *
+ * Two layers, deliberately:
+ *
+ *  1. `--brand-*` are the eight literal values from `branding/README.md`,
+ *     written as HSL triplets so Tailwind's `<alpha-value>` syntax works on
+ *     them. They never change between themes — they are the brand, not the UI.
+ *
+ *  2. Everything else is semantic. Components only ever name these. The rule
+ *     the whole palette is built on: the product is black, white and grey, and
+ *     brand colour is reserved for interaction and identity — roughly 85–90 %
+ *     neutral, 8–12 % blue/cyan for anything interactive or informational, and
+ *     a few per cent of violet/indigo for the mark and AI features.
+ *
+ * The neutral ramp carries a trace of the brand's hue (240) at very low
+ * saturation. It reads as grey next to anything coloured, but it stops the
+ * greys from looking warm beside the blue accents.
+ */
+
 @layer base {
-  /* Light theme (default) */
   :root {
-    --background: 0 0% 97%;
-    --foreground: 0 0% 7%;
+    /* ── Brand constants — identical in both themes ────────────────────── */
+    --brand-ink: 240 5% 4%;         /* #0A0A0B */
+    --brand-canvas: 240 11% 4%;     /* #08080A */
+    --brand-white: 0 0% 100%;       /* #FFFFFF */
+    --brand-violet: 251 100% 65%;   /* #6D4BFF */
+    --brand-indigo: 234 100% 67%;   /* #5566FF */
+    --brand-blue: 212 91% 57%;      /* #2E8BF5 */
+    --brand-cyan: 191 81% 52%;      /* #1FC2E8 */
+    --brand-ice: 192 85% 79%;       /* #9BE4F7 */
+
+    /* The core gradient. Belongs to the mark, charts and AI affordances only. */
+    --brand-gradient: linear-gradient(135deg, #6D4BFF 0%, #2E8BF5 45%, #1FC2E8 100%);
+  }
+
+  /* ── Light theme ─────────────────────────────────────────────────────── */
+  :root {
+    --background: 0 0% 98%;
+    --foreground: 240 5% 4%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 7%;
+    --card-foreground: 240 5% 4%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    /* IASA brand: #4FC3E8. Dark ink keeps filled controls AA-readable. */
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 210 40% 94%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 0 0% 93%;
-    --muted-foreground: 0 0% 40%;
-    --accent: 0 0% 92%;
-    --accent-foreground: 222 47% 11%;
+    --popover-foreground: 240 5% 4%;
+
+    /*
+     * Primary is brand Blue, darkened until white sits on it at 5.0:1 — the
+     * same token has to work as a filled button surface AND as link text, and
+     * the lighter brand value passes neither.
+     */
+    --primary: 212 90% 45%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 5% 94%;
+    --secondary-foreground: 240 5% 10%;
+    --muted: 240 5% 94%;
+    --muted-foreground: 240 4% 40%;
+    /* Hover and rest surfaces stay neutral. Colour marks state, not hover. */
+    --accent: 240 5% 92%;
+    --accent-foreground: 240 5% 10%;
+
     --destructive: 0 72% 42%;
-    --destructive-foreground: 210 40% 98%;
-    --success: 142 65% 34%;
-    --success-foreground: 210 40% 98%;
-    --border: 0 0% 87%;
-    --input: 0 0% 87%;
-    --ring: 250 91% 68%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 65% 30%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 240 6% 88%;
+    --input: 240 6% 84%;
+    --ring: 212 90% 45%;
     --radius: 0.625rem;
 
-    /* Brand secondary data accent (cyan) — used sparingly */
-    --cyan: 194 77% 48%;
+    /* Secondary data accent. */
+    --cyan: 191 81% 38%;
 
-    /* Severity colors — semantic, independent of brand */
+    /*
+     * AI affordances. The only place violet appears in the interface, and only
+     * ever on an icon, a badge or a hairline — never a surface. It is a
+     * separate token precisely so "this was generated" cannot be confused with
+     * "this is interactive", which is what `--primary` means everywhere else.
+     */
+    --ai: 251 70% 52%;
+
+    /* Severity — semantic, and deliberately independent of the brand. */
     --severity-critical: 0 74% 48%;
     --severity-high: 24 90% 45%;
     --severity-medium: 38 92% 42%;
     --severity-low: 199 85% 40%;
-    --severity-info: 215 16% 42%;
+    --severity-info: 240 5% 42%;
 
-    /* Chart palette */
-    --chart-1: 194 77% 48%;
-    --chart-2: 217 82% 55%;
-    --chart-3: 262 70% 55%;
+    /* Charts carry the identity: cyan, blue, violet, then two semantics. */
+    --chart-1: 191 81% 40%;
+    --chart-2: 212 90% 48%;
+    --chart-3: 251 70% 58%;
     --chart-4: 38 92% 42%;
-    --chart-5: 142 65% 34%;
+    --chart-5: 142 65% 32%;
 
-    /* Sidebar surface — subtly distinct from the main canvas (inset variant) */
     --sidebar: 0 0% 100%;
-    --sidebar-foreground: 222 47% 11%;
-    --sidebar-primary: 194 77% 48%;
-    --sidebar-primary-foreground: 222 47% 9%;
-    --sidebar-accent: 0 0% 93%;
-    --sidebar-accent-foreground: 222 47% 11%;
-    --sidebar-border: 0 0% 88%;
-    --sidebar-ring: 250 91% 68%;
-    --brand-violet: 250 91% 68%;
-    --brand-blue: 231 94% 67%;
-    --brand-cyan: 199 92% 60%;
+    --sidebar-foreground: 240 5% 10%;
+    --sidebar-primary: 212 90% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 5% 94%;
+    --sidebar-accent-foreground: 240 5% 10%;
+    --sidebar-border: 240 6% 89%;
+    --sidebar-ring: 212 90% 45%;
   }
 
-  /* Dark theme */
+  /* ── Dark theme ──────────────────────────────────────────────────────── */
   .dark {
-    --background: 0 0% 4%;
+    /* Canvas. The product's dark mode is near-black, not slate. */
+    --background: 240 11% 4%;
     --foreground: 0 0% 98%;
-    --card: 0 0% 10%;
+    --card: 240 8% 8%;
     --card-foreground: 0 0% 98%;
-    --popover: 0 0% 10%;
-    --popover-foreground: 210 40% 96%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 7%;
-    --secondary: 0 0% 14%;
-    --secondary-foreground: 210 40% 96%;
-    --muted: 0 0% 14%;
-    --muted-foreground: 0 0% 63%;
-    --accent: 0 0% 16%;
-    --accent-foreground: 210 40% 96%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 210 40% 98%;
-    --success: 142 71% 45%;
-    --success-foreground: 222 47% 8%;
-    --border: 0 0% 18%;
-    --input: 0 0% 18%;
-    --ring: 250 91% 68%;
+    --popover: 240 8% 9%;
+    --popover-foreground: 0 0% 96%;
 
-    --cyan: 194 77% 61%;
+    /*
+     * On canvas the brand Blue is lifted rather than darkened, so it clears
+     * 6:1 as link text; filled surfaces take near-black ink in return, which
+     * is also what keeps a blue button from glowing on a black page.
+     */
+    --primary: 211 92% 62%;
+    --primary-foreground: 240 11% 4%;
+
+    --secondary: 240 6% 13%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 6% 13%;
+    --muted-foreground: 240 5% 64%;
+    --accent: 240 6% 16%;
+    --accent-foreground: 0 0% 96%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 70% 45%;
+    --success-foreground: 240 11% 4%;
+
+    --border: 240 6% 16%;
+    --input: 240 6% 19%;
+    --ring: 211 92% 62%;
+
+    --cyan: 191 81% 58%;
+    --ai: 251 100% 76%;
 
     --severity-critical: 0 84% 60%;
     --severity-high: 25 95% 53%;
     --severity-medium: 38 92% 50%;
     --severity-low: 199 89% 58%;
-    --severity-info: 215 16% 57%;
+    --severity-info: 240 5% 58%;
 
-    --chart-1: 194 77% 61%;
-    --chart-2: 217 91% 66%;
-    --chart-3: 262 83% 66%;
-    --chart-4: 38 92% 50%;
-    --chart-5: 142 71% 45%;
+    --chart-1: 191 81% 55%;
+    --chart-2: 211 92% 64%;
+    --chart-3: 251 100% 72%;
+    --chart-4: 38 92% 55%;
+    --chart-5: 142 70% 48%;
 
-    --sidebar: 0 0% 8%;
-    --sidebar-foreground: 210 40% 96%;
-    --sidebar-primary: 194 77% 61%;
-    --sidebar-primary-foreground: 222 47% 8%;
-    --sidebar-accent: 0 0% 15%;
-    --sidebar-accent-foreground: 210 40% 96%;
-    --sidebar-border: 0 0% 16%;
-    --sidebar-ring: 250 91% 68%;
-    --brand-violet: 250 91% 68%;
-    --brand-blue: 231 94% 67%;
-    --brand-cyan: 199 92% 60%;
+    /* The sidebar is the one panel lifted off the canvas. */
+    --sidebar: 240 9% 6%;
+    --sidebar-foreground: 0 0% 96%;
+    --sidebar-primary: 211 92% 62%;
+    --sidebar-primary-foreground: 240 11% 4%;
+    --sidebar-accent: 240 6% 13%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 240 6% 15%;
+    --sidebar-ring: 211 92% 62%;
   }
 }
 
@@ -120,6 +177,14 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /*
+   * Selection picks up the brand rather than the browser default, which is the
+   * cheapest identity cue in the product — present everywhere, noticed nowhere.
+   */
+  ::selection {
+    background-color: hsl(var(--primary) / 0.28);
   }
 
   ::-webkit-scrollbar {
@@ -169,47 +234,23 @@
     @apply bg-severity-info/10 text-severity-info border border-severity-info/20;
   }
 
-  /* Scanner terminal */
-  .scanner-terminal {
-    @apply bg-background border border-border rounded-lg font-mono text-sm;
-  }
-
-  /* Glass card */
-  .glass-card {
-    @apply bg-card/60 border border-border backdrop-blur-sm;
-  }
-
-  /* Security score ring */
-  .score-ring {
-    @apply relative flex items-center justify-center;
-  }
-
-  /* Grid pattern background */
+  /*
+   * The auth screens' only decoration: a grid at 3 % of the foreground, plus a
+   * hairline of brand gradient. Deliberately not a glow — a full-viewport
+   * radial in the accent colour is the single fastest way to make a security
+   * product look like a template.
+   */
   .grid-bg {
     background-image: linear-gradient(hsl(var(--foreground) / 0.03) 1px, transparent 1px),
                       linear-gradient(90deg, hsl(var(--foreground) / 0.03) 1px, transparent 1px);
     background-size: 40px 40px;
   }
 
-  /* Restrained brand glow — used sparingly (auth pages only) */
-  .glow-brand {
-    box-shadow: 0 0 40px hsl(var(--primary) / 0.15);
-  }
-
-  /* Status indicator */
-  .status-dot {
-    @apply w-2 h-2 rounded-full;
-  }
-  .status-dot.running {
-    @apply bg-primary animate-pulse;
-  }
-  .status-dot.completed {
-    @apply bg-success;
-  }
-  .status-dot.failed {
-    @apply bg-destructive;
-  }
-  .status-dot.pending {
-    @apply bg-muted-foreground;
+  /*
+   * A 1 px rule in the core gradient. The one place the full Violet → Blue →
+   * Cyan ramp is allowed outside the mark, charts and AI affordances.
+   */
+  .brand-rule {
+    background-image: var(--brand-gradient);
   }
 }

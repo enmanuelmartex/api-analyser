@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { appBrand } from '@/lib/brand';
-import { AppLogo } from '@/components/brand/app-logo';
+import { BrandLogo } from '@/components/brand/brand-logo';
 
 function getPasswordChecks(password: string) {
   return {
@@ -144,16 +144,15 @@ function AcceptInviteForm() {
 
   // ── Registration form ─────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background grid-bg px-4">
-      <div className="absolute inset-0 bg-glow-brand pointer-events-none" />
-
-      <div className="w-full max-w-md relative">
+    <div className="grid-bg flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="w-full max-w-md">
         {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <AppLogo variant="full" size={40} className="mb-4" nameClassName="text-2xl" />
+        <div className="mb-8 flex flex-col items-center gap-3">
+          <BrandLogo type="horizontal" size={48} />
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-8 shadow-2xl">
+        <div className="relative overflow-hidden rounded-xl border border-border bg-card p-8 shadow-sm">
+          <span className="brand-rule absolute inset-x-0 top-0 h-px" aria-hidden="true" />
           {/* Invite banner */}
           <div className="mb-6 rounded-lg border border-primary/20 bg-primary/10 px-4 py-3">
             <p className="text-sm text-foreground">

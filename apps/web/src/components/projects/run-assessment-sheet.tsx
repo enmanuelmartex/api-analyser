@@ -200,7 +200,7 @@ export function RunAssessmentSheet({ project }: { project: Project }) {
 
             <section className="rounded-lg border p-4" aria-labelledby="ai-analysis-heading">
               <div className="flex items-start justify-between gap-4">
-                <div className="flex gap-3"><IconSparkles className="mt-0.5 size-5 text-primary" /><div><h3 id="ai-analysis-heading" className="text-sm font-medium">AI security enrichment</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">Adds technical root cause, business impact, confidence, false-positive risk and secure remediation guidance to eligible findings.</p></div></div>
+                <div className="flex gap-3"><IconSparkles className="mt-0.5 size-5 text-ai" /><div><h3 id="ai-analysis-heading" className="text-sm font-medium">AI security enrichment</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">Adds technical root cause, business impact, confidence, false-positive risk and secure remediation guidance to eligible findings.</p></div></div>
                 <Switch checked={enableAiAnalysis} onCheckedChange={setEnableAiAnalysis} aria-label="Enable AI security enrichment" />
               </div>
               <div className="mt-3 border-t pt-3 text-xs text-muted-foreground">

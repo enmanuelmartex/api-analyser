@@ -8,11 +8,20 @@ export function cn(...inputs: ClassValue[]) {
 
 export function severityToBg(severity: Severity) {
   const styles: Record<Severity, string> = {
-    CRITICAL: 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400',
-    HIGH: 'border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-400',
-    MEDIUM: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
-    LOW: 'border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400',
-    INFO: 'border-slate-500/30 bg-slate-500/10 text-slate-600 dark:text-slate-400',
+    /*
+     * The `--severity-*` tokens, not the raw Tailwind palette.
+     *
+     * These were `red-500` / `orange-500` / `amber-500` with per-theme text
+     * overrides, which meant severity had two definitions — this one and the
+     * tokens in `globals.css` that the charts, the report and half the badges
+     * already read. A severity that is one red in a table and a different red
+     * in the donut beside it is a bug in a security product.
+     */
+    CRITICAL: 'border-severity-critical/30 bg-severity-critical/10 text-severity-critical',
+    HIGH: 'border-severity-high/30 bg-severity-high/10 text-severity-high',
+    MEDIUM: 'border-severity-medium/30 bg-severity-medium/10 text-severity-medium',
+    LOW: 'border-severity-low/30 bg-severity-low/10 text-severity-low',
+    INFO: 'border-severity-info/30 bg-severity-info/10 text-severity-info',
   };
   return styles[severity];
 }

@@ -35,6 +35,55 @@ export interface OccurrenceSeverityGroup {
   _count: { _all: number };
 }
 
+/** The only occurrence field needed to derive a scan's finding summary. */
+export interface OccurrenceSeverity {
+  severitySnapshot: Severity;
+}
+
+/** Counts the immutable detections that a scan actually persisted. */
+export function countOccurrenceSeverities(
+  occurrences: readonly OccurrenceSeverity[],
+): FindingCounts {
+  const counts = emptyFindingCounts();
+
+  for (const occurrence of occurrences) {
+    addSeverity(counts, occurrence.severitySnapshot, 1);
+  }
+
+  return counts;
+}
+
+/** Summary fields whose values must always agree with the occurrence list. */
+export function findingSummaryFields(counts: FindingCounts) {
+  return {
+    totalFindings: counts.total,
+    criticalCount: counts.critical,
+    highCount: counts.high,
+    mediumCount: counts.medium,
+    lowCount: counts.low,
+    infoCount: counts.info,
+    riskLevel: riskLevelFor(counts),
+  };
+}
+
+/**
+ * Overall risk band for a scan, from its finding counts.
+ *
+ * Lives here, beside the counts, because it must be fed the same numbers the
+ * rest of the product shows. It used to be computed inside the scanner from the
+ * raw in-memory findings, which is how a scan could be banded on 14 findings
+ * while every screen listed 13.
+ *
+ * The thresholds are unchanged. The original had a redundant `high > 2` branch
+ * ahead of `high > 0`, which could never be reached on its own.
+ */
+export function riskLevelFor(counts: FindingCounts): string {
+  if (counts.critical > 0) return 'CRITICAL';
+  if (counts.high > 0 || counts.medium > 3) return 'HIGH';
+  if (counts.medium > 0 || counts.low > 5) return 'MEDIUM';
+  return 'LOW';
+}
+
 /**
  * Folds grouped `(assessmentId, severity) → count` rows into a
  * `assessmentId → FindingCounts` map.
@@ -51,27 +100,30 @@ export function foldOccurrenceCounts(
 
   for (const group of groups) {
     const counts = byAssessment.get(group.assessmentId) ?? emptyFindingCounts();
-    const n = group._count._all;
-    counts.total += n;
-    switch (group.severitySnapshot) {
-      case 'CRITICAL':
-        counts.critical += n;
-        break;
-      case 'HIGH':
-        counts.high += n;
-        break;
-      case 'MEDIUM':
-        counts.medium += n;
-        break;
-      case 'LOW':
-        counts.low += n;
-        break;
-      case 'INFO':
-        counts.info += n;
-        break;
-    }
+    addSeverity(counts, group.severitySnapshot, group._count._all);
     byAssessment.set(group.assessmentId, counts);
   }
 
   return byAssessment;
+}
+
+function addSeverity(counts: FindingCounts, severity: Severity, amount: number): void {
+  counts.total += amount;
+  switch (severity) {
+    case 'CRITICAL':
+      counts.critical += amount;
+      break;
+    case 'HIGH':
+      counts.high += amount;
+      break;
+    case 'MEDIUM':
+      counts.medium += amount;
+      break;
+    case 'LOW':
+      counts.low += amount;
+      break;
+    case 'INFO':
+      counts.info += amount;
+      break;
+  }
 }

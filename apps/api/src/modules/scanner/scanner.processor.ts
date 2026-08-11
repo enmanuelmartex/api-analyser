@@ -14,6 +14,12 @@ import { ScoringService } from '../scoring/scoring.service';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
 import { ReportsService } from '../reports/reports.service';
 import { IssueGuidanceService } from '../ai/guidance/issue-guidance.service';
+import {
+  emptyFindingCounts,
+  foldOccurrenceCounts,
+  riskLevelFor,
+  type OccurrenceSeverityGroup,
+} from '../assessments/assessment-finding-counts';
 
 interface JobData {
   assessmentId: string;
@@ -272,7 +278,18 @@ export class ScannerProcessor extends WorkerHost {
       }
 
       // ── Compute and persist summary ───────────────────────────────────────
-      const summary = this.calculateSummary(findings, spec.endpoints.length);
+      //
+      // Counted from the PERSISTED occurrences, never from the in-memory
+      // `findings` array.
+      //
+      // Those two numbers are not the same, and treating them as the same is
+      // what put a different total on the dashboard than in the report. A raw
+      // finding becomes an occurrence only if it has a stable identity, and two
+      // raw findings that resolve to the same identity become one — BFLA probes
+      // `/admin` and `/admin/`, for instance, and both normalise to `/admin`.
+      // Every other surface in the product (the scan list, the findings list,
+      // the report body, the score) counts occurrences, so the summary must too.
+      const summary = await this.summariseDetections(assessmentId);
 
       // Execution scope. Coverage answers "how much did we look at?" and is
       // deliberately kept separate from the score, which answers "how bad is
@@ -289,7 +306,7 @@ export class ScannerProcessor extends WorkerHost {
         where: { assessmentId },
         data: {
           testedEndpoints: spec.endpoints.length,
-          totalFindings:   findings.length,
+          totalFindings:   summary.total,
           criticalCount:   summary.critical,
           highCount:       summary.high,
           mediumCount:     summary.medium,
@@ -344,8 +361,10 @@ export class ScannerProcessor extends WorkerHost {
         stepIndex:     12,
         totalSteps:    12,
         progress:      100,
-        message:       `Assessment completed — ${findings.length} issues found in ${duration}s`,
-        findingsCount: findings.length,
+        // The recorded total, not the raw detection count: this is the number
+        // the user is about to see on the scan they are watching finish.
+        message:       `Assessment completed — ${summary.total} issue${summary.total === 1 ? '' : 's'} found in ${duration}s`,
+        findingsCount: summary.total,
         completed:     true,
         pluginPlan,
         aiMeta,
@@ -353,11 +372,12 @@ export class ScannerProcessor extends WorkerHost {
 
       this.logger.log(
         `Assessment ${assessmentId} completed in ${duration}s — ` +
-        `${findings.length} findings, ${pluginPlan.executed.length} plugins ran, ` +
+        `${summary.total} findings recorded from ${findings.length} raw detections, ` +
+        `${pluginPlan.executed.length} plugins ran, ` +
         `${pluginPlan.skipped.length} skipped, AI: ${aiMeta.available ? aiMeta.provider : 'off'}`,
       );
 
-      return { assessmentId, findingsCount: findings.length, duration, pluginPlan, aiMeta };
+      return { assessmentId, findingsCount: summary.total, duration, pluginPlan, aiMeta };
     } catch (error) {
       this.logger.error(`Assessment ${assessmentId} failed: ${error.message}`, error.stack);
 
@@ -447,32 +467,43 @@ export class ScannerProcessor extends WorkerHost {
   }
 
   /**
-   * Severity counts, risk level and per-category finding totals.
+   * Severity counts, risk level and per-category totals for one scan, read back
+   * from the occurrences the lifecycle just wrote.
+   *
+   * Reading from the database rather than counting the in-memory findings is
+   * the whole point: it is the only way the summary can agree with the scan
+   * list, the findings list, the report and the score, all of which count
+   * occurrences. It also makes the numbers converge on a retry instead of
+   * doubling, since the query sees whatever is actually stored.
    *
    * Deliberately does NOT compute a score. It used to carry the original
    * formula (`100 − 20·critical − 10·high − …`), whose result was returned,
    * never read, and silently contradicted `score-v2` — the one scoring
-   * implementation, which runs after the assessment reaches COMPLETED and
-   * works from persisted occurrences rather than this in-memory list.
+   * implementation, which runs after the assessment reaches COMPLETED.
    */
-  private calculateSummary(findings: any[], _totalEndpoints: number) {
-    const critical = findings.filter((f) => f.severity === 'CRITICAL').length;
-    const high     = findings.filter((f) => f.severity === 'HIGH').length;
-    const medium   = findings.filter((f) => f.severity === 'MEDIUM').length;
-    const low      = findings.filter((f) => f.severity === 'LOW').length;
-    const info     = findings.filter((f) => f.severity === 'INFO').length;
+  private async summariseDetections(assessmentId: string) {
+    const [bySeverity, byCategory] = await Promise.all([
+      this.prisma.findingOccurrence.groupBy({
+        by: ['assessmentId', 'severitySnapshot'],
+        where: { assessmentId },
+        _count: { _all: true },
+      }),
+      this.prisma.findingOccurrence.groupBy({
+        by: ['owaspSnapshot'],
+        where: { assessmentId },
+        _count: { _all: true },
+      }),
+    ]);
 
-    let riskLevel = 'LOW';
-    if (critical > 0)               riskLevel = 'CRITICAL';
-    else if (high > 2)              riskLevel = 'HIGH';
-    else if (high > 0 || medium > 3) riskLevel = 'HIGH';
-    else if (medium > 0 || low > 5) riskLevel = 'MEDIUM';
+    const counts =
+      foldOccurrenceCounts(bySeverity as OccurrenceSeverityGroup[]).get(assessmentId) ??
+      emptyFindingCounts();
 
     const owaspCoverage: Record<string, number> = {};
-    for (const f of findings) {
-      owaspCoverage[f.owaspCategory] = (owaspCoverage[f.owaspCategory] || 0) + 1;
+    for (const row of byCategory) {
+      if (row.owaspSnapshot) owaspCoverage[row.owaspSnapshot] = row._count._all;
     }
 
-    return { critical, high, medium, low, info, riskLevel, owaspCoverage };
+    return { ...counts, riskLevel: riskLevelFor(counts), owaspCoverage };
   }
 }

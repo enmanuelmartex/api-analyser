@@ -12,7 +12,7 @@ export function ProjectLogoPlaceholder({ className }: { className?: string }) {
     >
       <span className="absolute inset-1.5 rounded-full border border-primary/15" />
       <IconRadar2 className="relative size-5 text-primary" stroke={1.7} />
-      <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-chart-2 shadow-[0_0_8px_currentColor] text-chart-2" />
+      <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-brand-cyan" />
     </div>
   );
 }

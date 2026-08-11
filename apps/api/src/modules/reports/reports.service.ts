@@ -26,6 +26,10 @@ import {
   trendDelta,
   type ReportedAssessment,
 } from './report-metrics';
+import {
+  countOccurrenceSeverities,
+  findingSummaryFields,
+} from '../assessments/assessment-finding-counts';
 
 /** Prisma's unique-constraint violation. */
 const UNIQUE_VIOLATION = 'P2002';
@@ -126,8 +130,18 @@ export class ReportsService {
     });
     if (!report) throw new NotFoundException('Report not found');
 
+    const findingCounts = countOccurrenceSeverities(report.assessment.occurrences);
+    const assessment = {
+      ...report.assessment,
+      findingCounts,
+      summary: report.assessment.summary
+        ? { ...report.assessment.summary, ...findingSummaryFields(findingCounts) }
+        : report.assessment.summary,
+    };
+
     return {
       ...this.withArtifactState(report),
+      assessment,
       /**
        * Every format of this assessment + report type, present or not, so the
        * detail page can label each one "Download" or "Generate" without

@@ -7,7 +7,12 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: 'border-transparent bg-primary text-primary-foreground',
+        /*
+         * Tinted, not filled. A badge is a label, not a call to action, and
+         * sixteen solid accent pills scattered through the tables was the
+         * single biggest source of colour noise in the product.
+         */
+        default: 'border-primary/20 bg-primary/10 text-primary',
         secondary: 'border-transparent bg-secondary text-secondary-foreground',
         outline: 'border-border text-foreground',
         destructive: 'border-transparent bg-destructive/10 text-destructive',

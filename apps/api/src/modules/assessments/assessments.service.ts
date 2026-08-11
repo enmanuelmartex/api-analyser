@@ -14,7 +14,9 @@ import { PluginRegistryService } from '../plugins/plugin-registry.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { RunAssessmentDto } from './dto/run-assessment.dto';
 import {
+  countOccurrenceSeverities,
   emptyFindingCounts,
+  findingSummaryFields,
   foldOccurrenceCounts,
   type FindingCounts,
 } from './assessment-finding-counts';
@@ -168,7 +170,17 @@ export class AssessmentsService {
     });
 
     if (!assessment) throw new NotFoundException('Assessment not found');
-    return assessment;
+    const findingCounts = countOccurrenceSeverities(assessment.occurrences);
+    return {
+      ...assessment,
+      findingCounts,
+      // Historical summaries may have counted raw detections before identity
+      // normalisation collapsed duplicates. The detail response describes the
+      // occurrence list it returns, so its finding fields come from that list.
+      summary: assessment.summary
+        ? { ...assessment.summary, ...findingSummaryFields(findingCounts) }
+        : assessment.summary,
+    };
   }
 
   async createAndRun(

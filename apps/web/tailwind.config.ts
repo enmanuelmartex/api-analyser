@@ -56,6 +56,26 @@ const config: Config = {
         cyan: {
           DEFAULT: 'hsl(var(--cyan) / <alpha-value>)',
         },
+        /* Reserved for AI-generated affordances. See `--ai` in globals.css. */
+        ai: {
+          DEFAULT: 'hsl(var(--ai) / <alpha-value>)',
+        },
+        /*
+         * The literal brand palette. Use the semantic tokens above for
+         * anything the theme owns; reach for `brand-*` only when the value has
+         * to be the brand value regardless of theme — the mark's ink, an AI
+         * affordance, a chart series.
+         */
+        brand: {
+          ink: 'hsl(var(--brand-ink) / <alpha-value>)',
+          canvas: 'hsl(var(--brand-canvas) / <alpha-value>)',
+          white: 'hsl(var(--brand-white) / <alpha-value>)',
+          violet: 'hsl(var(--brand-violet) / <alpha-value>)',
+          indigo: 'hsl(var(--brand-indigo) / <alpha-value>)',
+          blue: 'hsl(var(--brand-blue) / <alpha-value>)',
+          cyan: 'hsl(var(--brand-cyan) / <alpha-value>)',
+          ice: 'hsl(var(--brand-ice) / <alpha-value>)',
+        },
         severity: {
           critical: 'hsl(var(--severity-critical) / <alpha-value>)',
           high: 'hsl(var(--severity-high) / <alpha-value>)',
@@ -117,29 +137,16 @@ const config: Config = {
           from: { height: 'var(--radix-collapsible-content-height)' },
           to: { height: '0' },
         },
-        'pulse-slow': {
-          '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0.5' },
-        },
-        'scan-line': {
-          '0%': { transform: 'translateY(-100%)' },
-          '100%': { transform: 'translateY(100%)' },
-        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
         'collapsible-down': 'collapsible-down 0.2s ease-out',
         'collapsible-up': 'collapsible-up 0.2s ease-out',
-        'pulse-slow': 'pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        'scan-line': 'scan-line 2s linear infinite',
       },
       backgroundImage: {
-        'grid-pattern': 'linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px)',
-        'glow-brand': 'radial-gradient(ellipse at center, hsl(var(--primary) / 0.16) 0%, transparent 70%)',
-      },
-      backgroundSize: {
-        'grid-pattern': '40px 40px',
+        /* The core gradient, for the few affordances entitled to it. */
+        'brand-core': 'var(--brand-gradient)',
       },
     },
   },

@@ -307,13 +307,13 @@ export class UsersService {
       to:      email,
       subject: `You've been invited to ${appBrand.name} by ${inviter?.name ?? 'an admin'}`,
       html: `
-        <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-          <h2 style="color:#7c3aed">You're invited to ${appBrand.name}</h2>
+        <div style="font-family:Inter,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;color:#0A0A0B">
+          <h2 style="color:#0A0A0B;letter-spacing:-0.01em">You're invited to ${appBrand.name}</h2>
           <p><strong>${inviter?.name ?? 'An admin'}</strong> has invited you to join their
           security workspace as <strong>${role}</strong>.</p>
           <p>
             <a href="${inviteLink}"
-               style="background:#7c3aed;color:#fff;padding:12px 24px;border-radius:8px;
+               style="background:#0A6CDB;color:#fff;padding:12px 24px;border-radius:8px;
                       text-decoration:none;display:inline-block;margin:16px 0;font-weight:600">
               Accept Invitation
             </a>

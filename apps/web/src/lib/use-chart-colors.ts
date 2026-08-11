@@ -21,19 +21,24 @@ const VAR_NAMES = [
 type ChartColorKey = (typeof VAR_NAMES)[number];
 type ChartColors = Record<ChartColorKey, string>;
 
+/**
+ * Used for the first paint and if a variable is ever missing. Mirrors the dark
+ * theme in `globals.css` — a fallback that disagrees with the stylesheet shows
+ * up as a colour flash on the first render of every chart.
+ */
 const FALLBACK: ChartColors = {
   'severity-critical': 'hsl(0 84% 60%)',
   'severity-high': 'hsl(25 95% 53%)',
   'severity-medium': 'hsl(38 92% 50%)',
   'severity-low': 'hsl(199 89% 58%)',
-  'severity-info': 'hsl(215 16% 57%)',
-  success: 'hsl(142 71% 45%)',
-  primary: 'hsl(217 91% 60%)',
-  border: 'hsl(222 24% 18%)',
-  'muted-foreground': 'hsl(215 20% 65%)',
-  'chart-1': 'hsl(199 89% 58%)',
-  'chart-2': 'hsl(217 91% 60%)',
-  'chart-3': 'hsl(262 83% 66%)',
+  'severity-info': 'hsl(240 5% 58%)',
+  success: 'hsl(142 70% 45%)',
+  primary: 'hsl(211 92% 62%)',
+  border: 'hsl(240 6% 16%)',
+  'muted-foreground': 'hsl(240 5% 64%)',
+  'chart-1': 'hsl(191 81% 55%)',
+  'chart-2': 'hsl(211 92% 64%)',
+  'chart-3': 'hsl(251 100% 72%)',
 };
 
 /**

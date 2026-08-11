@@ -2,15 +2,12 @@
 
 import Link from "next/link";
 import { appBrand } from "@/lib/brand";
-import { AppLogoMark } from "@/components/brand/app-logo-mark";
+import { BrandLogo } from "@/components/brand/brand-logo";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { NavMain } from "@/components/navigation/nav-main";
@@ -28,27 +25,31 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
   return (
     <Sidebar collapsible="icon" variant="inset" {...props}>
       <SidebarHeader className="pb-2">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              tooltip={appBrand.name}
-              className="h-12 group-data-[collapsible=icon]:size-10"
-            >
-              <Link href="/dashboard">
-                {/* The symbol keeps its container when collapsed; the wordmark
-                    is hidden by the sidebar's own icon-mode rules rather than
-                    being truncated. */}
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent">
-                  <AppLogoMark size={20} className="text-sidebar-foreground" />
-                </div>
-                <span className="text-base font-semibold tracking-tight">
-                  {appBrand.name}
-                </span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        {/*
+          Deliberately not a SidebarMenuButton: icon mode hides every direct
+          `<span>` child of one, and the lockup IS a span — routing the brand
+          through that machinery meant the logo vanished when collapsed. The
+          two states swap the official artwork instead of shrinking one asset
+          until the node network turns to mud.
+        */}
+        <Link
+          href="/dashboard"
+          title={appBrand.name}
+          aria-label={`${appBrand.name} — go to dashboard`}
+          className="flex h-12 items-center rounded-lg px-2 outline-none ring-sidebar-ring transition-colors hover:bg-sidebar-accent focus-visible:ring-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+        >
+          <BrandLogo
+            type="horizontal"
+            size={34}
+            className="group-data-[collapsible=icon]:hidden"
+            wordmarkClassName="text-sidebar-foreground"
+          />
+          <BrandLogo
+            type="compact"
+            size={34}
+            className="hidden group-data-[collapsible=icon]:inline-flex"
+          />
+        </Link>
       </SidebarHeader>
       <SidebarContent>
         <NavMain />

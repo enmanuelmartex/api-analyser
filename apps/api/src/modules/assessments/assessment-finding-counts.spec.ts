@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  countOccurrenceSeverities,
   emptyFindingCounts,
+  findingSummaryFields,
   foldOccurrenceCounts,
+  riskLevelFor,
   type OccurrenceSeverityGroup,
 } from './assessment-finding-counts';
 
@@ -42,5 +45,31 @@ describe('foldOccurrenceCounts', () => {
       info: 0,
       total: 0,
     });
+  });
+
+  it('counts an occurrence list with the same rules used by grouped list queries', () => {
+    const counts = countOccurrenceSeverities([
+      { severitySnapshot: 'CRITICAL' },
+      { severitySnapshot: 'HIGH' },
+      { severitySnapshot: 'HIGH' },
+      { severitySnapshot: 'INFO' },
+    ]);
+
+    expect(counts).toEqual({ critical: 1, high: 2, medium: 0, low: 0, info: 1, total: 4 });
+    expect(findingSummaryFields(counts)).toEqual({
+      totalFindings: 4,
+      criticalCount: 1,
+      highCount: 2,
+      mediumCount: 0,
+      lowCount: 0,
+      infoCount: 1,
+      riskLevel: 'CRITICAL',
+    });
+  });
+
+  it('derives risk from persisted counts', () => {
+    expect(riskLevelFor({ critical: 0, high: 0, medium: 0, low: 0, info: 3, total: 3 })).toBe('LOW');
+    expect(riskLevelFor({ critical: 0, high: 0, medium: 1, low: 0, info: 0, total: 1 })).toBe('MEDIUM');
+    expect(riskLevelFor({ critical: 0, high: 1, medium: 0, low: 0, info: 0, total: 1 })).toBe('HIGH');
   });
 });

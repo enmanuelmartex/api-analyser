@@ -47,7 +47,7 @@ import {
   OwaspCoverageSummaryLine,
 } from '@/components/security/owasp-coverage-matrix';
 import { appBrand } from '@/lib/brand';
-import { AppLogoMark } from '@/components/brand/app-logo-mark';
+import { BrandLogo } from '@/components/brand/brand-logo';
 
 type TabId = 'general' | 'security' | 'tokens' | 'notifications' | 'ai' | 'ai-usage' | 'system' | 'about' | 'users' | 'audit-logs';
 
@@ -689,7 +689,7 @@ function AboutTab() {
     <div className="space-y-6">
       <Card>
         <CardContent className="p-8 text-center">
-          <AppLogoMark size={56} className="mx-auto mb-4 text-foreground" />
+          <BrandLogo type="symbol" size={72} className="mb-4" />
           <h2 className="mb-1 text-xl font-bold text-foreground">{appBrand.name}</h2>
           <p className="text-sm text-muted-foreground">{appBrand.tagline}</p>
           <p className="mt-1 text-xs text-muted-foreground">{appBrand.domain}</p>
