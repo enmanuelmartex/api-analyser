@@ -1,4 +1,4 @@
-name: IASA CI
+name: API Analyser CI
 
 on:
   push:
@@ -48,9 +48,9 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: iasa_test
-          POSTGRES_PASSWORD: iasa_test_pass
-          POSTGRES_DB: iasa_test
+          POSTGRES_USER: api_analyser_test
+          POSTGRES_PASSWORD: api_analyser_test_pass
+          POSTGRES_DB: api_analyser_test
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -75,18 +75,18 @@ jobs:
       - name: Generate Prisma client
         run: bun run --cwd apps/api db:generate
         env:
-          DATABASE_URL: postgresql://iasa_test:iasa_test_pass@localhost:5432/iasa_test
+          DATABASE_URL: postgresql://api_analyser_test:api_analyser_test_pass@localhost:5432/api_analyser_test
 
       - name: Run API tests
         run: bun run test:api
         env:
-          DATABASE_URL: postgresql://iasa_test:iasa_test_pass@localhost:5432/iasa_test
+          DATABASE_URL: postgresql://api_analyser_test:api_analyser_test_pass@localhost:5432/api_analyser_test
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test-secret-key-minimum-32-chars-long
           ENCRYPTION_KEY: test-encryption-key-32-chars-long
 
   # =============================================================================
-  # Security Scan (IASA scans itself)
+  # Security Scan (API Analyser scans itself)
   # =============================================================================
   security-scan:
     name: Security Assessment
@@ -97,9 +97,9 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: iasa
-          POSTGRES_PASSWORD: iasa_ci_pass
-          POSTGRES_DB: iasa
+          POSTGRES_USER: api_analyser
+          POSTGRES_PASSWORD: api_analyser_ci_pass
+          POSTGRES_DB: api_analyser
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -123,18 +123,18 @@ jobs:
           bun install
           bun run build:api
         env:
-          DATABASE_URL: postgresql://iasa:iasa_ci_pass@localhost:5432/iasa
+          DATABASE_URL: postgresql://api_analyser:api_analyser_ci_pass@localhost:5432/api_analyser
           REDIS_URL: redis://localhost:6379
 
       - name: Run migrations
         run: bun run db:migrate:prod
         env:
-          DATABASE_URL: postgresql://iasa:iasa_ci_pass@localhost:5432/iasa
+          DATABASE_URL: postgresql://api_analyser:api_analyser_ci_pass@localhost:5432/api_analyser
 
       - name: Start API
         run: bun run start:api &
         env:
-          DATABASE_URL: postgresql://iasa:iasa_ci_pass@localhost:5432/iasa
+          DATABASE_URL: postgresql://api_analyser:api_analyser_ci_pass@localhost:5432/api_analyser
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: ci-test-secret-key-minimum-32-chars
           ENCRYPTION_KEY: ci-encryption-key-32-chars-long-x
@@ -148,7 +148,7 @@ jobs:
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: iasa-security-report.sarif
+          sarif_file: api-analyser-security-report.sarif
           category: api-security
         continue-on-error: true
 

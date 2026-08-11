@@ -1,7 +1,7 @@
-# API Analyser (IASA) — Reporte de Estado de la Aplicación
+# API Analyser — Reporte de Estado de la Aplicación
 
 **Fecha:** 2026-08-08
-**Rama:** `main` · **HEAD:** `260a668` (merge de `reform/iasa-platform`)
+**Rama:** `main` · **HEAD:** `260a668` (merge de `reform/api-analyser-platform`)
 **Árbol de trabajo:** 89 entradas sin commitear (54 modificadas + 35 sin seguimiento)
 **Método:** inspección directa de código, ejecución real de tests / typecheck / lint, y consultas a la base de datos en ejecución. Todo lo que se afirma abajo fue verificado; lo que no pude verificar está marcado como tal.
 
@@ -29,14 +29,14 @@
 | Typecheck Web | `bunx tsc --noEmit` | **Limpio** (0 errores) |
 | Lint API | `bun run lint:api` | **FALLA** — no existe `eslint.config.js` (ESLint 9 lo exige) |
 | Lint Web | `bun run lint:web` | Pasa con **3 warnings**; el plugin de Next no está detectado en la config |
-| Infraestructura | `docker ps` | `iasa-postgres` y `iasa-redis` arriba y healthy |
+| Infraestructura | `docker ps` | `api-analyser-postgres` y `api-analyser-redis` arriba y healthy |
 | Base de datos | `psql` | 24 tablas, 4 migraciones aplicadas, datos reales presentes |
 
 ### Los 3 tests que fallan
 
 Los tres son **fixtures desactualizados, no defectos del producto**:
 
-1. `reports.service.integration.spec.ts:146` — espera el nombre de archivo `iasa-project-…html`, el código produce `api-analyser-project-…html`. El test no se actualizó tras el rebranding.
+1. `reports.service.integration.spec.ts:146` — espera el nombre de archivo `api-analyser-project-…html`, el código produce `api-analyser-project-…html`. El test no se actualizó tras el rebranding.
 2. `scoring.integration.spec.ts:127` — espera `scoreVersion === 'score-v1'`, el motor ahora emite `score-v2`. El test no se actualizó tras el cambio de versión.
 3. `scoring.integration.spec.ts:185` — "prefers the most recent FINAL scan". El fixture fija `SCAN_B` a `2026-07-20` pero crea `SCAN_A` con `now()`. Desde que la fecha real superó el 20/07, `SCAN_A` **es** el más reciente y el servicio lo devuelve correctamente. **El test tiene un bug de dependencia temporal; `getProjectPosture` ordena bien.**
 
@@ -47,7 +47,7 @@ Los tres son **fixtures desactualizados, no defectos del producto**:
 Monorepo con Bun workspaces.
 
 ```
-iasa/
+api_analyser/
 ├── apps/
 │   ├── api/     NestJS 10  → puerto 4000, prefijo /api/v1
 │   └── web/     Next.js 15 → puerto 3000 (App Router, React 19)
@@ -519,7 +519,7 @@ Dos de estos duelen especialmente:
 
 ## 12. Deuda registrada de las fases anteriores
 
-De `docs/IASA-INSPECTION-REPORT.md` y las notas de la reforma:
+De `docs/API Analyser-INSPECTION-REPORT.md` y las notas de la reforma:
 
 - Fases cerradas y aprobadas: **0** (seguridad), **1A** (esquema de dominio), **1B** (migración base), **1C** (reescritura de persistencia), **2** (scoring + comparación).
 - **Fase 3 no ha comenzado.** Su alcance: convertir la selección congelada en un plan de ejecución completo, inmutable y auditable. Requiere evolucionar `PluginExecution` (no crear un modelo nuevo), añadir al snapshot `profileNameSnapshot`, `requestedPluginIds`, `registryVersion`, `configurationSnapshot`, `plannedChecks`, y hacer los modos explícitos: `ALL_ENABLED` / `PROFILE` / `SINGLE_PLUGIN`.
@@ -568,5 +568,5 @@ Documentación de la API en `http://localhost:4000/api/docs` (Swagger, solo fuer
 **Advertencias operativas:**
 - Nunca ejecutar `bun run build:web` ni borrar `.next` con un `bun dev` corriendo — rompe el servidor en vivo.
 - Los tests corren con **`bun test`**, no con Jest. Node no está instalado en esta máquina.
-- Los tests de integración usan una base `iasa_test` real creada desde la migración base.
-- El login web requiere una cuenta de Better Auth (tabla `accounts`); los usuarios sembrados por Nest solo sirven para la API. Cuenta demo: `demo@iasa.local` / `Demo1234!`.
+- Los tests de integración usan una base `api_analyser_test` real creada desde la migración base.
+- El login web requiere una cuenta de Better Auth (tabla `accounts`); los usuarios sembrados por Nest solo sirven para la API. Cuenta demo: `demo@apianalyser.local` / `Demo1234!`.

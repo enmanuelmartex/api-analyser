@@ -38,7 +38,7 @@ export default function AssessmentDetailPage() {
   });
 
   useEffect(() => {
-    const token = window.localStorage.getItem('iasa_token');
+    const token = window.localStorage.getItem('api_analyser_token');
     if (!assessmentId || !token || TERMINAL.has(query.data?.status ?? '')) return;
     const stream = assessmentsApi.streamProgress(assessmentId, token);
     stream.onmessage = (event) => {

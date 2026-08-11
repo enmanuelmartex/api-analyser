@@ -62,8 +62,8 @@ export default function LoginPage() {
       const sessionToken = (result.data as any)?.session?.token ?? (result.data as any)?.token;
       if (!sessionToken) throw new Error('No session token received');
       const data = await authApi.exchangeSession(sessionToken);
-      localStorage.setItem('iasa_token', data.accessToken);
-      localStorage.setItem('iasa_user', JSON.stringify(data.user));
+      localStorage.setItem('api_analyser_token', data.accessToken);
+      localStorage.setItem('api_analyser_user', JSON.stringify(data.user));
       router.push('/dashboard');
     } catch (err: any) {
       toast.error(err.message || err.response?.data?.message || 'Invalid credentials');

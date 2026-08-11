@@ -111,7 +111,7 @@ async function addOccurrence(
 
 beforeAll(async () => {
   prisma = await setupTestDatabase();
-  storageRoot = mkdtempSync(join(tmpdir(), 'iasa-reports-'));
+  storageRoot = mkdtempSync(join(tmpdir(), 'api-analyser-reports-'));
   process.env.REPORTS_DIR = storageRoot;
 
   const generator = new ReportGeneratorService(prisma as any, testPluginRegistry());

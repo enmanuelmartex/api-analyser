@@ -2,7 +2,7 @@
  * The product's visible identity — the single source of truth for the web app.
  *
  * Every user-facing occurrence of the product name, domain, colour or logo path
- * must read from here. Before this module the string "IASA" was hardcoded in
+ * must read from here. Before this module the string "API Analyser" was hardcoded in
  * fourteen components, so a rename meant hunting through JSX and inevitably
  * missing a toast or an aria-label.
  *
@@ -12,11 +12,12 @@
  * duplicated deliberately; change both together. `brand.spec.ts` in each app
  * pins the canonical spelling so a drift fails a test rather than shipping.
  *
- * NOTE ON "iasa": the identifier survives in internal, non-visible places —
- * the repository directory, the Postgres database name, seed account emails,
- * `IASA_*` CI secrets and the Docker image name. Those are infrastructure
- * contracts, not branding; renaming them would break deployments for no user
- * benefit.
+ * NOTE ON "iasa": nothing. The identifier used to survive in infrastructure
+ * contracts — the repository directory, the Postgres database name, seed
+ * account emails, `IASA_*` CI secrets, the Docker image names. All of it was
+ * renamed for v1.0, before the project had any deployment those contracts could
+ * break. `localStorage` keys moved with it (`iasa_token` → `api_analyser_token`),
+ * which signs out anyone holding a session from before the rename — once.
  */
 
 export const appBrand = {

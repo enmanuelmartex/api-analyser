@@ -1,4 +1,4 @@
-# IASA — Guía de la aplicación
+# API Analyser — Guía de la aplicación
 
 Contexto de arquitectura: qué hace cada sección, de dónde saca sus datos y qué debe mostrar.
 
@@ -8,7 +8,7 @@ Contexto de arquitectura: qué hace cada sección, de dónde saca sus datos y qu
 
 ## Índice
 
-1. [Qué es IASA](#qué-es-iasa)
+1. [Qué es API Analyser](#qué-es-api_analyser)
 2. [El flujo central](#el-flujo-central)
 3. [Mapa de secciones](#mapa-de-secciones)
 4. [Dashboard](#dashboard) · [Projects](#projects) · [Assessments](#assessments) · [Findings](#findings) · [Reports](#reports) · [Finance](#finance) · [Plugins](#plugins) · [Settings](#settings) · [Autenticación](#autenticación-y-roles)
@@ -18,7 +18,7 @@ Contexto de arquitectura: qué hace cada sección, de dónde saca sus datos y qu
 
 ---
 
-## Qué es IASA
+## Qué es API Analyser
 
 El producto responde a una pregunta: **¿qué vulnerabilidades tiene esta API REST?** Todo lo demás existe para alimentar esa pregunta o para explotar su respuesta.
 
@@ -144,7 +144,7 @@ La capa de entrega: convierte resultados técnicos en documentos para audiencias
 
 **Formatos:** `PDF` · `HTML` · `MARKDOWN` · `JSON` · `SARIF`
 
-> La presencia de **SARIF** es significativa: es el estándar que consumen GitHub Code Scanning y herramientas de CI, así que habilita integrar IASA en un pipeline.
+> La presencia de **SARIF** es significativa: es el estándar que consumen GitHub Code Scanning y herramientas de CI, así que habilita integrar API Analyser en un pipeline.
 
 ---
 

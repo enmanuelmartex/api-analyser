@@ -11,7 +11,7 @@ import { PrismaClient } from '@prisma/client';
  * migration the application uses.
  */
 
-const TEST_DATABASE_NAME = 'iasa_test';
+const TEST_DATABASE_NAME = 'api_analyser_test';
 
 /** Rewrites the configured DATABASE_URL to point at the test database. */
 export function testDatabaseUrl(): string {

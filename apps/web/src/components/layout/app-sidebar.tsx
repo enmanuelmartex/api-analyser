@@ -29,8 +29,9 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
           Deliberately not a SidebarMenuButton: icon mode hides every direct
           `<span>` child of one, and the lockup IS a span — routing the brand
           through that machinery meant the logo vanished when collapsed. The
-          two states swap the official artwork instead of shrinking one asset
-          until the node network turns to mud.
+          two states drop the wordmark rather than swap the artwork: both draw
+          the primary mark, so collapsing the rail changes what is beside the
+          logo, never the logo.
         */}
         <Link
           href="/dashboard"
@@ -45,7 +46,7 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
             wordmarkClassName="text-sidebar-foreground"
           />
           <BrandLogo
-            type="compact"
+            type="symbol"
             size={34}
             className="hidden group-data-[collapsible=icon]:inline-flex"
           />

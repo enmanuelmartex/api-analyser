@@ -95,8 +95,8 @@ function AcceptInviteForm() {
 
       // 2. Exchange Better Auth session for a JWT (role=ADMIN at this point due to databaseHook)
       const data = await authApi.exchangeSession(sessionToken);
-      localStorage.setItem('iasa_token', data.accessToken);
-      localStorage.setItem('iasa_user', JSON.stringify(data.user));
+      localStorage.setItem('api_analyser_token', data.accessToken);
+      localStorage.setItem('api_analyser_user', JSON.stringify(data.user));
 
       // 3. Accept the invitation (updates DB: role=ANALYST/VIEWER, ownerId=inviter.id)
       await usersApi.acceptInvite(inviteToken);
@@ -104,8 +104,8 @@ function AcceptInviteForm() {
       // 4. Re-exchange the session now that the role is updated in DB.
       //    exchangeSession reads role from DB at call time, so this JWT has the correct role.
       const fresh = await authApi.exchangeSession(sessionToken);
-      localStorage.setItem('iasa_token', fresh.accessToken);
-      localStorage.setItem('iasa_user', JSON.stringify(fresh.user));
+      localStorage.setItem('api_analyser_token', fresh.accessToken);
+      localStorage.setItem('api_analyser_user', JSON.stringify(fresh.user));
 
       toast.success(`Welcome to ${appBrand.name}! You've joined as ${invite.role}.`);
       router.replace('/dashboard');

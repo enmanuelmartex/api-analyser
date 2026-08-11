@@ -1,5 +1,5 @@
 /**
- * IASA development seed.
+ * API Analyser development seed.
  *
  * Deterministic and idempotent: running it any number of times converges to the
  * same state. Every write is an upsert keyed on a stable identifier, so ids
@@ -109,14 +109,14 @@ async function seedUsers() {
   const analystPassword = await bcrypt.hash('Analyst@123!', 12);
 
   const admin = await prisma.user.upsert({
-    where: { email: 'admin@iasa.local' },
+    where: { email: 'admin@apianalyser.local' },
     // Password intentionally not in `update`: re-seeding must not silently
     // reset a password an operator changed locally.
-    update: { name: 'IASA Admin', role: 'ADMIN', isActive: true },
+    update: { name: 'API Analyser Admin', role: 'ADMIN', isActive: true },
     create: {
       id: IDS.adminUser,
-      email: 'admin@iasa.local',
-      name: 'IASA Admin',
+      email: 'admin@apianalyser.local',
+      name: 'API Analyser Admin',
       password: adminPassword,
       role: 'ADMIN',
       emailVerified: true,
@@ -124,11 +124,11 @@ async function seedUsers() {
   });
 
   const analyst = await prisma.user.upsert({
-    where: { email: 'analyst@iasa.local' },
+    where: { email: 'analyst@apianalyser.local' },
     update: { name: 'Security Analyst', role: 'ANALYST', isActive: true },
     create: {
       id: IDS.analystUser,
-      email: 'analyst@iasa.local',
+      email: 'analyst@apianalyser.local',
       name: 'Security Analyst',
       password: analystPassword,
       role: 'ANALYST',
@@ -147,7 +147,7 @@ async function seedDemoProject(ownerId: string) {
     where: { id: IDS.demoProject },
     update: {
       name: 'PetStore Demo API',
-      description: 'Swagger PetStore API — used for IASA demonstration',
+      description: 'Swagger PetStore API — used for API Analyser demonstration',
       baseUrl: 'https://petstore3.swagger.io/api/v3',
       environment: 'DEVELOPMENT',
       assetCriticality: 'LOW',
@@ -157,7 +157,7 @@ async function seedDemoProject(ownerId: string) {
     create: {
       id: IDS.demoProject,
       name: 'PetStore Demo API',
-      description: 'Swagger PetStore API — used for IASA demonstration',
+      description: 'Swagger PetStore API — used for API Analyser demonstration',
       baseUrl: 'https://petstore3.swagger.io/api/v3',
       environment: 'DEVELOPMENT',
       assetCriticality: 'LOW',
@@ -231,7 +231,7 @@ async function seedDemoProject(ownerId: string) {
 
 
 async function main() {
-  console.log('Seeding IASA database...');
+  console.log('Seeding API Analyser database...');
 
   const { admin, analyst } = await seedUsers();
   const { project } = await seedDemoProject(analyst.id);
@@ -240,8 +240,8 @@ async function main() {
   console.log(`  demo project     ${project.name} (READY, ${DEMO_ENDPOINTS.length} endpoints)`);
   console.log('');
   console.log('Development credentials (local only):');
-  console.log('  admin@iasa.local   / Admin@123!');
-  console.log('  analyst@iasa.local / Analyst@123!');
+  console.log('  admin@apianalyser.local   / Admin@123!');
+  console.log('  analyst@apianalyser.local / Analyst@123!');
   console.log('');
   console.log('Built-in security checks are registered by the API on startup.');
 }

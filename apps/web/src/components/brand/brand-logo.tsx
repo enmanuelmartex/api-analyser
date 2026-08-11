@@ -14,9 +14,18 @@ import { cn } from '@/lib/utils';
  *     the light and dark files and lets CSS pick, so the mark is correct the
  *     moment the theme class lands and never flashes the wrong colour.
  *
- *  2. **The brand's size rules.** Below 64 px the node network degrades into
- *     noise, so `type="symbol"` silently substitutes the compact artwork. That
- *     rule is the brand's, not a heuristic: see `branding/README.md`.
+ *  2. **Which artwork, at any size.** `type="symbol"` draws the full mark —
+ *     blades, node network and gradient core — whatever size it is given.
+ *
+ *     This is a **deliberate deviation** from `branding/README.md`, which says
+ *     to substitute the compact artwork below 64 px because the six-node network
+ *     degrades into noise at small sizes. It used to do exactly that, which meant
+ *     every logo in the product except the one on the Settings screen was the
+ *     simplified mark: the sidebar, the login form and the invite screen all
+ *     drew a cousin of the artwork on the brand sheet rather than the artwork
+ *     itself. The product owner asked for the primary mark everywhere, so the
+ *     substitution is gone and `compact` is now an explicit opt-in nobody takes.
+ *     If a surface ever gets tighter than ~28 px, ask for it by name.
  *
  *  3. **The lockup's proportions.** The wordmark's size and its distance from
  *     the symbol are derived from measurements of the official horizontal
@@ -87,9 +96,8 @@ export function BrandLogo({
 }: BrandLogoProps) {
   const px = typeof size === 'number' ? size : SIZE_PX[size];
 
-  // The brand's own rule, applied once here rather than remembered per screen.
-  const artwork: 'symbol' | 'compact' =
-    type === 'compact' || px < brandMark.compactBelowPx ? 'compact' : 'symbol';
+  // Only when a caller asks for it by name — see the deviation note above.
+  const artwork: 'symbol' | 'compact' = type === 'compact' ? 'compact' : 'symbol';
 
   // In `horizontal` the wordmark is real text beside the mark, so labelling the
   // image as well would make a screen reader announce the product name twice.

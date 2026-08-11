@@ -3,12 +3,12 @@
 > Automated API security testing and vulnerability detection platform.
 > Scan REST APIs against the OWASP API Security Top 10 in minutes.
 
-<sub>Formerly **IASA** (Intelligent API Security Assessment). The `iasa` identifier
-survives in infrastructure contracts — the repository directory, the Postgres
-database name, Docker image and container names, and `IASA_*` CI secrets —
-because renaming those breaks deployments for no user benefit.</sub>
+<sub>Formerly **IASA** (Intelligent System for API Security Assessment). The rename
+went all the way down for v1.0 — repository, packages, containers, database,
+environment variables and CI secrets. If you are upgrading a clone from before
+the rename, see [Upgrading from IASA](#upgrading-from-iasa).</sub>
 
-[![CI](https://github.com/your-org/iasa/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/iasa/actions/workflows/ci.yml)
+[![CI](https://github.com/enmanuelmartex/api-analyser/actions/workflows/ci.yml/badge.svg)](https://github.com/enmanuelmartex/api-analyser/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-violet.svg)](LICENSE)
 [![Bun](https://img.shields.io/badge/runtime-Bun-f472b6?logo=bun)](https://bun.sh)
 
@@ -17,8 +17,8 @@ because renaming those breaks deployments for no user benefit.</sub>
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-org/iasa
-cd iasa
+git clone https://github.com/enmanuelmartex/api-analyser
+cd api-analyser
 cp .env.example .env
 bun i
 docker compose up -d
@@ -31,15 +31,15 @@ Open **http://localhost:3000** and register an account.
 
 > **The seeded accounts do not work for web sign-in.** The web app authenticates
 > through Better Auth, which needs a row in the `accounts` table. `bun run db:seed`
-> creates `admin@iasa.local` and `analyst@iasa.local` as `users` rows only, so they
+> creates `admin@apianalyser.local` and `analyst@apianalyser.local` as `users` rows only, so they
 > authenticate against the REST API directly (`POST /api/v1/auth/login`) but are
 > rejected by the login form. Register through the UI to get a web-usable account.
 
 | Account                | Works for                          |
 |------------------------|------------------------------------|
 | Registered via the UI  | Web app **and** API                |
-| `admin@iasa.local`     | API only — `POST /api/v1/auth/login` |
-| `analyst@iasa.local`   | API only — `POST /api/v1/auth/login` |
+| `admin@apianalyser.local`     | API only — `POST /api/v1/auth/login` |
+| `analyst@apianalyser.local`   | API only — `POST /api/v1/auth/login` |
 
 ---
 
@@ -111,7 +111,7 @@ users reading "no findings" as "nothing to find".
 ## Architecture
 
 ```
-iasa/
+api-analyser/
 ├── apps/
 │   ├── api/                    # NestJS backend (Port 4000)
 │   │   ├── src/
@@ -181,7 +181,7 @@ Copy `.env.example` to `.env`:
 
 ```bash
 # Required
-DATABASE_URL=postgresql://iasa:password@localhost:5432/iasa
+DATABASE_URL=postgresql://api_analyser:password@localhost:5432/api_analyser
 REDIS_URL=redis://:password@localhost:6379
 JWT_SECRET=your-32-char-minimum-secret-here
 ENCRYPTION_KEY=your-32-char-encryption-key-here
@@ -210,18 +210,57 @@ bun run db:studio         # Prisma Studio UI
 
 ---
 
+## Upgrading from IASA
+
+The v1.0 rename replaced the `iasa` identifier everywhere it appeared, including
+places a running environment holds onto. A fresh clone needs none of this; an
+existing one needs all of it.
+
+**The database.** The Postgres role and database are now `api_analyser`. The
+container will not rename an existing volume, so a dev environment created before
+the rename still holds a database called `iasa` that the new `DATABASE_URL` does
+not point at. Either keep your old values in `.env` — nothing forces the new
+names on you — or start clean:
+
+```bash
+docker compose down -v    # destroys the local volumes and their data
+cp .env.example .env
+docker compose up -d
+bun run db:migrate && bun run db:seed
+```
+
+**Everything else.**
+
+| Was | Is now |
+|-----|--------|
+| `github.com/enmanuelmartex/iasa` | `github.com/enmanuelmartex/api-analyser` (the old URL redirects) |
+| `@iasa/api`, `@iasa/web` | `@api-analyser/api`, `@api-analyser/web` |
+| containers `iasa-*`, network `iasa-network` | `api-analyser-*`, `api-analyser-network` |
+| Postgres role/db `iasa`, test db `iasa_test` | `api_analyser`, `api_analyser_test` |
+| `admin@iasa.local`, `analyst@iasa.local` | `admin@apianalyser.local`, `analyst@apianalyser.local` |
+| CI secret `IASA_API_KEY` | `API_ANALYSER_API_KEY` |
+
+Old containers, volumes and networks are not removed by any of this — clean them
+up with `docker rm`/`docker volume rm` once you no longer need the data.
+
+Everything the product shows a user was already branded **API Analyser** before
+this rename, and `brand.spec.ts` in each app fails if the old name reappears
+there. What changed is the plumbing underneath.
+
+---
+
 ## CI/CD Security Gate
 
-Block PRs with security issues using IASA GitHub Actions:
+Block PRs with security issues using API Analyser GitHub Actions:
 
 ```yaml
-- name: IASA API Security Gate
-  uses: your-org/iasa/.github/workflows/security.yml@main
+- name: API Analyser API Security Gate
+  uses: enmanuelmartex/api-analyser/.github/workflows/security.yml@main
   with:
     target_url: https://api.yourapp.com
     fail_on: HIGH          # CRITICAL | HIGH | MEDIUM
   secrets:
-    IASA_API_KEY: ${{ secrets.IASA_API_KEY }}
+    API_ANALYSER_API_KEY: ${{ secrets.API_ANALYSER_API_KEY }}
 ```
 
 Results are uploaded to **GitHub Security** as SARIF.
@@ -254,11 +293,11 @@ Register it in `scanner.service.ts` — it runs automatically in every assessmen
 
 ## Security Notice
 
-> **IASA is designed for authorized security testing only.**
+> **API Analyser is designed for authorized security testing only.**
 > Only use it against APIs you own or have explicit written permission to test.
 > Unauthorized API testing may violate computer fraud laws and regulations.
 
 ---
 
-*IASA v0.1.0 — Intelligent System for API Security Assessment Based on Automated Testing and Vulnerability Detection*
+*API Analyser v0.1.0 — Automated API security assessment and vulnerability detection*
 *University Cybersecurity Capstone Project*

@@ -1,7 +1,7 @@
 {
-  "name": "@iasa/api",
+  "name": "@api-analyser/api",
   "version": "0.1.0",
-  "description": "IASA — Backend API (NestJS)",
+  "description": "API Analyser — Backend API (NestJS)",
   "private": true,
   "license": "MIT",
   "scripts": {

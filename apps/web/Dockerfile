@@ -1,5 +1,5 @@
 # =============================================================================
-# IASA Web — Dockerfile
+# API Analyser Web — Dockerfile
 # Next.js 15 with Bun
 # =============================================================================
 
@@ -28,7 +28,9 @@ COPY . .
 
 # Build args
 ARG NEXT_PUBLIC_API_URL
-ARG NEXT_PUBLIC_APP_NAME=IASA
+# Quoted: the name now contains a space, and an unquoted ARG default would stop
+# at it and set the value to "API".
+ARG NEXT_PUBLIC_APP_NAME="API Analyser"
 ARG NEXT_PUBLIC_APP_VERSION=0.1.0
 
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL

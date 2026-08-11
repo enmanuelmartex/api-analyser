@@ -25,7 +25,7 @@ function createApiClient(): AxiosInstance {
 
   client.interceptors.request.use((config) => {
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('iasa_token');
+      const token = localStorage.getItem('api_analyser_token');
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -38,8 +38,8 @@ function createApiClient(): AxiosInstance {
     (error) => {
       if (error.response?.status === 401) {
         if (typeof window !== 'undefined') {
-          localStorage.removeItem('iasa_token');
-          localStorage.removeItem('iasa_user');
+          localStorage.removeItem('api_analyser_token');
+          localStorage.removeItem('api_analyser_user');
           window.location.href = '/login';
         }
       }
@@ -324,7 +324,7 @@ export const reportsApi = {
 
     const rawContentType = response.headers['content-type'];
     const contentType = typeof rawContentType === 'string' ? rawContentType : undefined;
-    const fileName = filenameFromContentDisposition(response.headers['content-disposition']) ?? `iasa-report-${reportId.slice(0, 8)}`;
+    const fileName = filenameFromContentDisposition(response.headers['content-disposition']) ?? `api-analyser-report-${reportId.slice(0, 8)}`;
 
     const url = URL.createObjectURL(new Blob([response.data], { type: contentType }));
     const anchor = document.createElement('a');

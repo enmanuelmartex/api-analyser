@@ -9,10 +9,15 @@
  * duplicated deliberately; change both together. `brand.spec.ts` in each app
  * pins the canonical spelling so drift fails a test.
  *
- * NOTE ON "iasa": the identifier survives in internal, non-visible places — the
- * repo directory, the Postgres database name, seed account emails, `IASA_*` CI
- * secrets and the Docker image name. Those are infrastructure contracts, not
- * branding, and renaming them would break deployments for no user benefit.
+ * NOTE ON "iasa": nothing. The identifier used to survive in infrastructure
+ * contracts — the repo directory, the Postgres database name, seed account
+ * emails, `IASA_*` CI secrets, the Docker image names — on the argument that
+ * renaming them broke deployments for no user benefit. That argument expired
+ * when the project was published: there were no deployments to break, and a
+ * clone whose containers, database and package names all said `iasa` made the
+ * old name look like the real one and the new one like a skin over it. The
+ * rename went all the way down for v1.0. If you find `iasa` anywhere outside a
+ * migration already applied to a database, it is a leftover, not a contract.
  *
  * MACHINE-READABLE FORMATS: SARIF's `tool.driver.name` and the JSON export's
  * `meta.tool` are consumed by external systems. They carry the new name because

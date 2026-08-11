@@ -11,7 +11,7 @@ export const auth = betterAuth({
   basePath: '/api/auth',
   secret:
     process.env.BETTER_AUTH_SECRET ||
-    'iasa-dev-secret-change-in-production-min-32-chars!!',
+    'api-analyser-dev-secret-change-in-production-min-32-chars!!',
 
   trustedOrigins: [process.env.FRONTEND_URL || 'http://localhost:3000'],
 

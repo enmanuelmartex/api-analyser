@@ -1,5 +1,5 @@
 {
-  "name": "iasa",
+  "name": "api_analyser",
   "version": "0.1.0",
   "private": true,
   "description": "Intelligent API Security Assessment — Automated API security testing and vulnerability detection platform",

@@ -52,8 +52,8 @@ function AuthCallbackContent() {
     async function exchange(sessionToken: string) {
       try {
         const data = await authApi.exchangeSession(sessionToken);
-        localStorage.setItem('iasa_token', data.accessToken);
-        localStorage.setItem('iasa_user', JSON.stringify(data.user));
+        localStorage.setItem('api_analyser_token', data.accessToken);
+        localStorage.setItem('api_analyser_user', JSON.stringify(data.user));
         router.replace('/dashboard');
       } catch {
         toast.error('Failed to complete sign-in. Please try again.');
