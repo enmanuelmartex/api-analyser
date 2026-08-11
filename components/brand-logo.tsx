@@ -2,47 +2,40 @@ import { brand } from '@/lib/site';
 import { cn } from '@/lib/utils';
 
 /**
- * The official mark, drawn to the brand's own rules.
+ * The official mark — the primary, full-colour artwork for a dark surface.
  *
- * This is a trimmed copy of the product's `BrandLogo`: the landing branch shares
- * no code with the app, but it must not invent a second way of drawing the logo.
- * Two rules travel with it and are enforced here rather than remembered per call
- * site — both from `branding/README.md`:
+ * One file, always: `branding/05-svg/mark-for-dark-bg.svg`, the "Primaria —
+ * fondo oscuro / Color completo" tile from the brand sheet. This page has a
+ * single surface, so the four-variant resolution the product needs would be
+ * dead weight here.
  *
- *  1. **Below 64 px the node network becomes noise**, so the compact artwork is
- *     substituted automatically. A caller passes one number and gets the right
- *     file.
- *  2. **The lockup's proportions are measured, not eyeballed** — the wordmark's
- *     size and its distance from the symbol come from the official horizontal
- *     lockup in `branding/02-lockup/`.
+ * **Deliberate deviation from the brand rules.** `branding/README.md` says to
+ * substitute the compact artwork below 64 px, because the six-node network
+ * degrades into noise at small sizes. This page renders the full mark at 32–36
+ * px anyway, on the product owner's instruction, so the logo in the navbar is
+ * recognisably the same object as the one on the brand sheet rather than a
+ * simplified cousin of it. The sizes below are the smallest at which the node
+ * network still resolves on a 1× display — going smaller is what the rule was
+ * written about.
  *
- * The artwork is never recoloured or reconstructed. `public/brand/*.svg` are
- * byte-identical copies of `branding/05-svg/`; the gradient lives only in the
- * mark's core and never touches the wordmark.
+ * The artwork is never recoloured or reconstructed. `public/brand/` holds a
+ * byte-identical copy; the gradient lives only in the mark's hexagonal core and
+ * never touches the wordmark.
  */
 
-/** Geometry measured off the 2048 px masters, from the product's `brand.ts`. */
+/** Lockup geometry measured off the 2048 px masters, from the product's `brand.ts`. */
 const MARK = {
-  compactBelowPx: 64,
   widthRatio: 0.7422,
   clearSpaceRatio: 0.25,
   wordmarkFontRatio: 0.4613,
   lockupGapRatio: 0.328,
 } as const;
 
-/**
- * This page has exactly one surface — Canvas — so only the dark-background
- * artwork is ever needed. The product ships four variants for the four surfaces
- * it renders on; here a second one would be dead weight.
- */
-const ART = {
-  symbol: '/brand/mark-for-dark-bg.svg',
-  compact: '/brand/mark-compact-white.svg',
-} as const;
+const ARTWORK = '/brand/mark-for-dark-bg.svg';
 
 export interface BrandLogoProps {
-  /** `horizontal` adds the wordmark; the others draw the mark alone. */
-  type?: 'symbol' | 'compact' | 'horizontal';
+  /** `horizontal` adds the wordmark; `symbol` draws the mark alone. */
+  type?: 'symbol' | 'horizontal';
   /** Square box side in px. The visible mark is ~0.88 × this tall. */
   size?: number;
   className?: string;
@@ -58,8 +51,6 @@ export function BrandLogo({
   wordmarkClassName,
   clearSpace = false,
 }: BrandLogoProps) {
-  const src = type === 'compact' || size < MARK.compactBelowPx ? ART.compact : ART.symbol;
-
   // In `horizontal` the wordmark is real text beside the mark, so labelling the
   // image too would make a screen reader announce the product name twice.
   const alt = type === 'horizontal' ? '' : brand.name;
@@ -68,7 +59,7 @@ export function BrandLogo({
   const mark = (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={src}
+      src={ARTWORK}
       alt={alt}
       width={size}
       height={size}

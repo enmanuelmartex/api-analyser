@@ -84,9 +84,11 @@ export function Install() {
                   The seeded accounts do not work for web sign-in.
                 </span>{' '}
                 <code className="font-mono text-[13px] text-zinc-400">bun run db:seed</code> creates{' '}
-                <code className="font-mono text-[13px] text-zinc-400">admin@iasa.local</code> and{' '}
-                <code className="font-mono text-[13px] text-zinc-400">analyst@iasa.local</code> for
-                the REST API only. Register through the UI to get an account the web app accepts.
+                <code className="font-mono text-[13px] text-zinc-400">admin@apianalyser.local</code>{' '}
+                and{' '}
+                <code className="font-mono text-[13px] text-zinc-400">analyst@apianalyser.local</code>{' '}
+                for the REST API only. Register through the UI to get an account the web app
+                accepts.
               </p>
             </div>
           </Step>

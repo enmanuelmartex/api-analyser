@@ -1,8 +1,9 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { Download, FileText } from 'lucide-react';
 import { Section, SectionHeading, SectionLabel } from '@/components/section';
-import { pipeline } from '@/lib/site';
+import { exampleReport, pipeline } from '@/lib/site';
 
 /**
  * The five stages of an assessment, as a spine.
@@ -53,11 +54,41 @@ export function HowItWorks() {
               <div className="flex-1 rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-5 transition-colors hover:border-zinc-700/80">
                 <h3 className="text-base font-medium text-white">{stage.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-zinc-400">{stage.body}</p>
+                {stage.showsExampleReport && <ExampleReportLink />}
               </div>
             </motion.li>
           ))}
         </ol>
       </div>
     </Section>
+  );
+}
+
+/**
+ * The one thing on this page a visitor can have without installing anything.
+ *
+ * `download` on the anchor rather than a plain link: a PDF opens in the browser
+ * viewer by default, which is fine to read but leaves someone who wanted the
+ * file hunting for a save button. The extension and weight are stated because
+ * this is a 652 kB download on whatever connection they are on.
+ */
+function ExampleReportLink() {
+  return (
+    <a
+      href={exampleReport.href}
+      download={exampleReport.fileName}
+      className="group/report mt-5 flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 px-4 py-3 transition-colors hover:border-brand-blue/50 hover:bg-zinc-900/60"
+    >
+      <FileText className="h-4 w-4 shrink-0 text-brand-cyan" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-zinc-100">
+          See an example report
+        </span>
+        <span className="block text-xs text-zinc-500">
+          A real PDF from the app · {exampleReport.size}
+        </span>
+      </span>
+      <Download className="h-4 w-4 shrink-0 text-zinc-600 transition-colors group-hover/report:text-brand-blue" />
+    </a>
   );
 }

@@ -5,11 +5,11 @@ import { brand, navLinks, repo } from '@/lib/site';
 /**
  * The footer, and the only place the old name is explained.
  *
- * `IASA` is still all over the repository — the directory, the database, the
- * Docker images, the `IASA_*` CI secrets — because renaming infrastructure
- * contracts breaks deployments for no user benefit. Someone who clones this
- * expecting "API Analyser" and finds `iasa` everywhere deserves the one-line
- * explanation before they open an issue about it.
+ * The project shipped as `IASA` before v1.0 and the rename went all the way
+ * down — repository, packages, containers, database, CI secrets. Anyone
+ * arriving from a paper, a bookmark or an old clone is looking for a name that
+ * no longer exists anywhere, so the mapping is stated once, here, rather than
+ * left for them to infer.
  */
 
 const COLUMNS = [
@@ -86,9 +86,9 @@ export function Footer() {
             project
           </p>
           <p className="max-w-md sm:text-right">
-            Formerly <span className="text-zinc-500">{brand.legacyName}</span>. The identifier
-            survives in the repository directory, the database and the CI secrets — renaming those
-            would break deployments for no user benefit.
+            Formerly <span className="text-zinc-500">{brand.legacyName}</span> — renamed throughout
+            for v1.0. Old clone URLs still resolve through GitHub&apos;s redirect, but the
+            identifier is gone from the code.
           </p>
         </div>
       </div>

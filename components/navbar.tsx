@@ -47,7 +47,7 @@ export function Navbar() {
         className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5 sm:px-6"
       >
         <a href="#top" className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-blue">
-          <BrandLogo type="horizontal" size={32} />
+          <BrandLogo type="horizontal" size={34} />
         </a>
 
         <div className="hidden items-center gap-8 md:flex">

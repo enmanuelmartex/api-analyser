@@ -1,6 +1,6 @@
 # API Analyser — landing page
 
-The marketing site for [API Analyser](https://github.com/enmanuelmartex/iasa). One page:
+The marketing site for [API Analyser](https://github.com/enmanuelmartex/api-analyser). One page:
 what the scanner does, what it covers, and how to clone and run it locally.
 
 > **This branch contains only the landing page.** It is an orphan branch — it shares no
@@ -39,7 +39,7 @@ Metadata defaults to `https://apianalyser.com`. Set the real origin so the Open 
 `sitemap.xml` point at the host that actually serves them:
 
 ```bash
-NEXT_PUBLIC_SITE_URL=https://enmanuelmartex.github.io/iasa bun run build:static
+NEXT_PUBLIC_SITE_URL=https://enmanuelmartex.github.io/api-analyser bun run build:static
 ```
 
 On a GitHub Pages **project** site the page is served from a sub-path, which Next needs to be
@@ -67,11 +67,21 @@ components/
   stack.tsx           tech stack, the CI workflow, a plugin
   cta.tsx             authorised-use notice + final call to action
   footer.tsx          links, licence, the IASA/API Analyser note
-  brand-logo.tsx      the official mark, drawn to the brand's size rules
+  brand-logo.tsx      the official mark, one file, every size
   code-block.tsx      copyable commands
 lib/
   site.ts             every claim the page makes, in one file
+public/
+  api-analyser-example-report.pdf   a real report, linked from the Report step
 ```
+
+### The example report
+
+`public/api-analyser-example-report.pdf` is a genuine PDF produced by the app, linked from
+stage 05 of "How it works" — the one thing a visitor can have without installing anything. To
+refresh it, generate a report from a real assessment and overwrite the file, keeping the name;
+if the weight changes noticeably, update `exampleReport.size` in `lib/site.ts` so the label
+does not lie about the download.
 
 ## Editing the content
 
@@ -86,14 +96,19 @@ black-box scan sees less than those categories describe. Do not drop them to tid
 
 ## Brand assets
 
-`public/brand/*.svg` are byte-identical copies of `branding/05-svg/` on `main`, and the icons
-in `app/` are the same files the product ships. Do not edit them here; re-copy them if the
-brand system is revised. `components/brand-logo.tsx` carries the two rules that travel with the
-artwork — the compact symbol below 64 px, and the measured lockup proportions.
+`public/brand/mark-for-dark-bg.svg` is a byte-identical copy of `branding/05-svg/` on `main` —
+the "Primaria — fondo oscuro / Color completo" artwork from the brand sheet — and the icons in
+`app/` are the same files the product ships. Do not edit them here; re-copy them if the brand
+system is revised.
 
-Only the two dark-surface files are here, because this page has one surface. The light and
-monochrome variants, the lockups, the app icons and the full brand sheet live in `branding/`
-on `main` — copy what you need from there rather than recolouring these.
+One file, because this page has one surface and one logo. `components/brand-logo.tsx` draws it
+at every size, which is a **deliberate deviation** from `branding/README.md`: the brand says to
+substitute the compact artwork below 64 px, and this page renders the full mark at 34 px. That
+was the product owner's call, so the navbar shows the same object as the brand sheet rather
+than a simplified cousin of it. The measured lockup proportions are still honoured.
+
+The light and monochrome variants, the lockups, the app icons and the full brand sheet live in
+`branding/` on `main` — copy what you need from there rather than recolouring this one.
 
 Palette, from `branding/README.md`:
 
