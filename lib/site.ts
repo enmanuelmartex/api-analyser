@@ -1,0 +1,234 @@
+/**
+ * Everything the page claims about the product, in one place.
+ *
+ * This landing lives on its own branch and shares no code with the product, so
+ * nothing here can be imported from the app — it is transcribed. That makes it
+ * the one file to re-check when the README changes: the counts, the coverage
+ * table and the install commands are all quoted from the repository root and
+ * are wrong the moment they drift.
+ *
+ * Source of truth for each block is named in a comment above it.
+ */
+
+/** Verbatim from `apps/web/src/lib/brand.ts` in the product repository. */
+export const brand = {
+  name: 'API Analyser',
+  tagline: 'Automated API Security Assessment',
+  description:
+    'Automated API security testing and vulnerability detection. Scan REST APIs against the OWASP API Security Top 10 in minutes.',
+  /** The internal identifier that survives in infrastructure contracts. */
+  legacyName: 'IASA',
+} as const;
+
+/** The official palette, verbatim from `branding/README.md`. */
+export const brandColors = {
+  ink: '#0A0A0B',
+  canvas: '#08080A',
+  white: '#FFFFFF',
+  violet: '#6D4BFF',
+  indigo: '#5566FF',
+  blue: '#2E8BF5',
+  cyan: '#1FC2E8',
+  ice: '#9BE4F7',
+} as const;
+
+export const repo = {
+  owner: 'enmanuelmartex',
+  name: 'iasa',
+  url: 'https://github.com/enmanuelmartex/iasa',
+  cloneUrl: 'https://github.com/enmanuelmartex/iasa.git',
+  issuesUrl: 'https://github.com/enmanuelmartex/iasa/issues',
+  licenseUrl: 'https://github.com/enmanuelmartex/iasa/blob/main/LICENSE',
+  readmeUrl: 'https://github.com/enmanuelmartex/iasa#readme',
+  architectureUrl: 'https://github.com/enmanuelmartex/iasa/blob/main/ARCHITECTURE.md',
+  releasesUrl: 'https://github.com/enmanuelmartex/iasa/releases',
+} as const;
+
+export const navLinks = [
+  { label: 'How it works', href: '#how-it-works' },
+  { label: 'Coverage', href: '#coverage' },
+  { label: 'Install', href: '#install' },
+  { label: 'Stack', href: '#stack' },
+] as const;
+
+/**
+ * The headline numbers.
+ *
+ * `13 checks · 49 rules · 10 of 10 categories` is asserted in the product's own
+ * test suite (`owasp-coverage.spec.ts`) and computed at runtime from the check
+ * manifests, so these three cannot quietly drift from the code — but this copy
+ * of them can. Re-read the README before changing any of them.
+ */
+export const stats = [
+  { value: '13', label: 'security checks' },
+  { value: '49', label: 'detection rules' },
+  { value: '10/10', label: 'OWASP API categories' },
+  { value: '5', label: 'report formats' },
+] as const;
+
+/** From "What It Does" in the README. */
+export const pipeline = [
+  {
+    step: '01',
+    title: 'Parse',
+    body: 'Point it at an OpenAPI or Swagger specification — a URL or an uploaded file. No agent, no code changes, no proxy in front of your API.',
+  },
+  {
+    step: '02',
+    title: 'Discover',
+    body: 'Every endpoint, method, parameter and schema in the specification becomes part of the attack surface the scanner reasons about.',
+  },
+  {
+    step: '03',
+    title: 'Scan',
+    body: '13 security checks run as background jobs, streaming progress over SSE. Each finding names the endpoint, the evidence and the OWASP category.',
+  },
+  {
+    step: '04',
+    title: 'Analyse',
+    body: 'Optionally enrich findings with an LLM — OpenAI, Claude, Gemini, Grok or a local Ollama model. Bring your own key; skip it entirely and the scan still runs.',
+  },
+  {
+    step: '05',
+    title: 'Report',
+    body: 'Export as PDF, HTML, JSON, SARIF or Markdown. SARIF uploads straight into the GitHub Security tab from a workflow.',
+  },
+] as const;
+
+/**
+ * OWASP API Security Top 10 (2023) coverage.
+ *
+ * Transcribed from the README's coverage table. `scopeNote` carries the three
+ * categories the README marks with a dagger — categories where a black-box scan
+ * can see less than the category describes. The product surfaces those limits in
+ * the coverage API, the UI and every report; a marketing page that dropped them
+ * would be the only surface claiming more than the scanner can demonstrate.
+ */
+export const owaspCoverage = [
+  {
+    id: 'API1:2023',
+    category: 'Broken Object Level Authorization',
+    checks: ['bola'],
+  },
+  {
+    id: 'API2:2023',
+    category: 'Broken Authentication',
+    checks: ['broken-authentication', 'jwt-analysis'],
+  },
+  {
+    id: 'API3:2023',
+    category: 'Broken Object Property Level Authorization',
+    checks: ['mass-assignment', 'sensitive-data'],
+  },
+  {
+    id: 'API4:2023',
+    category: 'Unrestricted Resource Consumption',
+    checks: ['rate-limit'],
+  },
+  {
+    id: 'API5:2023',
+    category: 'Broken Function Level Authorization',
+    checks: ['bfla'],
+  },
+  {
+    id: 'API6:2023',
+    category: 'Unrestricted Access to Sensitive Business Flows',
+    checks: ['business-flows'],
+    scopeNote:
+      'Flows are identified from the naming in the specification, and each finding names the term that matched. What is observed is the absence of a control in front of the flow — no throttle, no bot mitigation, no captcha or OTP, no authentication, no idempotency key. Probes carry a payload the target is expected to reject, so the flow itself is never executed, and DELETE operations are never probed.',
+  },
+  {
+    id: 'API7:2023',
+    category: 'Server Side Request Forgery',
+    checks: ['ssrf'],
+  },
+  {
+    id: 'API8:2023',
+    category: 'Security Misconfiguration',
+    checks: ['cors', 'security-headers', 'sensitive-data'],
+  },
+  {
+    id: 'API9:2023',
+    category: 'Improper Inventory Management',
+    checks: ['inventory'],
+    scopeNote:
+      'Probing is confined to the host under assessment: undocumented versions beside the documented ones, deprecated operations still answering, and exposed documentation, actuator, metrics and debug surfaces. Every claim is made against a baseline request to a path that does not exist. A shadow API on a different hostname cannot be found this way — that needs an asset inventory the scanner is not given.',
+  },
+  {
+    id: 'API10:2023',
+    category: 'Unsafe Consumption of APIs',
+    checks: ['api-consumption'],
+    scopeNote:
+      'Only what crosses the client boundary is observable: upstream references returned over plain HTTP, upstream errors relayed verbatim, and inbound webhooks that accept unverified senders. Whether the service validates what its upstreams return cannot be settled from outside.',
+  },
+] as const;
+
+/** From the "Tech Stack" table in the README. */
+export const techStack = [
+  { layer: 'Runtime', value: 'Bun 1.x' },
+  { layer: 'Frontend', value: 'Next.js 15 · React 19' },
+  { layer: 'UI', value: 'Tailwind CSS · shadcn/ui · Recharts' },
+  { layer: 'Backend', value: 'NestJS 10 · TypeScript' },
+  { layer: 'Database', value: 'PostgreSQL 16 · Prisma' },
+  { layer: 'Queue', value: 'Redis 7 · BullMQ' },
+  { layer: 'Auth', value: 'JWT (HS256) · Passport.js' },
+  { layer: 'AI analysis', value: 'OpenAI · Claude · Gemini · Ollama' },
+  { layer: 'Container', value: 'Docker Compose' },
+  { layer: 'CI/CD', value: 'GitHub Actions · SARIF' },
+] as const;
+
+/** From "Quick Start" and "Development" in the README. */
+export const quickStart = {
+  prerequisites: [
+    { name: 'Bun 1.x', note: 'the runtime and package manager for the whole monorepo' },
+    { name: 'Docker', note: 'brings up PostgreSQL 16 and Redis 7 with one command' },
+    { name: 'Git', note: 'to clone the repository' },
+  ],
+  clone: `git clone ${repo.cloneUrl}
+cd ${repo.name}`,
+  install: `cp .env.example .env
+bun i
+docker compose up -d
+bun run db:migrate
+bun run db:seed
+bun dev`,
+  env: `# Required
+DATABASE_URL=postgresql://iasa:password@localhost:5432/iasa
+REDIS_URL=redis://:password@localhost:6379
+JWT_SECRET=your-32-char-minimum-secret-here
+ENCRYPTION_KEY=your-32-char-encryption-key-here
+
+# Optional — enables AI-powered vulnerability analysis
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini`,
+  scripts: [
+    { command: 'bun dev', description: 'API on :4000 and web on :3000, together' },
+    { command: 'bun dev:api', description: 'the NestJS API alone' },
+    { command: 'bun dev:web', description: 'the Next.js front end alone' },
+    { command: 'bun run db:studio', description: 'Prisma Studio against the local database' },
+    { command: 'bun test', description: 'the API and web test suites' },
+  ],
+} as const;
+
+/** From "CI/CD Security Gate" in the README. */
+export const ciWorkflow = `- name: API Analyser security gate
+  uses: ${repo.owner}/${repo.name}/.github/workflows/security.yml@main
+  with:
+    target_url: https://api.yourapp.com
+    fail_on: HIGH          # CRITICAL | HIGH | MEDIUM
+  secrets:
+    IASA_API_KEY: \${{ secrets.IASA_API_KEY }}`;
+
+/** From "Adding Custom Plugins" in the README. */
+export const pluginSnippet = `export class MyCheckPlugin extends BasePlugin {
+  readonly id = 'my-custom-check';
+  readonly name = 'My Security Check';
+  readonly owaspCategories = ['API8:2023'];
+
+  async run(
+    context: ScanContext,
+  ): Promise<PluginResult> {
+    // context.endpoints, context.auth,
+    // context.baseUrl
+  }
+}`;

@@ -1,0 +1,128 @@
+@import 'tailwindcss';
+
+/**
+ * The landing is dark-only, on purpose.
+ *
+ * The brand sheet defines Canvas (#08080A) as *the* dark surface and the product
+ * itself ships both themes, but a one-page site that inherits the visitor's OS
+ * preference would have to re-tune the 3D stage, the glow and every code block
+ * for a light surface nobody asked for. One surface, committed to.
+ */
+
+@theme {
+  /* The official palette, verbatim from `branding/README.md`. */
+  --color-brand-ink: #0a0a0b;
+  --color-brand-canvas: #08080a;
+  --color-brand-violet: #6d4bff;
+  --color-brand-indigo: #5566ff;
+  --color-brand-blue: #2e8bf5;
+  --color-brand-cyan: #1fc2e8;
+  --color-brand-ice: #9be4f7;
+
+  /*
+   * Severity ramp, copied from the product's dark theme (`--severity-*` in
+   * `apps/web/src/app/globals.css`) so a Critical badge in the hero screenshot is
+   * the same red a user will see in their own dashboard.
+   */
+  --color-severity-critical: hsl(0 84% 60%);
+  --color-severity-high: hsl(25 95% 53%);
+  --color-severity-medium: hsl(38 92% 50%);
+  --color-severity-low: hsl(199 89% 58%);
+  --color-severity-info: hsl(240 5% 58%);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-mono-jetbrains), ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+@theme inline {
+  /*
+   * One surface value, used by every section. The sections stack seamlessly and
+   * each paints its own background so the 3D stage can bleed past its bounds, so
+   * a hardcoded hex in twelve files was the alternative.
+   */
+  --color-surface: var(--color-brand-canvas);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    /* The fixed navbar would otherwise cover the heading of a jumped-to section. */
+    scroll-padding-top: 5.5rem;
+  }
+
+  body {
+    background-color: var(--color-brand-canvas);
+    color: #fafafa;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: var(--color-brand-blue);
+    color: #fff;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #3f3f46 transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #3f3f46;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* Hides a scrollbar without disabling the scrolling — used by the mockup panes. */
+@utility scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/**
+ * The core gradient, verbatim from the brand sheet.
+ *
+ * The brand permits it on the mark's hexagonal core only — never on the wordmark
+ * and never on the blades. Here it is used for surfaces the logo is not part of:
+ * rules, glows, and the accent bar beside a section label.
+ */
+@utility brand-gradient {
+  background-image: linear-gradient(135deg, #6d4bff 0%, #2e8bf5 45%, #1fc2e8 100%);
+}
+
+/* The same ramp as a hairline that fades out at both ends. */
+@utility brand-rule {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #6d4bff 20%,
+    #2e8bf5 50%,
+    #1fc2e8 80%,
+    transparent 100%
+  );
+}

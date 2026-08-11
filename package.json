@@ -1,0 +1,30 @@
+{
+  "name": "api-analyser-landing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Marketing site for API Analyser — the landing page lives on its own branch and ships nothing from the product.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "build:static": "NEXT_STATIC_EXPORT=true next build",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.0.0",
+    "lucide-react": "^0.469.0",
+    "next": "^15.1.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^2.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.2"
+  }
+}
