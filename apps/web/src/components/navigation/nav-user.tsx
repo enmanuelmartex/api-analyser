@@ -22,6 +22,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { ThemeSwitcher } from "@/components/layout/theme-switcher";
+import { authClient } from "@/lib/auth-client";
 
 interface NavUserProps {
   user?: { name: string; email: string; role: string } | null;
@@ -29,9 +30,21 @@ interface NavUserProps {
 
 export function NavUser({ user }: NavUserProps) {
   const { isMobile, state } = useSidebar();
-  const initial = user?.name?.charAt(0)?.toUpperCase() || "A";
+  const initial = user?.name?.charAt(0)?.toUpperCase() || "U";
 
-  function handleLogout() {
+  /**
+   * Two auth surfaces, two things to tear down (see `apps/api/src/lib/auth.ts`):
+   * the exchanged JWT this app actually uses lives only in `localStorage` and
+   * is stateless, but signing in also created a Better Auth session row on the
+   * server. Only clearing `localStorage` left that row valid — logging out
+   * locally without ever revoking the session it was minted from.
+   */
+  async function handleLogout() {
+    try {
+      await authClient.signOut();
+    } catch {
+      // Best-effort: the local session is cleared regardless below.
+    }
     localStorage.removeItem("api_analyser_token");
     localStorage.removeItem("api_analyser_user");
     window.location.href = "/login";
@@ -60,7 +73,7 @@ export function NavUser({ user }: NavUserProps) {
               {(state === "expanded" || isMobile) && (
                 <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">
-                    {user?.name || "Analyst"}
+                    {user?.name || "User"}
                   </span>
                   <span className="truncate text-xs text-sidebar-foreground/60">
                     {user?.email || "—"}
@@ -87,7 +100,7 @@ export function NavUser({ user }: NavUserProps) {
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">
-                    {user?.name || "Analyst"}
+                    {user?.name || "User"}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
                     {user?.email || "—"}

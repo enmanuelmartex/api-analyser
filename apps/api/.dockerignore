@@ -1,0 +1,18 @@
+# Host-installed dependencies must never enter the build context: `bun install`
+# inside the image is what populates node_modules there, and copying the
+# host's copy over it collides (different platform, different symlink layout
+# under a Bun workspace) or, at best, silently ships stale/host-only packages.
+node_modules
+
+# Build output and generated Prisma client — regenerated inside the image by
+# `bun run build` / `prisma generate`, and the checked-in copy under
+# generated/ is a snapshot for editor tooling, not something to ship as-is.
+dist
+generated
+
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+npm-debug.log*

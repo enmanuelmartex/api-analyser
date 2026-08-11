@@ -1,5 +1,15 @@
 name: api-analyser
 
+# Full-build / production-like stack — this is what `docker compose up` runs
+# by default. Every image is built from its Dockerfile's `production` stage:
+# the API runs compiled `dist/main.js` (no `nest start --watch`), and the web
+# app runs Next.js's standalone server against an already-`next build`-ed
+# `.next` (no `next dev`, no on-demand per-route compilation while navigating).
+#
+# For active development with hot reload, layer the dev override on top:
+#     docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# See docker-compose.dev.yml for what that changes and why.
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -43,7 +53,7 @@ services:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
-      target: development
+      target: production
     container_name: api-analyser-api
     restart: unless-stopped
     depends_on:
@@ -52,7 +62,16 @@ services:
       redis:
         condition: service_healthy
     environment:
-      NODE_ENV: ${NODE_ENV:-development}
+      # Hardcoded, not ${NODE_ENV:-production}: the root .env ships
+      # NODE_ENV=development for the from-source (`bun run dev`) path, and
+      # Compose auto-loads that file for variable substitution. A default of
+      # "production" that a leftover .env value could silently override
+      # defeats the entire point of this file being the full-build/production
+      # stack — target: production above already committed to that, and
+      # NODE_ENV must follow deterministically from which compose files are
+      # layered, not from an unrelated variable. docker-compose.dev.yml sets
+      # this to "development" explicitly.
+      NODE_ENV: production
       # Fixed, not ${API_PORT}. The published mapping below is `API_PORT:4000`,
       # so the container must always listen on 4000 — feeding API_PORT in here
       # made the process bind the *host* port number inside the container, and
@@ -98,12 +117,12 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "${API_PORT:-4000}:4000"
+    # No source bind mounts here on purpose: the production image's `dist/` is
+    # what actually runs, and mounting `./apps/api/src` over it would either do
+    # nothing (dist is a separate compiled tree) or, worse, mask the build with
+    # host state. Only the two things that must outlive a container replace —
+    # generated report artifacts and the generated-secrets file — are mounted.
     volumes:
-      - ./apps/api/src:/app/src
-      - ./apps/api/prisma:/app/prisma
-      - ./apps/api/tsconfig.json:/app/tsconfig.json
-      - ./apps/api/nest-cli.json:/app/nest-cli.json
-      - ./apps/api/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh
       - api_reports:/app/reports
       - api_secrets:/app/.secrets
     networks:
@@ -113,21 +132,38 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
-      target: development
+      target: production
+      args:
+        # NEXT_PUBLIC_* variables are inlined into the client JS bundle at
+        # `next build` time, which happens during this image build — setting
+        # them only as runtime `environment:` (below) would be too late; the
+        # browser bundle would already have baked in whatever was present (or
+        # absent) when this image was built. This MUST be a URL the browser
+        # itself can reach (e.g. the published host port), never an
+        # in-network hostname like `http://api:4000` — the browser is not a
+        # party to the `api-analyser-network` Docker network.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000/api/v1}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-API Analyser}
+        NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-0.1.0}
     container_name: api-analyser-web
     restart: unless-stopped
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     environment:
-      NODE_ENV: ${NODE_ENV:-development}
+      NODE_ENV: production
+      # Also set at runtime: next.config.ts reads NEXT_PUBLIC_API_URL again
+      # when the standalone server boots (for its `/api/*` rewrite target).
+      # Keep this equal to the build arg above.
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000/api/v1}
       NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-API Analyser}
       NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-0.1.0}
     ports:
       - "${WEB_PORT:-3000}:3000"
-    volumes:
-      - ./apps/web/src:/app/src
-      - ./apps/web/public:/app/public
+    # No source bind mounts: the standalone server copied into the image is a
+    # self-contained, already-built app — there is no `src/` in this stage for
+    # a mount to shadow, and mounting the host's `apps/web/src` here would just
+    # sit next to it unused.
     networks:
       - api-analyser-network
 

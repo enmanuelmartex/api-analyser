@@ -1,0 +1,49 @@
+# Development override — hot reload for both API and web.
+#
+# `docker-compose.yml` alone builds and runs the production stages (compiled
+# API, `next build` + standalone server). Layer this file on top to switch
+# both services to their `development` build stage, mount source as bind
+# mounts, and run the framework dev servers instead:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# `--build` matters the first time (or after a dependency change): compose
+# reuses an already-built image for a given service name even if `target`
+# differs, so switching between this file and plain `docker compose up`
+# without `--build` can run yesterday's build stage.
+services:
+  api:
+    build:
+      target: development
+    environment:
+      NODE_ENV: development
+    # Mounting source over the image is what makes `nest start --watch`
+    # (inside docker-entrypoint.sh) pick up edits without a rebuild. Also
+    # re-mounts the dev entrypoint script itself, so editing it takes effect
+    # on the next container restart without rebuilding the image.
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/prisma:/app/prisma
+      - ./apps/api/tsconfig.json:/app/tsconfig.json
+      - ./apps/api/nest-cli.json:/app/nest-cli.json
+      - ./apps/api/docker-entrypoint-secrets.sh:/usr/local/bin/docker-entrypoint-secrets.sh
+      - ./apps/api/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh
+
+  web:
+    build:
+      target: development
+    environment:
+      NODE_ENV: development
+      # next dev reads NEXT_PUBLIC_* at request time, not at a build step, so
+      # this only needs to be a runtime value here — no build `args:` needed.
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000/api/v1}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-API Analyser}
+      NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-0.1.0}
+    # The `development` stage has no Docker HEALTHCHECK (only `production`
+    # does — see apps/api/Dockerfile), so `service_healthy` from the base file
+    # can't be satisfied here; fall back to a plain startup-order dependency.
+    depends_on:
+      - api
+    volumes:
+      - ./apps/web/src:/app/src
+      - ./apps/web/public:/app/public
