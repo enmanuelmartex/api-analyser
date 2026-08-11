@@ -50,6 +50,14 @@ export const repo = {
   readmeUrl: `${REPO_URL}#readme`,
   architectureUrl: `${REPO_URL}/blob/main/ARCHITECTURE.md`,
   releasesUrl: `${REPO_URL}/releases`,
+  envExampleUrl: `${REPO_URL}/blob/main/.env.example`,
+} as const;
+
+/** Where to send someone who has neither tool installed yet. */
+export const toolInstallUrls = {
+  docker: 'https://docs.docker.com/get-docker/',
+  git: 'https://git-scm.com/downloads',
+  bun: 'https://bun.sh/docs/installation',
 } as const;
 
 /**
@@ -243,7 +251,10 @@ export const installPaths = [
     badge: 'Recommended',
     summary:
       'Brings up PostgreSQL, Redis, the API and the web app together, on one network, already wired to each other. Nothing else gets installed on your machine.',
-    prerequisites: 'Docker with the Compose plugin · Git',
+    prerequisites: [
+      { label: 'Docker with the Compose plugin', href: toolInstallUrls.docker },
+      { label: 'Git', href: toolInstallUrls.git },
+    ],
     steps: [
       {
         title: 'Clone the repository',
@@ -262,7 +273,11 @@ cd ${repo.name}`,
     label: 'From source',
     summary:
       'For changing the code. Runs the API and the web app on your machine with hot reload; the database and queue still come from Docker unless you point it at your own.',
-    prerequisites: 'Bun 1.x · Git · a PostgreSQL 16 and a Redis 7 from somewhere',
+    prerequisites: [
+      { label: 'Bun 1.x', href: toolInstallUrls.bun },
+      { label: 'Git', href: toolInstallUrls.git },
+      { label: 'a PostgreSQL 16 and a Redis 7 from somewhere' },
+    ],
     steps: [
       {
         title: 'Clone and configure',
@@ -283,6 +298,28 @@ bun run db:migrate
 bun dev`,
       },
     ],
+  },
+] as const;
+
+/**
+ * The environment variables someone is actually likely to touch.
+ *
+ * Not the full list — that's `.env.example` — just the ones worth naming on
+ * the page: what's mandatory (and auto-generated either way, so "mandatory"
+ * never means "go write these by hand"), and what's optional and commonly
+ * changed.
+ */
+export const envVarGroups = [
+  {
+    title: 'Required, but generated for you',
+    description:
+      'The API refuses to start without these. Docker generates and stores them on a volume; setup:env writes them into .env for the source path. Nobody types these in by hand.',
+    vars: ['DATABASE_URL', 'JWT_SECRET', 'REFRESH_TOKEN_SECRET', 'ENCRYPTION_KEY'],
+  },
+  {
+    title: 'Optional, worth knowing about',
+    description: 'Safe to leave alone; set these only to change the default behavior.',
+    vars: ['ADMIN_EMAIL', 'ADMIN_PASSWORD', 'AI_PROVIDER', 'OPENAI_API_KEY', 'NEXT_PUBLIC_API_URL'],
   },
 ] as const;
 

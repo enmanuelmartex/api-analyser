@@ -1,8 +1,8 @@
-import { Container, KeyRound, Terminal } from 'lucide-react';
+import { Container, KeyRound, Settings2, Terminal } from 'lucide-react';
 import { Section, SectionHeading, SectionLabel } from '@/components/section';
 import { CodeBlock } from '@/components/code-block';
 import { GitHubIcon } from '@/components/icons';
-import { defaultAdmin, installPaths, repo, scripts } from '@/lib/site';
+import { defaultAdmin, envVarGroups, installPaths, repo, scripts } from '@/lib/site';
 
 /**
  * The install path — the reason this page exists.
@@ -58,7 +58,24 @@ export function Install() {
 
               <p className="mt-4 text-sm leading-relaxed text-zinc-400">{path.summary}</p>
               <p className="mt-3 text-xs text-zinc-600">
-                <span className="text-zinc-500">Needs:</span> {path.prerequisites}
+                <span className="text-zinc-500">Needs:</span>{' '}
+                {path.prerequisites.map((prereq, index) => (
+                  <span key={prereq.label}>
+                    {index > 0 && ' · '}
+                    {'href' in prereq && prereq.href ? (
+                      <a
+                        href={prereq.href}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="text-zinc-400 underline decoration-zinc-700 underline-offset-2 transition-colors hover:text-brand-ice hover:decoration-brand-ice"
+                      >
+                        {prereq.label}
+                      </a>
+                    ) : (
+                      prereq.label
+                    )}
+                  </span>
+                ))}
               </p>
 
               <ol className="mt-6 space-y-5">
@@ -80,6 +97,45 @@ export function Install() {
             </article>
           );
         })}
+      </div>
+
+      {/* What the API needs to boot, and what's left to taste — same for both paths. */}
+      <div className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/20 p-6">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900">
+            <Settings2 className="h-4 w-4 text-brand-cyan" />
+          </span>
+          <h3 className="text-base font-medium text-white">Environment variables</h3>
+        </div>
+
+        <div className="mt-5 grid gap-6 sm:grid-cols-2">
+          {envVarGroups.map((group) => (
+            <div key={group.title}>
+              <h4 className="text-sm font-medium text-zinc-200">{group.title}</h4>
+              <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">{group.description}</p>
+              <ul className="mt-3 flex flex-wrap gap-1.5">
+                {group.vars.map((name) => (
+                  <li
+                    key={name}
+                    className="rounded border border-zinc-800 bg-zinc-950/60 px-1.5 py-0.5 font-mono text-[12px] text-zinc-400"
+                  >
+                    {name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+
+        <a
+          href={repo.envExampleUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="mt-5 inline-flex items-center gap-2 text-xs text-zinc-500 transition-colors hover:text-white"
+        >
+          Full list in .env.example
+          <span aria-hidden="true">→</span>
+        </a>
       </div>
 
       {/* The credentials, which are the same whichever path was taken. */}
