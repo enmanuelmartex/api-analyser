@@ -29,7 +29,46 @@ credential.
 
 ## Endpoints
 
+### `POST /api/send`
+
+The endpoint API Analyser uses. Requires `Authorization: Bearer <RELAY_SECRET>`.
+
+A caller names a **template** and supplies typed values for it. It cannot supply
+markup, a subject or a sender — that is the property that keeps a service
+sending from a verified security domain from being a phishing tool.
+
+```json
+{
+  "to": "security@example.com",
+  "template": "scan-report",
+  "data": {
+    "projectName": "Production API",
+    "securityScore": 72,
+    "counts": { "critical": 1, "high": 3, "medium": 2, "low": 5, "info": 0 },
+    "totalFindings": 11,
+    "reportUrl": "https://analyser.internal/reports/abc123"
+  },
+  "attachment": { "filename": "security-report.pdf", "contentBase64": "JVBERi0…" }
+}
+```
+
+| Template | `data` fields | Attachment |
+| -------- | ------------- | ---------- |
+| `scan-report` | `projectName` (req), `securityScore`, `counts`, `totalFindings`, `reportUrl` | optional PDF |
+| `scan-failed` | `projectName` (req), `reason` (req), `scanUrl`, `scheduleName` | rejected |
+| `critical-finding` | `projectName` (req), `criticalCount` (req), `issuesUrl` | rejected |
+
+URLs must be `http`/`https`; anything else is a `400`. Every link is rendered
+with its destination printed in visible text underneath, because a recipient on
+a phone cannot hover a button to see where it goes.
+
+Responses are identical to `/api/send-report` below.
+
 ### `POST /api/send-report`
+
+The minimal form — a recipient, a name and a PDF — kept for shell scripts and
+first integrations. It renders the same `scan-report` template as `/api/send`,
+so the two cannot drift into two different-looking emails.
 
 Requires `Authorization: Bearer <RELAY_SECRET>`.
 
