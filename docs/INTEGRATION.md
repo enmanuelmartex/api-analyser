@@ -1,7 +1,12 @@
 # Wiring API Analyser to the relay
 
-This branch contains the relay only. Nothing on `main` calls it yet, and nothing
-here modifies `main`. This document is the plan for when it does.
+This branch contains the relay only. The application side lives on the product
+branch; this document describes the contract between them and what the
+application does with it.
+
+**Status: implemented.** `apps/api/src/modules/email/transports/relay.transport.ts`
+on the product branch posts to `/api/send`, and an install that sets
+`MAIL_RELAY_URL` and `MAIL_RELAY_TOKEN` needs no Resend account of its own.
 
 ## Why the relay exists
 
@@ -16,7 +21,7 @@ send arbitrary mail, and cannot be used to impersonate the domain, because the
 subject, the body and the sender are all fixed on the server.
 
 ```
-Browser  ──▶  NestJS (local)  ──▶  relay.apianalyser.com  ──▶  Resend  ──▶  inbox
+Browser  ──▶  NestJS (local)  ──▶  mail.apianalyser.com  ──▶  Resend  ──▶  inbox
                     │
                     └─ holds MAIL_RELAY_TOKEN, never sends it to the browser
 ```
@@ -30,36 +35,54 @@ only place in the application that knows Resend exists"*, and already owns
 idempotency, delivery records and redaction. That is precisely the right seam:
 the relay is a second transport behind it, not a second caller of it.
 
-The shape of the change, when it is made:
+What was built:
 
-1. **Add a transport interface** in the email module — one method, `send(message)
-   → { providerMessageId }` — and move the existing `Resend` call behind it as
-   `ResendTransport`.
-2. **Add `RelayTransport`**, built from the client in
-   [`examples/mail-relay.client.ts`](../examples/mail-relay.client.ts). It posts
-   to `/api/send-report` and returns the `emailId` as the provider message id.
-3. **Select one at construction**, in the module or in `configuration.ts`:
-   - `RESEND_API_KEY` set → `ResendTransport` (an operator running their own
-     Resend account keeps doing so, and keeps full control of the template).
+1. **A transport interface** in the email module —
+   `transports/mail-transport.ts`, one method, `send(message) → TransportResult`.
+2. **`ResendTransport`**, the existing direct-to-Resend path moved behind it.
+3. **`RelayTransport`**, which posts to `/api/send` and returns the `emailId` as
+   the provider message id.
+4. **Selection at construction**, in `EmailService.selectTransport`:
+   - `RESEND_API_KEY` set → `ResendTransport`. An operator running their own
+     Resend account keeps doing so, because setting a provider key is an
+     explicit choice to own the delivery path.
    - else `MAIL_RELAY_URL` + `MAIL_RELAY_TOKEN` set → `RelayTransport`.
-   - else neither → the existing "email disabled" path, unchanged.
-4. **Change nothing else.** `EmailService.send` keeps claiming the idempotency
-   key before the transport runs, keeps recording `SENT`/`FAILED`, and keeps
-   emitting `email.sent` / `email.failed`. Retries stay idempotent because the
-   unique index is upstream of the transport, not downstream.
+   - else neither → email disabled, every send recorded `SKIPPED` with a reason.
+5. **Nothing else changed.** `EmailService.send` still claims the idempotency
+   key before the transport runs, still records `SENT`/`FAILED`, and still emits
+   `email.sent` / `email.failed`. Retries stay idempotent because the unique
+   index is upstream of the transport, not downstream.
 
-Two constraints the relay imposes on that work:
+Two constraints the relay imposes, and how they are handled:
 
-- **The relay owns the template.** `RelayTransport` cannot send the HTML that
-  `EmailService` renders for other templates — the relay accepts a scan name and
-  a PDF, and builds the body itself. So `RelayTransport` is only valid for the
-  report email. Every other template needs `ResendTransport`, or a new relay
-  endpoint. Route on `input.template` and fail loudly on the ones it cannot
-  handle rather than silently sending the wrong thing.
-- **The relay caps attachments at 3 MB.** `EmailService` should check the PDF
-  size before it calls the transport, and record a `SKIPPED` delivery with a
-  clear reason rather than a `FAILED` one — a 12 MB report is not a fault, and
-  the report itself is still downloadable in the UI.
+- **The relay owns the templates.** It accepts a template name and typed values,
+  never HTML. So every message that must be able to travel this way carries a
+  `relay: { template, data }` payload alongside the HTML the app rendered for
+  the direct path — see `RelayPayload`. A message without one is reported as a
+  non-retryable failure naming the problem, rather than being dropped or
+  arriving wrong. All three of the app's emails carry one.
+- **The relay caps attachments at 3 MB.** `RelayTransport` checks the size
+  locally and fails with a clear reason before spending the upload. The app's
+  own `EMAIL_MAX_ATTACHMENT_BYTES` (8 MB by default) is the earlier gate: a
+  report over that is linked rather than attached, and the email says so. An
+  install using the relay should set it to 3 MB or below to keep the two in
+  agreement.
+
+## Who receives the mail
+
+Two independent audiences, resolved by `report-recipients.ts` on the app side:
+
+- **Configured addresses** — `notifications.reportRecipients`, editable at
+  Settings → Notifications. Usually a team mailbox or a ticketing inbox,
+  frequently not users at all. Governed by the install-level switches
+  `notifications.emailOnScanCompleted` / `…OnScanFailed`.
+- **The project owner's own address** — governed by their own notification
+  preferences, exactly as before.
+
+They are independent on purpose: an administrator adding a team mailbox must not
+silently start mailing owners who opted out, and one user's preferences must not
+suppress an administrator's recipient list. An owner who appears in both gets one
+copy, attributed to their user account.
 
 ## Environment variables on the API Analyser side
 
@@ -67,7 +90,7 @@ These belong in `apps/api`'s configuration, not here. No real values in Git.
 
 ```env
 # Base URL of the relay. Unset means "do not use the relay".
-MAIL_RELAY_URL=https://relay.apianalyser.com
+MAIL_RELAY_URL=https://mail.apianalyser.com
 
 # The value of the relay's RELAY_SECRET. Server-side only — this must never
 # reach the browser, a build artefact, or a committed .env.

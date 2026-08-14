@@ -5,7 +5,7 @@ import { SHARED_SECRET_CLIENT_ID, SharedSecretAuthenticator } from '@/lib/auth/s
 const SECRET = 'a-secret-that-is-long-enough-to-be-plausible';
 
 function requestWith(headers: Record<string, string>): Request {
-  return new Request('https://relay.apianalyser.com/api/send-report', {
+  return new Request('https://mail.apianalyser.com/api/send-report', {
     method: 'POST',
     headers,
   });

@@ -43,7 +43,7 @@ export class MailRelayError extends Error {
 export const MAX_REPORT_BYTES = 3 * 1024 * 1024;
 
 export interface MailRelayClientOptions {
-  /** e.g. `https://relay.apianalyser.com` — from `MAIL_RELAY_URL`. */
+  /** e.g. `https://mail.apianalyser.com` — from `MAIL_RELAY_URL`. */
   baseUrl: string;
   /** From `MAIL_RELAY_TOKEN`. Never log it, never send it to a browser. */
   token: string;

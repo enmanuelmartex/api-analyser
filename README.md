@@ -6,9 +6,9 @@ without its operator ever holding a Resend API key.
 
 ```
 API Analyser (local)
-        │  HTTPS POST /api/send-report   (Authorization: Bearer …)
+        │  HTTPS POST /api/send   (Authorization: Bearer …)
         ▼
-relay.apianalyser.com                     ← this branch, a Vercel project
+mail.apianalyser.com                     ← this branch, a Vercel project
         │  Resend SDK
         ▼
 reports@notifications.apianalyser.com
@@ -17,7 +17,7 @@ reports@notifications.apianalyser.com
 recipient's inbox, with the PDF attached
 ```
 
-No UI, no database, no dashboard. Two endpoints and about six hundred lines of
+No UI, no database, no dashboard. Three endpoints and about nine hundred lines of
 library code, which is small enough to read end to end before trusting it with a
 credential.
 
@@ -156,7 +156,7 @@ EMAIL_FROM="API Analyzer <reports@notifications.apianalyser.com>"
 
 ```bash
 bun run dev          # http://localhost:3000
-bun test             # 135 tests, no network, no real email
+bun test             # 192 tests, no network, no real email
 bun run lint
 bun run type-check
 bun run build        # what Vercel runs
@@ -194,14 +194,14 @@ configured` while the log names the missing variable — never its value.
 Health check — no credentials needed:
 
 ```bash
-curl https://relay.apianalyser.com/api/health
+curl https://mail.apianalyser.com/api/health
 ```
 
 A real send, using the script in [`examples/`](examples/send-report.sh) so the
 token and the multi-megabyte body never appear as command-line arguments:
 
 ```bash
-export MAIL_RELAY_URL=https://relay.apianalyser.com
+export MAIL_RELAY_URL=https://mail.apianalyser.com
 export MAIL_RELAY_TOKEN=…            # the value of RELAY_SECRET
 ./examples/send-report.sh you@example.com ./report.pdf "Production API"
 ```
@@ -322,9 +322,9 @@ image, not in the local application, and not in any file here.
    | `EMAIL_FROM` | `API Analyzer <reports@notifications.apianalyser.com>` |
 
 5. **Deploy.**
-6. **Settings → Domains**: add `relay.apianalyser.com` and create the CNAME
+6. **Settings → Domains**: add `mail.apianalyser.com` and create the CNAME
    Vercel shows you.
-7. **Verify liveness**: `curl https://relay.apianalyser.com/api/health` →
+7. **Verify liveness**: `curl https://mail.apianalyser.com/api/health` →
    `{"status":"ok","service":"api-analyzer-mail-relay"}`.
 8. **Verify a real send**, with `examples/send-report.sh`. Then check the
    Resend dashboard for the delivery, and the Vercel function logs for an
@@ -371,7 +371,7 @@ lib/
   config/env.ts             the only reader of process.env
   limits.ts                 every size ceiling, in one place
 
-tests/                      135 tests; Resend is a fake, never the real client
+tests/                      192 tests; Resend is a fake, never the real client
 examples/                   client code to copy into API Analyser
 docs/INTEGRATION.md         how the local app will call this
 ```

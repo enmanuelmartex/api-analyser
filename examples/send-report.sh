@@ -6,7 +6,7 @@
 # The token comes from the environment and is never written on the command line
 # — arguments are visible to every process on the machine via `ps`.
 #
-#   export MAIL_RELAY_URL=https://relay.apianalyser.com
+#   export MAIL_RELAY_URL=https://mail.apianalyser.com
 #   export MAIL_RELAY_TOKEN=...            # the value of RELAY_SECRET
 #   ./examples/send-report.sh you@example.com ./some-report.pdf "Production API"
 #

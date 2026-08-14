@@ -97,7 +97,7 @@ export function sendReportRequest(options: RequestOptions = {}): Request {
       },
     );
 
-  return new Request('https://relay.apianalyser.com/api/send-report', {
+  return new Request('https://mail.apianalyser.com/api/send-report', {
     method: 'POST',
     headers,
     body,
