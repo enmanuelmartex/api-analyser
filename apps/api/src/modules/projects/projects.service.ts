@@ -5,6 +5,7 @@ import {
   Logger,
   BadRequestException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProjectDto, SaveProjectDraftDto, UpdateProjectDto } from './dto/create-project.dto';
 import SwaggerParser = require('swagger-parser');
@@ -25,7 +26,34 @@ export class ProjectsService {
   constructor(
     private prisma: PrismaService,
     private crypto: CryptoService,
+    private events: EventEmitter2,
   ) {}
+
+  /**
+   * Announces a change to a project.
+   *
+   * Drafts are deliberately excluded by the callers: the wizard autosaves on a
+   * timer, so recording every keystroke-driven save would drown the event stream
+   * in rows describing a project that does not exist yet.
+   */
+  private announce(
+    change: string,
+    action: 'CREATE' | 'UPDATE' | 'DELETE',
+    project: { id: string; name: string },
+    userId: string,
+    message: string,
+    metadata?: Record<string, unknown>,
+  ) {
+    this.events.emit('project.changed', {
+      projectId: project.id,
+      projectName: project.name,
+      action,
+      change,
+      message,
+      userId,
+      metadata,
+    });
+  }
 
   async findAll(userId: string) {
     const projects = await this.prisma.project.findMany({
@@ -87,7 +115,7 @@ export class ProjectsService {
   }
 
   async create(userId: string, dto: CreateProjectDto) {
-    return this.prisma.project.create({
+    const project = await this.prisma.project.create({
       data: {
         name: dto.name,
         description: dto.description,
@@ -99,6 +127,13 @@ export class ProjectsService {
         setupStep: 2,
       },
     });
+
+    this.announce('created', 'CREATE', project, userId, `Project "${project.name}" created`, {
+      environment: project.environment,
+      baseUrl: project.baseUrl,
+    });
+
+    return project;
   }
 
   async createDraft(userId: string, dto: SaveProjectDraftDto) {
@@ -150,18 +185,58 @@ export class ProjectsService {
 
   async update(id: string, userId: string, dto: UpdateProjectDto) {
     await this.assertOwner(id, userId);
-    return this.prisma.project.update({
+    const project = await this.prisma.project.update({
       where: { id },
       data: dto,
     });
+
+    this.announce('updated', 'UPDATE', project, userId, `Project "${project.name}" updated`, {
+      // The field names only. Values can carry a base URL with credentials in
+      // it, and the trail needs to say what changed, not restate the payload.
+      fields: Object.keys(dto),
+    });
+
+    return project;
   }
 
+  /**
+   * Deletes a project.
+   *
+   * A SOFT delete — the row stays and `isActive` goes false — so the scans,
+   * findings and reports it produced remain readable.
+   *
+   * Its scheduled scans are paused in the same breath. Without that, deleting a
+   * project would leave its automation running: the schedule would keep sending
+   * traffic at an API the operator believes they removed, and the scans would
+   * appear under a project that is no longer listed anywhere. The scheduler
+   * independently refuses to dispatch for an inactive project (see
+   * `SchedulerService.tick`), so this is the honest state rather than the
+   * mechanism — but a paused schedule is what an operator would expect to find
+   * if the project were ever restored.
+   */
   async remove(id: string, userId: string) {
     await this.assertOwner(id, userId);
-    return this.prisma.project.update({
+    const project = await this.prisma.project.update({
       where: { id },
       data: { isActive: false },
     });
+
+    const paused = await this.prisma.scheduledScan.updateMany({
+      where: { projectId: id, status: 'ACTIVE' },
+      data: { status: 'PAUSED', nextRunAt: null },
+    });
+
+    if (paused.count > 0) {
+      this.logger.log(
+        `Paused ${paused.count} scheduled scan(s) belonging to deleted project ${id}`,
+      );
+    }
+
+    this.announce('deleted', 'DELETE', project, userId, `Project "${project.name}" deleted`, {
+      scheduledScansPaused: paused.count,
+    });
+
+    return project;
   }
 
   async importOpenApiFromUrl(projectId: string, userId: string, url: string) {
@@ -187,7 +262,7 @@ export class ProjectsService {
       throw new BadRequestException('We could not access the specification URL.');
     }
 
-    return this.parseAndSaveSpec(projectId, rawSpec, 'URL', url);
+    return this.parseAndSaveSpec(projectId, rawSpec, 'URL', userId, url);
   }
 
   async importOpenApiFromContent(
@@ -196,13 +271,14 @@ export class ProjectsService {
     content: object,
   ) {
     await this.assertOwner(projectId, userId);
-    return this.parseAndSaveSpec(projectId, content, 'UPLOAD');
+    return this.parseAndSaveSpec(projectId, content, 'UPLOAD', userId);
   }
 
   private async parseAndSaveSpec(
     projectId: string,
     rawSpec: any,
     source: 'URL' | 'UPLOAD' | 'MANUAL',
+    userId: string,
     url?: string,
   ) {
     // Must run before dereference: dereferencing is what performs the fetch.
@@ -264,7 +340,27 @@ export class ProjectsService {
       `Parsed ${endpoints.length} endpoints from spec for project ${projectId}`,
     );
 
-    await this.prisma.project.update({ where: { id: projectId }, data: { setupStep: 3 } });
+    const project = await this.prisma.project.update({
+      where: { id: projectId },
+      data: { setupStep: 3 },
+      select: { id: true, name: true },
+    });
+
+    this.announce(
+      'spec.imported',
+      'UPDATE',
+      project,
+      userId,
+      `OpenAPI specification imported for "${project.name}" — ${endpoints.length} endpoint${endpoints.length === 1 ? '' : 's'} discovered`,
+      {
+        source,
+        // Where the surface came from — the first question asked of an import.
+        url: url ?? null,
+        endpointCount: endpoints.length,
+        title: parsed.info?.title,
+        version: parsed.info?.version,
+      },
+    );
 
     return apiSpec;
   }

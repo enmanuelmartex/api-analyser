@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   ConflictException,
   UnauthorizedException,
@@ -8,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { setBetterAuthPassword } from '../../lib/better-auth-credentials';
 import { AuditService } from '../audit/audit.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -57,6 +59,11 @@ export class AuthService {
       },
     });
 
+    // The credential the login form checks — this endpoint writes only the
+    // bcrypt hash its own `login` reads, so without this an account registered
+    // over REST cannot sign in through the web UI.
+    await setBetterAuthPassword(user.id, dto.password);
+
     this.logger.log(`New user registered: ${user.email}`);
 
     this.audit.log({
@@ -72,19 +79,34 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
+    const email = dto.email.trim();
     const user = await this.prisma.user.findFirst({
-      where: { email: { equals: dto.email.trim(), mode: 'insensitive' } },
+      where: { email: { equals: email, mode: 'insensitive' } },
     });
 
+    /*
+     * Failed sign-ins are recorded as well as successful ones — a login wall
+     * with no record of the attempts against it tells an investigator nothing.
+     * The reason is kept in metadata so "no such account" is distinguishable
+     * from "wrong password" in the audit trail, while the response to the
+     * client stays a single indistinguishable message: telling an attacker
+     * which addresses exist is exactly what the uniform error prevents.
+     *
+     * The submitted password is never touched here, not even to record its
+     * length.
+     */
     if (!user || !user.isActive) {
+      this.recordFailedLogin(email, user ? 'account_inactive' : 'unknown_account', user?.id);
       throw new UnauthorizedException('Invalid credentials');
     }
 
     if (!user.password) {
+      this.recordFailedLogin(email, 'no_password_set', user.id);
       throw new UnauthorizedException('Invalid credentials');
     }
     const passwordMatch = await bcrypt.compare(dto.password, user.password);
     if (!passwordMatch) {
+      this.recordFailedLogin(email, 'bad_password', user.id);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -95,11 +117,17 @@ export class AuthService {
 
     this.logger.log(`User logged in: ${user.email}`);
 
-    this.audit.log({
-      userId: user.id,
+    void this.audit.record({
+      event: 'auth.login.succeeded',
+      category: 'AUTHENTICATION',
+      severity: 'INFO',
+      status: 'SUCCESS',
       action: 'LOGIN',
       resource: 'auth',
       resourceId: user.id,
+      userId: user.id,
+      source: 'api',
+      message: `${user.email} signed in`,
     });
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
@@ -112,6 +140,31 @@ export class AuthService {
       },
       ...tokens,
     };
+  }
+
+  /**
+   * Records a rejected sign-in.
+   *
+   * WARNING rather than ERROR: a mistyped password is normal operation, and
+   * raising it to ERROR would bury genuine faults in the severity filter. It is
+   * still in the AUTHENTICATION category, which is always collected, so these
+   * survive the log-collection switch being turned off.
+   */
+  private recordFailedLogin(email: string, reason: string, userId?: string) {
+    void this.audit.record({
+      event: 'auth.login.failed',
+      category: 'AUTHENTICATION',
+      severity: 'WARNING',
+      status: 'FAILED',
+      action: 'LOGIN',
+      resource: 'auth',
+      resourceId: userId,
+      userId,
+      source: 'api',
+      message: `Failed sign-in attempt for ${email}`,
+      errorCode: reason,
+      metadata: { email, reason },
+    });
   }
 
   async me(userId: string) {
@@ -143,6 +196,76 @@ export class AuthService {
     });
 
     return this.me(userId);
+  }
+
+  /**
+   * Changes the caller's own password.
+   *
+   * Settings → Security previously rendered this form, validated it in the
+   * browser, raised "Password changed successfully" and wrote nothing — the
+   * user's password was unchanged and they had been told otherwise.
+   *
+   * Writes both credential stores, exactly as `UsersService.resetPassword`
+   * does: the REST login path reads `users.password` while the login form goes
+   * through Better Auth's account record, and updating only one leaves the old
+   * password still working on the other.
+   */
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('Account not found');
+
+    // An account created through Better Auth alone has no local hash. Verifying
+    // against the account record instead is a larger change than this fix
+    // warrants, so it is refused explicitly rather than silently allowed
+    // through without a current-password check.
+    if (!user.password) {
+      throw new BadRequestException(
+        'This account has no local password set. Ask an administrator to reset it.',
+      );
+    }
+
+    const matches = await bcrypt.compare(currentPassword, user.password);
+    if (!matches) {
+      void this.audit.record({
+        event: 'auth.password.change_failed',
+        category: 'AUTHENTICATION',
+        severity: 'WARNING',
+        status: 'FAILED',
+        resource: 'auth',
+        resourceId: userId,
+        userId,
+        source: 'api',
+        message: 'Password change rejected: current password did not match',
+        errorCode: 'bad_current_password',
+      });
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    if (currentPassword === newPassword) {
+      throw new BadRequestException('The new password must differ from the current one');
+    }
+
+    const rounds = this.configService.get<number>('security.bcryptRounds', 12);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: await bcrypt.hash(newPassword, rounds) },
+    });
+    await setBetterAuthPassword(userId, newPassword);
+
+    void this.audit.record({
+      event: 'auth.password.changed',
+      category: 'AUTHENTICATION',
+      severity: 'INFO',
+      status: 'SUCCESS',
+      action: 'PASSWORD_RESET',
+      resource: 'auth',
+      resourceId: userId,
+      userId,
+      source: 'api',
+      message: `${user.email} changed their password`,
+    });
+
+    return { success: true };
   }
 
   async exchangeSession(sessionToken: string) {

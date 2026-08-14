@@ -12,7 +12,6 @@ import { decryptAuthFields } from '../../common/crypto/auth-config.crypto';
 import { IssueLifecycleService } from '../issues/issue-lifecycle.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { PluginRegistryService } from '../plugins/plugin-registry.service';
-import { ReportsService } from '../reports/reports.service';
 import { IssueGuidanceService } from '../ai/guidance/issue-guidance.service';
 import {
   emptyFindingCounts,
@@ -26,6 +25,13 @@ interface JobData {
   projectId:    string;
   specId:       string;
   userId?:      string;
+  /**
+   * Why the run exists, forwarded from whoever queued it. Absent on jobs
+   * enqueued before scheduling existed, which are manual by definition.
+   */
+  trigger?:      'MANUAL' | 'SCHEDULED';
+  scheduleId?:   string;
+  scheduleName?: string;
 }
 
 @Processor('scanner', { concurrency: 3 })
@@ -37,7 +43,6 @@ export class ScannerProcessor extends WorkerHost {
     private scannerService:   ScannerService,
     private eventEmitter:     EventEmitter2,
     private pluginRegistry:   PluginRegistryService,
-    private reportsService:   ReportsService,
     private crypto:           CryptoService,
     private issueLifecycle:   IssueLifecycleService,
     private scoring:          ScoringService,
@@ -67,13 +72,21 @@ export class ScannerProcessor extends WorkerHost {
   async process(job: Job<JobData>) {
     const { assessmentId, projectId, specId, userId } = job.data;
     const startTime = Date.now();
+    // Provenance travels with the job and is attached to every outcome event,
+    // so the audit trail and the notification both name the schedule behind an
+    // automatic run instead of implying somebody triggered it by hand.
+    const origin = {
+      trigger: job.data.trigger ?? ('MANUAL' as const),
+      scheduleId: job.data.scheduleId,
+      scheduleName: job.data.scheduleName,
+    };
 
     this.logger.log(`Starting assessment ${assessmentId} (user: ${userId ?? 'anonymous'})`);
 
     try {
       await this.prisma.assessment.update({
         where: { id: assessmentId },
-        data: { status: 'RUNNING', startedAt: new Date(), progress: 0 },
+        data: { status: 'RUNNING', startedAt: new Date(), progress: 0, currentStep: 'Initializing' },
       });
 
       this.emit(assessmentId, {
@@ -124,8 +137,22 @@ export class ScannerProcessor extends WorkerHost {
         step: 'Parsing', stepIndex: 1, totalSteps: 12,
         progress: 8, message: `Discovered ${spec.endpoints.length} endpoints`, findingsCount: 0,
       });
+      await this.updateProgress(assessmentId, 8, 'Parsing');
 
       await this.addLog(assessmentId, 'info', 'core', `Found ${spec.endpoints.length} endpoints to test`);
+
+      // Announced only once the run is genuinely under way — the plugins are
+      // resolved and the specification has been read — so the event carries real
+      // scope figures rather than the intent recorded by `scan.queued`.
+      this.eventEmitter.emit('scan.started', {
+        assessmentId,
+        projectId,
+        projectName: project.name,
+        userId,
+        endpointCount: spec.endpoints.length,
+        pluginCount: pluginOverride.length,
+        ...origin,
+      });
 
       const authConfig = decryptAuthFields(this.crypto, spec.authConfig as any);
 
@@ -158,6 +185,9 @@ export class ScannerProcessor extends WorkerHost {
           security:    (e.security as any) ?? [],
           deprecated:  e.deprecated,
         })),
+        // Carried so the per-check events the engine emits are attributed the
+        // same way this processor's own events are.
+        origin,
         config: {
           executionMode:          (assessmentConfig?.executionMode as any) ?? 'all',
           enableAiAnalysis:       assessmentConfig?.enableAiAnalysis       ?? true,
@@ -178,23 +208,51 @@ export class ScannerProcessor extends WorkerHost {
       });
 
       // ── Execute all enabled plugins + AI analysis ─────────────────────────
-      const { findings, pluginPlan, aiMeta } = await this.scannerService.runAllPlugins(
+      const { findings, pluginPlan, aiMeta, cancelled } = await this.scannerService.runAllPlugins(
         context,
         (progress) => {
           this.emit(assessmentId, progress);
-          this.updateProgress(assessmentId, progress.progress);
+          this.updateProgress(assessmentId, progress.progress, progress.step);
         },
         (logEntry) => {
           this.addLog(assessmentId, logEntry.level, logEntry.plugin, logEntry.message);
         },
         userId,
         pluginOverride,
+        () => this.isCancelled(assessmentId),
       );
+
+      /*
+       * Stop here if the scan was cancelled.
+       *
+       * Everything below writes the outcome of a completed run — issue
+       * reconciliation, the summary, the score, the report — and none of it is
+       * true of a run that was stopped a third of the way through. Reconciling
+       * partial results would be actively harmful: the checks that never ran
+       * would look like checks that found nothing, which is how a still-present
+       * vulnerability gets marked resolved.
+       *
+       * Returns rather than throws, so BullMQ records the job as finished
+       * instead of retrying a scan the operator asked to stop.
+       */
+      if (cancelled) {
+        this.logger.log(`Assessment ${assessmentId} stopped: cancelled by the operator`);
+        await this.addLog(assessmentId, 'warn', 'core', 'Assessment cancelled before completion');
+        this.emit(assessmentId, {
+          step: 'Cancelled',
+          progress: (await this.currentProgress(assessmentId)) ?? 0,
+          message: 'Assessment cancelled',
+          findingsCount: findings.length,
+          cancelled: true,
+        });
+        return { assessmentId, cancelled: true };
+      }
 
       this.emit(assessmentId, {
         step: 'Saving Results', stepIndex: 11, totalSteps: 12,
         progress: 92, message: `Saving ${findings.length} findings...`, findingsCount: findings.length,
       });
+      await this.updateProgress(assessmentId, 92, 'Saving Results');
 
       // ── Persist detections as issues + occurrences ────────────────────────
       //
@@ -351,11 +409,6 @@ export class ScannerProcessor extends WorkerHost {
             `coverage ${score.coveragePercent ?? 'unknown'}%`,
       );
 
-      // PDF is the canonical automatic artifact; other formats remain on-demand exports.
-      this.autoGenerateReport(assessmentId, userId).catch((err) =>
-        this.logger.warn(`Auto-report generation failed for ${assessmentId}: ${err.message}`),
-      );
-
       this.emit(assessmentId, {
         step:          'Completed',
         stepIndex:     12,
@@ -377,9 +430,58 @@ export class ScannerProcessor extends WorkerHost {
         `${pluginPlan.skipped.length} skipped, AI: ${aiMeta.available ? aiMeta.provider : 'off'}`,
       );
 
+      /*
+       * Announce the outcome on the event bus.
+       *
+       * Distinct from the `scanner.progress` emit above, which drives one
+       * watching browser's progress bar and is meaningless to anyone not
+       * currently looking at this scan. This one is the durable fact — the audit
+       * writer, the notification dispatcher and the report queue each consume it
+       * independently, and this processor knows about none of them.
+       *
+       * In particular, the automatic PDF is no longer rendered here. It used to
+       * be: a fire-and-forget `autoGenerateReport()` call ran Chromium inside
+       * the scan worker, holding one of three scan slots for the duration of a
+       * render, with no retry, no failure state and no way for the user to learn
+       * it had not worked. It is now a job on the `reports` queue, enqueued by
+       * ReportsAutoListener in response to this event.
+       */
+      this.eventEmitter.emit('scan.completed', {
+        assessmentId,
+        projectId,
+        projectName: project.name,
+        userId,
+        findingsCount: summary.total,
+        criticalCount: summary.critical,
+        highCount: summary.high,
+        mediumCount: summary.medium,
+        lowCount: summary.low,
+        infoCount: summary.info,
+        securityScore: score.securityScore,
+        durationMs: Date.now() - startTime,
+        ...origin,
+      });
+
       return { assessmentId, findingsCount: summary.total, duration, pluginPlan, aiMeta };
     } catch (error) {
       this.logger.error(`Assessment ${assessmentId} failed: ${error.message}`, error.stack);
+
+      /*
+       * A cancelled scan that then throws is still cancelled.
+       *
+       * Aborting mid-flight can surface an error from work already in progress,
+       * and overwriting the status here would tell the operator their scan
+       * failed when in fact they stopped it themselves.
+       */
+      if (await this.isCancelled(assessmentId)) {
+        await this.addLog(
+          assessmentId,
+          'warn',
+          'core',
+          `Assessment cancelled; the run ended with: ${error.message}`,
+        );
+        return { assessmentId, cancelled: true };
+      }
 
       await this.prisma.assessment.update({
         where: { id: assessmentId },
@@ -413,6 +515,29 @@ export class ScannerProcessor extends WorkerHost {
         error:        error.message,
       });
 
+      /*
+       * The project is re-read here rather than reused from the try block: the
+       * scan can fail before that lookup runs, or fail *because* it returned
+       * nothing. Falling back to the id keeps the event emittable either way —
+       * a notification that names the wrong project would be worse than one
+       * that names an id, but no notification at all is worse than both.
+       */
+      const failedProject = await this.prisma.project
+        .findUnique({ where: { id: projectId }, select: { name: true } })
+        .catch(() => null);
+
+      this.eventEmitter.emit('scan.failed', {
+        assessmentId,
+        projectId,
+        projectName: failedProject?.name ?? projectId,
+        userId,
+        reason: error.message,
+        errorCode: error.code,
+        stackTrace: error.stack,
+        durationMs: Date.now() - startTime,
+        ...origin,
+      });
+
       throw error;
     }
   }
@@ -423,46 +548,58 @@ export class ScannerProcessor extends WorkerHost {
     this.eventEmitter.emit('scanner.progress', { assessmentId, ...data });
   }
 
-  private async updateProgress(assessmentId: string, progress: number) {
+  /**
+   * Persists how far the run has got.
+   *
+   * `currentStep` is written alongside the percentage, not only at the terminal
+   * states. It used to be set exclusively on COMPLETED and FAILED, so a browser
+   * that reloaded mid-scan — or one that opened the scan for the first time —
+   * got a stale step from before the run started while the bar showed 60%. The
+   * progress stream replays this row as its first frame, so the stored value is
+   * what a reconnecting client sees before the next live update arrives.
+   */
+  /**
+   * Has the operator cancelled this scan?
+   *
+   * The cancel endpoint writes CANCELLED and cannot take a running job away
+   * from its worker — BullMQ refuses to remove a locked job — so the status
+   * column is the signal, read between checks.
+   *
+   * A failed read answers "no": a transient database blip must not silently
+   * abandon a scan that nobody asked to stop.
+   */
+  private async isCancelled(assessmentId: string): Promise<boolean> {
+    try {
+      const row = await this.prisma.assessment.findUnique({
+        where: { id: assessmentId },
+        select: { status: true },
+      });
+      return row?.status === 'CANCELLED';
+    } catch (error) {
+      this.logger.warn(
+        `Could not read cancellation state for ${assessmentId}: ${(error as Error).message}`,
+      );
+      return false;
+    }
+  }
+
+  private async currentProgress(assessmentId: string): Promise<number | null> {
+    const row = await this.prisma.assessment
+      .findUnique({ where: { id: assessmentId }, select: { progress: true } })
+      .catch(() => null);
+    return row?.progress ?? null;
+  }
+
+  private async updateProgress(assessmentId: string, progress: number, step?: string) {
     await this.prisma.assessment.update({
       where: { id: assessmentId },
-      data: { progress },
+      data: { progress, ...(step ? { currentStep: step } : {}) },
     });
   }
 
   private async addLog(assessmentId: string, level: string, plugin: string, message: string) {
     await this.prisma.assessmentLog.create({
       data: { assessmentId, level, plugin, message },
-    });
-  }
-
-  /**
-   * Issues the canonical PDF for a finished scan.
-   *
-   * Delegates to the same idempotent generation path the API exposes, so the
-   * automatic report and a user-triggered one converge on a single artifact
-   * instead of racing to insert two rows for the same scan. Previously this
-   * rendered a PDF, threw the bytes away and recorded only their length — the
-   * row that produced looked like a report but had nothing to download.
-   */
-  private async autoGenerateReport(assessmentId: string, userId?: string) {
-    const owner =
-      userId ??
-      (
-        await this.prisma.assessment.findUnique({
-          where: { id: assessmentId },
-          select: { project: { select: { userId: true } } },
-        })
-      )?.project?.userId;
-
-    if (!owner) {
-      this.logger.warn(`Skipping auto-report for ${assessmentId}: no owning user could be resolved.`);
-      return;
-    }
-
-    await this.reportsService.generate(assessmentId, owner, {
-      type: 'TECHNICAL',
-      format: 'PDF',
     });
   }
 

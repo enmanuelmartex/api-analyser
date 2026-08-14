@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ScanContext, ScanFinding, BasePlugin } from './types/scanner.types';
 import { AiService } from '../ai/ai.service';
 import type { AiAnalysisMeta } from '../ai/interfaces/ai-provider.interface';
@@ -39,7 +40,19 @@ export interface ScanRunResult {
   findings:      ScanFinding[];
   pluginPlan:    PluginExecutionPlan;
   aiMeta:        AiAnalysisMeta;
+  /** True when the run stopped early because the scan was cancelled. */
+  cancelled:     boolean;
 }
+
+/**
+ * Asked between checks: should this run stop?
+ *
+ * A check in flight is never interrupted — a plugin holds open HTTP connections
+ * to the target and killing it mid-request would leave the evidence it has
+ * gathered in an unknown state. Cancellation therefore takes effect at the next
+ * boundary, which on a real scan is seconds away.
+ */
+type AbortCheck = () => Promise<boolean>;
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
@@ -51,6 +64,7 @@ export class ScannerService {
     private readonly aiService:        AiService,
     private readonly pluginRegistry:   PluginRegistryService,
     private readonly pluginExecutor:   PluginExecutorService,
+    private readonly eventEmitter:     EventEmitter2,
   ) {}
 
   async runAllPlugins(
@@ -59,8 +73,10 @@ export class ScannerService {
     onLog:          LogCallback,
     userId?:        string,
     pluginOverride?: BasePlugin[],
+    shouldAbort?:   AbortCheck,
   ): Promise<ScanRunResult> {
     const allFindings: ScanFinding[] = [];
+    let cancelled = false;
 
     // ── 1. Resolve which plugins should run ───────────────────────────────────
     //
@@ -121,6 +137,23 @@ export class ScannerService {
       const pluginName = plugin.manifest.name;
       const progress   = Math.round((stepIndex / totalSteps) * 82) + 8;
 
+      // Checked before starting a check, never during one.
+      if (await shouldAbort?.()) {
+        cancelled = true;
+        // Recorded as skipped rather than silently dropped: reconciliation must
+        // not read "the check did not run" as "the vulnerability is gone".
+        for (const remaining of enabledPlugins.slice(enabledPlugins.indexOf(plugin))) {
+          plan.skipped.push(remaining.manifest.id);
+          plan.skippedReason[remaining.manifest.id] = 'cancelled';
+        }
+        onLog({
+          level: 'warn',
+          plugin: 'core',
+          message: `Assessment cancelled — ${plan.skipped.length} check(s) did not run`,
+        });
+        break;
+      }
+
       const pluginConfig = userId
         ? await this.pluginRegistry.getPluginConfig(pluginId, userId)
         : (plugin.manifest.defaultConfig ?? {});
@@ -165,6 +198,28 @@ export class ScannerService {
           : `${pluginName} ${status.toLowerCase()} after ${durationMs}ms`,
       });
 
+      /*
+       * The same fact on the application-wide bus.
+       *
+       * `onLog` writes to `assessment_logs`, which is scoped to one scan and only
+       * readable by someone already looking at it. An operator watching the live
+       * tail has no way to reach that table, so a check timing out — the thing
+       * that quietly narrows coverage — was invisible outside the scan page.
+       */
+      this.eventEmitter.emit('scan.check.finished', {
+        assessmentId: context.assessmentId,
+        projectId:    context.projectId,
+        userId,
+        pluginId,
+        pluginName,
+        status,
+        findingsCount: findings.length,
+        durationMs,
+        // Provenance, so an automatic run's per-check events are attributed to
+        // the scheduler rather than to the owner whose account it runs under.
+        ...(context.origin ?? {}),
+      });
+
       stepIndex++;
     }
 
@@ -181,7 +236,9 @@ export class ScannerService {
       reason:    'AI analysis disabled for this assessment',
     };
 
-    if (context.config.enableAiAnalysis) {
+    // Cancelled runs skip enrichment: it costs provider tokens to annotate
+    // findings from a scan that is being thrown away.
+    if (context.config.enableAiAnalysis && !cancelled) {
       onProgress({
         step:          'AI Analysis',
         stepIndex:     totalSteps - 1,
@@ -212,6 +269,6 @@ export class ScannerService {
       }
     }
 
-    return { findings: allFindings, pluginPlan: plan, aiMeta };
+    return { findings: allFindings, pluginPlan: plan, aiMeta, cancelled };
   }
 }

@@ -13,6 +13,23 @@ export interface ScanContext {
   auth: AuthConfig;
   endpoints: ParsedEndpoint[];
   config: ScanConfig;
+  /**
+   * Why this run exists. Not for plugins — no check may behave differently
+   * because a schedule started it — but the per-check events the engine emits
+   * have to be attributable, and this is what carries that through.
+   *
+   * Without it, `scan.check.completed` was the one event in an automatic run
+   * still recorded against the project's owner, which is precisely the
+   * "somebody pressed a button at 02:00" fiction the rest of the trail avoids.
+   */
+  origin?: ScanOrigin;
+}
+
+/** Provenance attached to every event a run produces. */
+export interface ScanOrigin {
+  trigger: 'MANUAL' | 'SCHEDULED';
+  scheduleId?: string;
+  scheduleName?: string;
 }
 
 export interface AuthConfig {

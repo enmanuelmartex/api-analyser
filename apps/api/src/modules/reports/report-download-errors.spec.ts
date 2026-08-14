@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { PrismaClient } from '@prisma/client';
 import { ReportsService } from './reports.service';
 import { ReportGeneratorService } from './report-generator.service';
@@ -33,7 +34,12 @@ class NoChromiumGenerator extends ReportGeneratorService {
 }
 
 function serviceWith(generator: ReportGeneratorService) {
-  return new ReportsService(prisma as any, generator, new ReportStorageService());
+  return new ReportsService(
+    prisma as any,
+    generator,
+    new ReportStorageService(),
+    new EventEmitter2(),
+  );
 }
 
 beforeAll(async () => {

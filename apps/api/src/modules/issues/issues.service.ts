@@ -78,7 +78,7 @@ export class IssuesService {
         where,
         include: {
           project: { select: { id: true, name: true } },
-          assignee: { select: { id: true, name: true, email: true } },
+          assignee: { select: { id: true, name: true, email: true, avatar: true } },
         },
         orderBy: [{ severity: 'asc' }, { lastSeenAt: 'desc' }],
         skip: (page - 1) * pageSize,
@@ -152,7 +152,7 @@ export class IssuesService {
       where: { id, project: { userId } },
       include: {
         project: { select: { id: true, name: true, baseUrl: true } },
-        assignee: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true, avatar: true } },
         occurrences: {
           orderBy: { detectedAt: 'desc' },
           take: 50,

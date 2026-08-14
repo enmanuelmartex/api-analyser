@@ -83,7 +83,20 @@ API Analyser automatically assesses REST API security by:
 2. **Discovering** all endpoints, methods, parameters, and schemas
 3. **Running** 13 security checks covering all 10 OWASP API Top 10 categories
 4. **Analyzing** results with AI — OpenAI, Claude, Gemini, Grok or Ollama (optional)
-5. **Generating** reports in PDF, HTML, JSON, SARIF and Markdown
+5. **Generating** reports in PDF, HTML, JSON, SARIF and Markdown. Every scan that
+   completes gets its PDF automatically — rendered on a queue, retried three
+   times with backoff, and never marked ready until the bytes are on disk. The
+   other formats are exported on request.
+6. **Scheduling** those assessments to run on their own — hourly, daily, weekly,
+   monthly or on a cron expression, in the timezone you configure. Scheduled
+   scans run entirely on the server: they keep going with the browser closed and
+   survive a restart of the API, the worker or Redis. See
+   [docs/SCHEDULED-SCANS.md](docs/SCHEDULED-SCANS.md).
+7. **Telling you** what happened — persistent in-app notifications with unread
+   badges on the sidebar, live over SSE, and optional email through Resend with
+   the report attached. Everything is stored, so a scan that finishes at 3 a.m.
+   is waiting for you at 8. See
+   [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
 
 ---
 
@@ -151,6 +164,8 @@ api-analyser/
 │   │   │   │   ├── auth/           # JWT authentication
 │   │   │   │   ├── projects/       # Project + OpenAPI management
 │   │   │   │   ├── assessments/    # Assessment orchestration + SSE
+│   │   │   │   ├── scheduled-scans/# Recurring scans (BullMQ tick → createAndRun)
+│   │   │   │   │   └── recurrence/ # Timezone-aware next-run engine + cron parser
 │   │   │   │   ├── findings/       # Vulnerability findings
 │   │   │   │   ├── reports/        # HTML/JSON/SARIF/Markdown reports
 │   │   │   │   └── scanner/        # Security scanner engine (BullMQ)
@@ -234,6 +249,15 @@ ADMIN_PASSWORD=admin1234
 # Optional — enables AI-powered vulnerability analysis
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
+
+# Optional — enables outbound email through Resend. Without a key the app runs
+# normally, records every would-be send as SKIPPED with a reason, and leaves
+# in-app notifications untouched.
+RESEND_API_KEY=re_...
+RESEND_FROM_EMAIL=security@yourdomain.com   # must be a domain verified in Resend
+RESEND_FROM_NAME=API Analyzer
+APP_URL=https://scan.yourdomain.com         # links in emails; defaults to FRONTEND_URL
+EMAIL_MAX_ATTACHMENT_BYTES=8388608          # larger reports are linked, not attached
 ```
 
 A placeholder is rejected on purpose: `validateEnv` fails the boot on any secret

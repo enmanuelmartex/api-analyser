@@ -1,10 +1,15 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
+import { verifyPassword } from 'better-auth/crypto';
 import { bearer } from 'better-auth/plugins';
 import { PrismaClient } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 
 // Separate PrismaClient for Better Auth (lazy connection, same DB as NestJS)
 const prisma = new PrismaClient();
+
+/** `$2a$`, `$2b$` and `$2y$` are the bcrypt hash prefixes; scrypt hashes carry none. */
+const BCRYPT_PREFIX = /^\$2[aby]?\$/;
 
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:4000',
@@ -22,6 +27,24 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
+
+    password: {
+      /*
+       * Accepts a bcrypt hash as well as Better Auth's own scrypt.
+       *
+       * The bcrypt hash in `users.password` is the only copy of the password for
+       * accounts created before every write went through
+       * `better-auth-credentials.ts`, and a hash cannot be turned back into the
+       * password it came from. So the repair on boot adopts that hash as the
+       * credential account verbatim (see `admin-bootstrap.service.ts`), and this
+       * is what lets the login form check it. New and changed passwords are
+       * always written as scrypt by `hash` below, which is left untouched.
+       */
+      verify: ({ hash, password }: { hash: string; password: string }) =>
+        BCRYPT_PREFIX.test(hash)
+          ? bcrypt.compare(password, hash)
+          : verifyPassword({ hash, password }),
+    },
   },
 
   /*
@@ -54,7 +77,8 @@ export const auth = betterAuth({
     user: {
       create: {
         // Every self-registered user is always an ADMIN (owner of their own space).
-        // Analysts are only created via the invitation system, not self-registration.
+        // Analysts and viewers are created by an administrator from
+        // Settings → Users, never by self-registration.
         before: async (user: any) => ({
           data: { ...user, role: 'ADMIN', isActive: true, emailVerified: true },
         }),

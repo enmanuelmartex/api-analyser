@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   IconPuzzle,
   IconShieldLock,
@@ -10,11 +11,14 @@ import {
   IconToggleLeft,
   IconToggleRight,
   IconChevronRight,
+  IconCircleOff,
   IconClock,
   IconAlertTriangle,
   IconCircleCheck,
   IconBolt,
+  IconLayersIntersect,
   IconLock,
+  IconPackages,
   IconStack,
   IconActivity,
   IconCloudCog,
@@ -23,11 +27,27 @@ import {
 import { pluginsApi } from '@/lib/api';
 import type { Plugin } from '@/types';
 import { cn } from '@/lib/utils';
+import {
+  ALL_CATEGORIES,
+  EMPTY_PLUGIN_FILTERS,
+  filterPlugins,
+  getPluginCategories,
+  hasActivePluginFilters,
+  parsePluginFilters,
+  PLUGIN_STATE_LABELS,
+  PLUGIN_STATE_VALUES,
+  pluginsHref,
+  serializePluginFilters,
+  type PluginFilterState,
+} from '@/lib/plugin-list';
+import { useDebouncedField } from '@/hooks/use-debounced-field';
 import { toast } from 'sonner';
 import { PageContainer } from '@/components/layout/page-container';
 import { PageHeader } from '@/components/layout/page-header';
 import { SecurityChecksTabs } from '@/components/navigation/security-checks-tabs';
-import { Card, CardContent } from '@/components/ui/card';
+import { MetricCard, MetricCardSkeleton } from '@/components/shared/metric-card';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -58,8 +78,9 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function PluginsPage() {
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const { data: plugins = [], isLoading } = useQuery<Plugin[]>({
     queryKey: ['plugins'],
@@ -75,19 +96,32 @@ export default function PluginsPage() {
     onError: () => toast.error('Failed to update plugin'),
   });
 
-  const categories = ['all', ...Array.from(new Set(plugins.map((p) => p.category))).sort()];
+  // Filters live in the URL so the summary cards can link to a filtered list,
+  // and so the controls below always show the filter that is actually applied.
+  const filters = useMemo(
+    () => parsePluginFilters(new URLSearchParams(searchParams.toString())),
+    [searchParams],
+  );
+  const applyFilters = useCallback(
+    (next: PluginFilterState) => {
+      const query = serializePluginFilters(next);
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router],
+  );
 
-  const filtered = plugins.filter((p) => {
-    const matchSearch =
-      !search ||
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.description.toLowerCase().includes(search.toLowerCase()) ||
-      p.tags.some((t) => t.includes(search.toLowerCase()));
-    const matchCategory = selectedCategory === 'all' || p.category === selectedCategory;
-    return matchSearch && matchCategory;
-  });
+  // Typing commits on a delay: every commit is a navigation now that the filter
+  // lives in the URL.
+  const search = useDebouncedField(filters.search, (next) =>
+    applyFilters({ ...filters, search: next }),
+  );
+
+  const categories = useMemo(() => [ALL_CATEGORIES, ...getPluginCategories(plugins)], [plugins]);
+  const filtered = useMemo(() => filterPlugins(plugins, filters), [plugins, filters]);
+  const filtersActive = hasActivePluginFilters(filters);
 
   const enabledCount = plugins.filter((p) => p.isEnabled).length;
+  const categoryCount = categories.length - 1;
 
   return (
     <PageContainer>
@@ -103,45 +137,84 @@ export default function PluginsPage() {
 
       <SecurityChecksTabs active="checks" />
 
-      {/* Stats strip */}
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-        {(
-          [
-            { label: 'Installed', value: plugins.length, color: 'text-foreground' },
-            { label: 'Enabled', value: enabledCount, color: 'text-success' },
-            { label: 'Disabled', value: plugins.length - enabledCount, color: 'text-muted-foreground' },
-            { label: 'Categories', value: new Set(plugins.map((p) => p.category)).size, color: 'text-primary' },
-          ] as const
-        ).map((s) => (
-          <Card key={s.label}>
-            <CardContent className="p-4">
-              <p className="mb-1 text-xs text-muted-foreground">{s.label}</p>
-              <p className={cn('text-2xl font-bold', s.color)}>{s.value}</p>
-            </CardContent>
-          </Card>
-        ))}
+      {/*
+        Clicking a card filters the list below to what it counts. "Categories"
+        is not a link: a category is not a state the list can be narrowed to on
+        its own — the category row below already does that — so it stays
+        informational rather than leading somewhere it cannot go.
+      */}
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => <MetricCardSkeleton key={i} />)
+        ) : (
+          <>
+            <MetricCard
+              title="Installed"
+              value={plugins.length}
+              icon={<IconPackages />}
+              description="Available security checks"
+              href={pluginsHref()}
+            />
+            <MetricCard
+              title="Enabled"
+              value={enabledCount}
+              icon={<IconCircleCheck />}
+              accent="success"
+              description={enabledCount ? 'Run on every scan' : 'No check will run on a scan'}
+              href={pluginsHref({ state: 'enabled' })}
+            />
+            <MetricCard
+              title="Disabled"
+              value={plugins.length - enabledCount}
+              icon={<IconCircleOff />}
+              description="Inactive security checks"
+              href={pluginsHref({ state: 'disabled' })}
+            />
+            <MetricCard
+              title="Categories"
+              value={categoryCount}
+              icon={<IconLayersIntersect />}
+              accent="primary"
+              description="Security check categories"
+            />
+          </>
+        )}
       </div>
 
-      {/* Search + category filter */}
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative max-w-sm flex-1">
-          <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search plugins…" className="pl-9" />
+      {/* Search + availability + category filters */}
+      <div className="mb-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative max-w-sm flex-1">
+            <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search.draft}
+              onChange={(e) => search.setDraft(e.target.value)}
+              placeholder="Search checks…"
+              aria-label="Search checks"
+              className="pl-9"
+            />
+          </div>
+          {/* The state a card links to has to be visible here, or the list would
+              silently show a subset with nothing on screen explaining why. */}
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by availability">
+            {PLUGIN_STATE_VALUES.map((state) => (
+              <FilterChip
+                key={state}
+                label={PLUGIN_STATE_LABELS[state]}
+                active={filters.state === state}
+                onClick={() => applyFilters({ ...filters, state })}
+              />
+            ))}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by category">
           {categories.map((cat) => (
-            <button
+            <FilterChip
               key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={cn(
-                'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
-                selectedCategory === cat
-                  ? 'border-primary/30 bg-primary/10 text-primary'
-                  : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground',
-              )}
-            >
-              {cat === 'all' ? 'All' : cat}
-            </button>
+              label={cat === ALL_CATEGORIES ? 'All categories' : cat}
+              active={filters.category === cat}
+              onClick={() => applyFilters({ ...filters, category: cat })}
+            />
           ))}
         </div>
       </div>
@@ -154,11 +227,22 @@ export default function PluginsPage() {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <Card>
-          <CardContent>
-            <EmptyState icon={IconPuzzle} title="No plugins match your search" />
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={IconPuzzle}
+          title={filtersActive ? 'No checks match these filters' : 'No checks installed'}
+          description={
+            filtersActive
+              ? 'Clear the filters to see every installed check.'
+              : 'The scanner reported no security checks.'
+          }
+          action={
+            filtersActive ? (
+              <Button variant="outline" size="sm" onClick={() => applyFilters(EMPTY_PLUGIN_FILTERS)}>
+                Clear filters
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((plugin) => (
@@ -167,6 +251,36 @@ export default function PluginsPage() {
         </div>
       )}
     </PageContainer>
+  );
+}
+
+/**
+ * One toggle in the availability or category row. `aria-pressed` rather than a
+ * tab role: these are filters that stay applied, not navigation.
+ */
+function FilterChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        active
+          ? 'border-primary/30 bg-primary/10 text-primary'
+          : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground',
+      )}
+    >
+      {label}
+    </button>
   );
 }
 

@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { auth } from '../../lib/auth';
+import {
+  CREDENTIAL_PROVIDER_ID,
+  adoptExistingHashAsCredential,
+} from '../../lib/better-auth-credentials';
 
 /**
  * Creates the first administrator so a fresh install has a way in.
@@ -60,6 +64,7 @@ export class AdminBootstrapService implements OnModuleInit {
       const existing = await this.prisma.user.count();
       if (existing > 0) {
         this.warnIfDefaultPasswordStillInUse(email, password);
+        await this.repairUsersWithNoCredentialAccount();
         return;
       }
 
@@ -87,6 +92,46 @@ export class AdminBootstrapService implements OnModuleInit {
       this.logger.error(
         `Could not create the default administrator: ${(error as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * Gives a credential account to users who have a password but no way to use it.
+   *
+   * The Users panel and `POST /auth/register` used to create accounts with a
+   * bare `prisma.user.create`, which writes the bcrypt hash in `users.password`
+   * and no `accounts` row — so Better Auth had nothing to check and the login
+   * form rejected a perfectly real account as a bad password. Those writes now
+   * go through `setBetterAuthPassword`, but the accounts created before that do
+   * not fix themselves: a bcrypt hash cannot be turned back into the password it
+   * came from, so the only repair that preserves the password its owner already
+   * has is to adopt the existing hash as the credential and let
+   * `password.verify` in `lib/auth.ts` check it through bcrypt.
+   *
+   * Idempotent, and narrow enough to run on every boot: users who already have a
+   * credential account are excluded by the query, so a repaired or
+   * normally-created account is never touched again.
+   */
+  private async repairUsersWithNoCredentialAccount() {
+    const stranded = await this.prisma.user.findMany({
+      where: {
+        password: { not: null },
+        accounts: { none: { providerId: CREDENTIAL_PROVIDER_ID } },
+      },
+      select: { id: true, email: true, password: true },
+    });
+
+    if (stranded.length === 0) return;
+
+    for (const user of stranded) {
+      try {
+        await adoptExistingHashAsCredential(user.id, user.password as string);
+        this.logger.log(`Restored login for ${user.email} — it had no credential account.`);
+      } catch (error) {
+        this.logger.error(
+          `Could not restore login for ${user.email}: ${(error as Error).message}`,
+        );
+      }
     }
   }
 

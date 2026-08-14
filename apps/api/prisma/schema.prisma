@@ -68,6 +68,60 @@ enum AssessmentStatus {
   CANCELLED
 }
 
+/// What caused an assessment to exist.
+///
+/// A scheduled scan produces an ORDINARY assessment — same model, same worker,
+/// same findings — and this column is the only thing that distinguishes it. It
+/// exists so the UI can say "triggered by Weekly Production Scan" rather than
+/// implying a person pressed a button, and so automated runs can be excluded
+/// from "what did this operator do?" reviews.
+enum AssessmentTrigger {
+  MANUAL
+  SCHEDULED
+}
+
+/// The recurrence family of a scheduled scan.
+///
+/// CUSTOM is the escape hatch: it carries a validated 5-field cron expression
+/// evaluated in the schedule's own timezone. The other five are structured
+/// fields, so the common cases never require an operator to write cron.
+enum ScheduleFrequency {
+  ONCE
+  HOURLY
+  DAILY
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+/// The DURABLE intent of a schedule — deliberately not its live activity.
+///
+/// "Running" and "Failed" are properties of the most recent execution, not of
+/// the schedule, and persisting them here would be a bug waiting to happen: a
+/// worker killed mid-scan would leave a schedule stuck at RUNNING forever with
+/// nothing to reset it. The API derives a display status from these three plus
+/// the latest execution instead (see ScheduledScansService.toResponse).
+enum ScheduleStatus {
+  ACTIVE
+  PAUSED
+  /// A ONCE schedule whose single occurrence has already been dispatched.
+  COMPLETED
+}
+
+/// Outcome of one attempt to honour a schedule occurrence.
+///
+/// SKIPPED is the one that matters most: it records that the occurrence was
+/// reached and deliberately not run (the previous scan was still going), which
+/// is otherwise indistinguishable from the scheduler having failed to fire.
+enum ScheduleExecutionStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  SKIPPED
+}
+
 enum Severity {
   CRITICAL
   HIGH
@@ -145,6 +199,43 @@ enum ReportFormat {
   SARIF
 }
 
+/// Why a report exists, which decides who is allowed to create it and whether
+/// its absence is a bug.
+///
+/// `AUTOMATIC_SCAN_REPORT` is the one the system owes the user for every
+/// completed scan — exactly one per assessment, enforced by `autoKey` below.
+/// The other two are produced on request and may exist many times over.
+enum ReportKind {
+  AUTOMATIC_SCAN_REPORT
+  MANUAL_EXPORT
+  SCHEDULED_REPORT
+}
+
+/// Where a report is in its generation lifecycle.
+///
+/// Defaulted to COMPLETED so every row that existed before asynchronous
+/// generation — all of which were written synchronously and already have their
+/// bytes — keeps describing itself accurately instead of appearing stuck in
+/// PENDING forever.
+enum ReportStatus {
+  PENDING
+  GENERATING
+  COMPLETED
+  FAILED
+}
+
+/// Outcome of one attempted email delivery.
+///
+/// SKIPPED is a first-class result, not a failure: a user with email
+/// notifications switched off, or with no address, produces a SKIPPED row so
+/// "why did I not get an email" is answerable from the record.
+enum EmailDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 enum AuditAction {
   CREATE
   READ
@@ -158,6 +249,85 @@ enum AuditAction {
   SCAN_STOP
   ROLE_CHANGE
   PASSWORD_RESET
+}
+
+/// How much a reader should care about one event.
+///
+/// Deliberately the syslog-shaped set every operator already knows, rather than
+/// a product-specific vocabulary. `Severity` (CRITICAL…INFO) already exists in
+/// this schema and means something entirely different — the risk of a
+/// *vulnerability* — so this one is named for logs and must never be conflated
+/// with it.
+enum LogSeverity {
+  DEBUG
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+/// The subsystem an event came from. Drives the category filter and decides
+/// which events survive `logCollectionEnabled = false` (see AuditService).
+enum LogCategory {
+  AUTHENTICATION
+  USERS
+  PROJECTS
+  SCANS
+  FINDINGS
+  REPORTS
+  CONFIGURATION
+  SECURITY
+  SYSTEM
+  API
+  WORKER
+  DATABASE
+  NOTIFICATIONS
+}
+
+/// Outcome of the attempt the event describes.
+///
+/// Separate from severity: a WARNING-severity event can still have succeeded,
+/// and a failed request is not automatically an ERROR to an operator.
+enum LogStatus {
+  SUCCESS
+  FAILED
+  WARNING
+}
+
+/// What kind of thing happened, for notification routing and iconography.
+///
+/// Adding a value here is half the work: the other half is one entry in
+/// `notification-catalog.ts`, which is the single place that decides the
+/// category, the severity, the preference switch and whether the type may be
+/// emailed. Nothing else in the application branches on this enum.
+enum NotificationType {
+  SCAN_COMPLETED
+  SCAN_FAILED
+  REPORT_GENERATED
+  REPORT_FAILED
+  SECURITY_WARNING
+  CRITICAL_FINDING
+  NEW_FINDINGS
+  SCHEDULED_SCAN_COMPLETED
+  SCHEDULED_SCAN_FAILED
+  EMAIL_REPORT_SENT
+  EMAIL_REPORT_FAILED
+  SYSTEM_ERROR
+}
+
+/// Which product area a notification belongs to. Groups the preference
+/// switches and drives the per-section unread counters in the sidebar.
+///
+/// ISSUES is separate from SECURITY on purpose: ISSUES means "this scan found
+/// vulnerabilities in your API" and badges the Issues screen, while SECURITY
+/// means "something happened to this installation" (a failed login, a warning
+/// about the platform itself) and belongs to an administrator.
+enum NotificationCategory {
+  SCANS
+  REPORTS
+  ISSUES
+  SECURITY
+  SYSTEM
 }
 
 enum PluginCategory {
@@ -202,18 +372,22 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner              User?               @relation("OwnerMembers", fields: [ownerId], references: [id])
-  members            User[]              @relation("OwnerMembers")
-  sessions           Session[]
-  accounts           Account[]
-  sentInvitations    Invitation[]        @relation("InvitedByAdmin")
-  projects           Project[]
-  apiKeys            ApiKey[]
-  auditLogs          AuditLog[]
-  pluginUserConfigs  PluginUserConfig[]
-  scanProfiles       ScanProfile[]
-  assignedIssues     SecurityIssue[]     @relation("IssueAssignee")
-  issueStatusChanges IssueStatusChange[] @relation("IssueStatusActor")
+  owner                  User?                   @relation("OwnerMembers", fields: [ownerId], references: [id])
+  members                User[]                  @relation("OwnerMembers")
+  sessions               Session[]
+  accounts               Account[]
+  projects               Project[]
+  apiKeys                ApiKey[]
+  auditLogs              AuditLog[]
+  notifications          Notification[]
+  notificationPreference NotificationPreference?
+  pluginUserConfigs      PluginUserConfig[]
+  scanProfiles           ScanProfile[]
+  assignedIssues         SecurityIssue[]         @relation("IssueAssignee")
+  issueStatusChanges     IssueStatusChange[]     @relation("IssueStatusActor")
+  scheduledScans         ScheduledScan[]         @relation("ScheduleAuthor")
+  requestedReports       Report[]                @relation("ReportRequester")
+  emailDeliveries        EmailDelivery[]
 
   @@map("users")
 }
@@ -287,24 +461,11 @@ model Verification {
   @@map("verifications")
 }
 
-// =============================================================================
-// INVITATIONS — Custom workspace invitation system
-// =============================================================================
-
-model Invitation {
-  id          String    @id @default(cuid())
-  email       String
-  role        Role      @default(ANALYST)
-  token       String    @unique
-  invitedById String
-  invitedBy   User      @relation("InvitedByAdmin", fields: [invitedById], references: [id], onDelete: Cascade)
-  expiresAt   DateTime
-  accepted    Boolean   @default(false)
-  acceptedAt  DateTime?
-  createdAt   DateTime  @default(now())
-
-  @@map("invitations")
-}
+// The Invitation model was removed along with the email-invitation flow. It
+// never sent mail — there is no SMTP transport in this product — so it only
+// ever produced a link an admin had to deliver by hand, which is strictly more
+// work than creating the account directly. Administrators now create users from
+// Settings → Users, which was already fully implemented alongside it.
 
 // =============================================================================
 // PROJECT
@@ -333,6 +494,9 @@ model Project {
   /// Persistent vulnerabilities. Owned by the project so scan deletion cannot
   /// remove them.
   securityIssues SecurityIssue[]
+  /// Automatic scans configured against this API. Cascade: a deleted project
+  /// has nothing left to scan, so its schedules go with it.
+  scheduledScans ScheduledScan[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -447,6 +611,17 @@ model Assessment {
   currentStep String?
   jobId       String? // BullMQ job ID
 
+  /// How this run came to exist. Every pre-existing row is MANUAL, which is
+  /// true: scheduling did not exist when they were written.
+  trigger    AssessmentTrigger @default(MANUAL)
+  /// The schedule that produced it, when `trigger` is SCHEDULED.
+  ///
+  /// SetNull, never Cascade. Deleting a schedule must not erase the scans it
+  /// produced, nor the findings and reports hanging off them — the same rule
+  /// that governs IssueStatusChange.assessmentId.
+  scheduleId String?
+  schedule   ScheduledScan? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
   config  AssessmentConfig?
   summary AssessmentSummary?
 
@@ -461,6 +636,7 @@ model Assessment {
   reports            Report[]
   logs               AssessmentLog[]
   pluginExecutions   PluginExecution[]
+  scheduleExecutions ScheduleExecution[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -471,7 +647,176 @@ model Assessment {
   @@index([projectId, status])
   /// Global scans list filtered by status across all projects.
   @@index([status, createdAt])
+  /// The skipIfRunning guard: "is a scan from this schedule still in flight?"
+  @@index([scheduleId, status])
   @@map("assessments")
+}
+
+// =============================================================================
+// SCHEDULED SCANS
+//
+// A scheduled scan owns WHEN and WITH WHAT, and nothing else. It does not scan.
+// When an occurrence comes due the scheduler calls the very same entry point the
+// "Run Assessment" button calls (AssessmentsService.createAndRun), so there is
+// exactly one scan pipeline and a scheduled run is an ordinary Assessment that
+// happens to carry `trigger = SCHEDULED`.
+//
+//   ScheduledScan     — the recurrence rule and the frozen scan configuration.
+//   ScheduleExecution — one attempt to honour one occurrence. Immutable identity
+//                       (scheduleId + scheduledFor), which is the duplicate guard.
+// =============================================================================
+
+/// A recurring (or one-off) automatic scan of one project.
+model ScheduledScan {
+  id        String  @id @default(cuid())
+  name      String
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  /// Who set it up. SetNull so removing an operator does not delete the
+  /// automation they left behind — the schedule keeps running, and the audit
+  /// trail still records who created it.
+  createdById String?
+  createdBy   User?   @relation("ScheduleAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // ── Recurrence ─────────────────────────────────────────────────────────────
+  frequency ScheduleFrequency
+
+  /// IANA zone, e.g. `America/Santo_Domingo`. Never a fixed offset: an offset
+  /// cannot express "02:00 local, before and after the DST change", which is
+  /// exactly what an operator means by "every day at 2am".
+  timezone String @default("UTC")
+
+  /// Wall-clock time of day in `timezone`, for DAILY / WEEKLY / MONTHLY and as
+  /// the anchor of an HOURLY interval. Null for CUSTOM, which gets its times
+  /// from the cron expression.
+  hour   Int?
+  minute Int?
+
+  /// HOURLY: hours between runs. Ignored by every other frequency.
+  intervalHours Int?
+
+  /// WEEKLY: ISO-ish day numbers, 0 = Sunday … 6 = Saturday, in `timezone`.
+  weekdays Int[] @default([])
+
+  /// MONTHLY: 1–31. A month shorter than the chosen day runs on its last day
+  /// (clamped, never skipped) — "day 31 of every month" means "month end".
+  monthDay Int?
+
+  /// CUSTOM: validated 5-field cron (`min hour dom mon dow`), evaluated in
+  /// `timezone`. Rejected if it would fire more often than once every 15
+  /// minutes — see assertSafeCron.
+  cronExpression String?
+
+  /// ONCE: the single instant to run at, stored in UTC.
+  /// Other frequencies: an optional "not before" bound, so a weekly schedule
+  /// can be created today to start next month.
+  startAt DateTime?
+
+  // ── Scan configuration ─────────────────────────────────────────────────────
+  // Mirrors AssessmentConfig field for field, because it is copied onto the
+  // AssessmentConfig of every run this schedule produces. Deliberately a copy
+  // rather than a pointer: editing a schedule must not rewrite the recorded
+  // configuration of scans that already ran.
+  //
+  // NOTE what is absent: no token, no API key, no header. Target credentials
+  // live encrypted on AuthConfig and are read by the worker at the point of
+  // use; copying them here would put a second plaintext-adjacent copy of every
+  // secret in a table an operator lists in the UI.
+  executionMode          String       @default("all") // "all" | "profile" | "manual"
+  scanProfileId          String?
+  scanProfile            ScanProfile? @relation(fields: [scanProfileId], references: [id], onDelete: SetNull)
+  manualPlugins          String[]     @default([])
+  enableAiAnalysis       Boolean      @default(true)
+  maxRequestsPerEndpoint Int          @default(10)
+  requestDelayMs         Int          @default(200)
+  timeoutMs              Int          @default(10000)
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  status ScheduleStatus @default(ACTIVE)
+
+  /// Do not start a run while the previous run from THIS schedule is still
+  /// going. On by default: an hourly scan of a slow API would otherwise stack
+  /// runs against the same target until something falls over.
+  skipIfRunning Boolean @default(true)
+
+  /// The next occurrence, in UTC. Null when PAUSED or COMPLETED.
+  ///
+  /// Also the concurrency primitive: dispatch claims an occurrence with a
+  /// conditional update on this exact value, so two API instances racing on the
+  /// same schedule produce one winner and one no-op. See claimOccurrence.
+  nextRunAt DateTime?
+  lastRunAt DateTime?
+
+  /// Rolling counters, for the list view and for spotting a schedule that has
+  /// been failing unattended. A failure never pauses the schedule.
+  totalRuns           Int @default(0)
+  consecutiveFailures Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  executions  ScheduleExecution[]
+  assessments Assessment[]
+
+  /// The scheduler's hot path: "which schedules are due?", every tick.
+  @@index([status, nextRunAt])
+  /// Schedules of one project (project detail → Scheduled scans).
+  @@index([projectId])
+  @@map("scheduled_scans")
+}
+
+/// One attempt to honour one occurrence of a schedule.
+///
+/// A row exists whatever happened — dispatched, skipped, or failed to start —
+/// so "why did my 02:00 scan not run?" is always answerable from the table
+/// rather than inferred from the absence of an assessment.
+model ScheduleExecution {
+  id         String        @id @default(cuid())
+  scheduleId String
+  schedule   ScheduledScan @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  /// The assessment this execution started. Null for SKIPPED executions and for
+  /// a dispatch that failed before an assessment could be created.
+  ///
+  /// SetNull: deleting a scan leaves the execution as evidence that it ran.
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  status ScheduleExecutionStatus @default(QUEUED)
+
+  /// The occurrence this execution belongs to — the planned instant, not the
+  /// moment work began. Late dispatch after an outage keeps the planned value,
+  /// which is what makes the lateness visible.
+  scheduledFor DateTime
+  startedAt    DateTime?
+  finishedAt   DateTime?
+
+  /// MANUAL for "Run now", SCHEDULED for the scheduler. A manual run is
+  /// recorded here too, but never advances `nextRunAt`.
+  trigger AssessmentTrigger @default(SCHEDULED)
+
+  /// Why a SKIPPED execution was skipped, or why a dispatch failed. Free text,
+  /// sanitised like any other operator-visible message.
+  reason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// THE duplicate guard, and the reason multiple API instances are safe.
+  ///
+  /// `scheduledFor` is derived from the recurrence rule, never from the clock,
+  /// so two instances computing the same occurrence compute the same instant
+  /// and the second insert violates this constraint instead of starting a
+  /// second scan. Manual runs use their own trigger instant, so pressing "Run
+  /// now" twice in the same millisecond is the only way to collide — and that
+  /// collision is also correctly rejected.
+  @@unique([scheduleId, scheduledFor])
+  /// Execution history for one schedule, newest first.
+  @@index([scheduleId, scheduledFor])
+  /// Reconciliation sweep: executions left non-terminal by a crash.
+  @@index([status])
+  @@map("schedule_executions")
 }
 
 model AssessmentConfig {
@@ -835,6 +1180,40 @@ model Report {
   format ReportFormat
   title  String
 
+  /// Why this artifact exists. See ReportKind.
+  kind ReportKind @default(MANUAL_EXPORT)
+
+  /// Where generation has got to.
+  ///
+  /// A row is inserted PENDING by the queue producer and only reaches COMPLETED
+  /// once bytes exist, so "the report is ready" is never announced — in the UI
+  /// or by email — on the strength of a row that merely exists.
+  status ReportStatus @default(COMPLETED)
+
+  /// Why the last generation attempt failed, for a FAILED row. Cleared on a
+  /// subsequent success so a recovered report does not still show an error.
+  error String?
+
+  /// How many times generation has been attempted. Read by the retry policy and
+  /// shown on the report detail so a flaky renderer is visible rather than
+  /// merely slow.
+  attempts Int @default(0)
+
+  /// Who the artifact belongs to — the operator who asked for it, or the owner
+  /// of the project for an automatic one. Nullable because pre-existing rows
+  /// predate the column; resolved through the assessment when absent.
+  requestedById String?
+  requestedBy   User?   @relation("ReportRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+
+  /// The idempotency guard for automatic reports: holds `assessmentId` on the
+  /// one automatic report of that scan, and NULL on every manual export.
+  ///
+  /// Postgres treats NULLs as distinct in a unique index, so manual exports are
+  /// unconstrained while a second automatic report for the same assessment
+  /// cannot be inserted at all — a redelivered `scan.completed` collides here
+  /// instead of producing a duplicate PDF.
+  autoKey String? @unique
+
   /// Explicit revision of (assessment, type, format). Starts at 1; only a
   /// deliberate "Regenerate" mints version + 1. Downloads never bump it.
   version Int @default(1)
@@ -851,18 +1230,73 @@ model Report {
   /// The frozen document source this artifact was rendered from: the file
   /// itself for HTML/MARKDOWN/JSON/SARIF, and the HTML a PDF was printed from.
   /// Lets a lost binary be re-rendered byte-for-byte without re-reading findings.
-  sourceSnapshot String?
+  sourceSnapshot   String?
   /// Version of the generator that produced the artifact, shown on report detail.
   generatorVersion String?
 
   generatedAt DateTime @default(now())
 
-  /// Reports of one scan (reports list grouping, scan detail → Reports).
-  @@index([assessmentId])
   /// The duplicate guard. Two concurrent generations of the same artifact
   /// collide here instead of both inserting; the loser returns the winner's row.
   @@unique([assessmentId, type, format, version])
+  /// Reports of one scan (reports list grouping, scan detail → Reports).
+  @@index([assessmentId])
+  /// The reports queue asks "what is still generating?" and the UI asks "did
+  /// anything fail?"; both filter on status before anything else.
+  @@index([status])
   @@map("reports")
+}
+
+/// One attempted email, recorded whether or not it was sent.
+///
+/// Exists to make delivery idempotent. Jobs retry and events can be redelivered,
+/// so "send the report-ready email" must be safe to ask for repeatedly — the
+/// unique `idempotencyKey` turns the second ask into a no-op instead of a second
+/// message in the recipient's inbox.
+///
+/// Deliberately NOT merged into Notification: a notification is something the
+/// user reads in the product, this is a record of an outbound message to a third
+/// party. They have different lifetimes, different privacy properties, and one
+/// notification can exist with no email and vice versa.
+model EmailDelivery {
+  id String @id @default(cuid())
+
+  /// `<event>:<entityId>:<userId>` — stable across retries of the same logical
+  /// send, distinct for genuinely different ones.
+  idempotencyKey String @unique
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  /// Recorded rather than joined through `user`: an address that changes later
+  /// must not rewrite the history of where a message was actually delivered.
+  toEmail String
+  subject String
+  /// Which template rendered it, e.g. `report-ready`.
+  template String
+
+  status   EmailDeliveryStatus @default(PENDING)
+  attempts Int                 @default(0)
+
+  /// Resend's id for the accepted message, for support requests and for
+  /// correlating with the provider's own delivery log.
+  providerMessageId String?
+  /// Why it failed or was skipped. Never contains credentials.
+  failureReason     String?
+
+  /// What the message was about, so a report's delivery history is reachable
+  /// from the report itself.
+  entityType String?
+  entityId   String?
+
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  /// "Has this already been sent?" on the retry path.
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
+  @@map("email_deliveries")
 }
 
 // =============================================================================
@@ -956,6 +1390,7 @@ model ScanProfile {
 
   user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
   assessmentConfigs AssessmentConfig[]
+  scheduledScans    ScheduledScan[]
 
   @@map("scan_profiles")
 }
@@ -997,27 +1432,200 @@ model AiProviderConfig {
 // AUDIT LOG
 // =============================================================================
 
+/// One recorded event, whether an operator did it or the system did.
+///
+/// This is both the audit trail and the application log. They were kept as one
+/// table on purpose: an investigator asking "what happened around 12:44?" wants
+/// the failed login, the worker crash and the settings change interleaved on a
+/// single timeline, and two tables make that a client-side merge that no index
+/// can help with.
+///
+/// Almost every column is nullable because the events are genuinely different
+/// shapes — an HTTP request has a route and a duration, a worker error has a
+/// stack trace and neither. Writing a placeholder into a column that does not
+/// apply would make "unknown" and "not applicable" indistinguishable.
+///
+/// Retention deletes from this table in batches; see LogRetentionService.
 model AuditLog {
-  id         String      @id @default(cuid())
-  userId     String?
-  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action     AuditAction
+  id     String  @id @default(cuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // ── Classification ─────────────────────────────────────────────────────────
+  /// Dotted event name, e.g. `auth.login.failed`, `scan.completed`. The primary
+  /// identity of an event; `action` below is the coarse CRUD verb kept for the
+  /// rows written before this column existed.
+  event    String
+  severity LogSeverity  @default(INFO)
+  category LogCategory  @default(SYSTEM)
+  status   LogStatus    @default(SUCCESS)
+  /// Coarse verb. Nullable: system and worker events are not CRUD operations,
+  /// and forcing one of these onto them would be a lie in the data.
+  action   AuditAction?
+
+  // ── Subject ────────────────────────────────────────────────────────────────
   resource   String
   resourceId String?
+  /// Human-readable one-line description, rendered as the event's title.
+  message    String?
+
+  // ── Actor ──────────────────────────────────────────────────────────────────
+  ipAddress String?
+  userAgent String?
+  /// Where the event was produced, e.g. `api`, `scanner-worker`, `retention`.
+  source    String?
+
+  // ── Request context ────────────────────────────────────────────────────────
+  httpMethod String?
+  route      String?
+  statusCode Int?
+  /// Correlation id shared by every event from one request or one job, so a
+  /// failure can be traced across API → worker → scan → report.
+  requestId  String?
+  durationMs Int?
+
+  // ── Related records ────────────────────────────────────────────────────────
+  // Plain ids, not relations, on purpose: a log entry must survive the deletion
+  // of the thing it describes. A foreign key would either cascade the evidence
+  // away or block the delete.
+  projectId    String?
+  assessmentId String?
+  reportId     String?
+
+  // ── Payload ────────────────────────────────────────────────────────────────
+  /// Sanitised through redactObject before it is written. Never contains
+  /// credentials — see AuditService.sanitize.
   metadata   Json?
-  ipAddress  String?
-  userAgent  String?
-  success    Boolean     @default(true)
+  errorCode  String?
+  stackTrace String?
+
+  /// Retained for the rows written before `status` existed. New writers set
+  /// both; readers should prefer `status`.
+  success Boolean @default(true)
 
   createdAt DateTime @default(now())
 
-  /// Audit log default view: newest first, paginated.
+  /// Default view and every retention delete: newest first, paginated.
   @@index([createdAt])
-  /// Audit log filtered by user.
+  /// "What did this user do?"
   @@index([userId, createdAt])
+  /// The severity filter, which is the most-used one in an incident.
+  @@index([severity, createdAt])
+  /// The category filter.
+  @@index([category, createdAt])
+  /// "Show me every occurrence of this event."
+  @@index([event, createdAt])
+  /// Correlation-id lookup: trace one request across subsystems.
+  @@index([requestId])
+  /// Everything that happened during one scan.
+  @@index([assessmentId])
   @@map("audit_logs")
 }
 
+/// An in-app message addressed to one user.
+///
+/// Written by NotificationsService in reaction to domain events, never by a
+/// module calling it directly — see NotificationsListener. Rows are per-user so
+/// "read" is a property of the recipient, not of the underlying event: two
+/// admins are notified of the same failed scan and dismiss it independently.
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type     NotificationType
+  category NotificationCategory
+  severity LogSeverity          @default(INFO)
+
+  title   String
+  message String
+
+  /// What the notification is about, e.g. `assessment`, `report`, `project`.
+  /// A plain id like AuditLog's: the notification outlives its subject.
+  entityType String?
+  entityId   String?
+  /// In-app path the "open" action navigates to. Stored rather than derived so
+  /// a route change cannot silently break historical notifications.
+  href       String?
+
+  read   Boolean   @default(false)
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  /// The notification list and the unread badge, both scoped to one user.
+  @@index([userId, read, createdAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+/// Per-user delivery preferences, one row per user.
+///
+/// Absence of a row means "never configured" and is treated as all-defaults by
+/// NotificationPreferencesService, so a new user is not silently opted out of
+/// everything by having no row.
+model NotificationPreference {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  scanCompleted   Boolean @default(true)
+  scanFailed      Boolean @default(true)
+  reportGenerated Boolean @default(true)
+  reportFailed    Boolean @default(true)
+  securityWarning Boolean @default(true)
+  criticalFinding Boolean @default(true)
+  newFindings     Boolean @default(true)
+  systemError     Boolean @default(true)
+
+  /// The master switch for outbound email. Off by default: a self-hosted
+  /// install has no mail provider configured until someone sets one up, and
+  /// defaulting this on would queue deliveries that can only fail.
+  emailEnabled Boolean @default(false)
+
+  /// Per-event email switches, each subordinate to `emailEnabled`.
+  ///
+  /// A deliberately smaller set than the in-app switches above. Email is
+  /// interruptive and cannot be marked read, so only the events worth someone's
+  /// attention while they are elsewhere are offered: an outcome they are waiting
+  /// for, a failure that stops work, and a critical vulnerability. Routine
+  /// findings stay in-app.
+  emailScanCompleted   Boolean @default(true)
+  emailScanFailed      Boolean @default(true)
+  emailReportGenerated Boolean @default(true)
+  emailCriticalFinding Boolean @default(true)
+
+  /// Play a short sound on arrival. Browser autoplay policy still applies; the
+  /// UI never tries to work around it.
+  soundEnabled   Boolean @default(false)
+  /// Web Notifications API. Requires an OS-level permission grant the user
+  /// gives separately, so this being true does not guarantee delivery.
+  desktopEnabled Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("notification_preferences")
+}
+
+/// Runtime configuration an administrator can change without a redeploy.
+///
+/// Resolution order is DB → environment → application default (see
+/// SettingsService). A key is absent here until someone overrides it, so
+/// deleting a row restores the environment's value rather than nulling the
+/// setting — which is what makes "reset to default" possible at all.
+model SystemSetting {
+  key   String @id
+  /// Wrapped as `{ "value": ... }` so booleans, numbers and strings share one
+  /// column without a discriminator.
+  value Json
+
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@map("system_settings")
+}
 
 /// AI-generated remediation guidance for one issue.
 ///
@@ -1052,8 +1660,8 @@ model IssueGuidance {
   playbookIds      String[]
 
   // ── Provenance ─────────────────────────────────────────────────────────────
-  provider String
-  model    String
+  provider   String
+  model      String
   /// Model's self-reported confidence, 0–1. Null when it did not give one.
   confidence Float?
 

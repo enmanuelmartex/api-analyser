@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import helmet from 'helmet';
 import * as express from 'express';
 import { toNodeHandler } from 'better-auth/node';
@@ -89,7 +90,11 @@ async function bootstrap() {
   );
 
   // ── Global filters & interceptors ─────────────────────────────────────────────
-  app.useGlobalFilters(new HttpExceptionFilter());
+  // The bus is handed in so failed requests become recorded events rather than
+  // stdout-only lines. Resolved from the container instead of registering the
+  // filter as an APP_FILTER provider, which would change the order it runs in
+  // relative to the pipes above.
+  app.useGlobalFilters(new HttpExceptionFilter(app.get(EventEmitter2)));
   app.useGlobalInterceptors(new LoggingInterceptor());
 
   // ── Swagger (non-production) ──────────────────────────────────────────────────

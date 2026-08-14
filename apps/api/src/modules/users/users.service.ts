@@ -7,9 +7,9 @@ import {
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
-import * as crypto from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { setBetterAuthPassword } from '../../lib/better-auth-credentials';
 import { AuditService } from '../audit/audit.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -19,6 +19,7 @@ const SELECT_PUBLIC = {
   email: true,
   name: true,
   role: true,
+  avatar: true,
   isActive: true,
   lastLogin: true,
   createdAt: true,
@@ -56,20 +57,26 @@ export class UsersService {
    * Accounts that may be set as an issue assignee.
    *
    * A narrower projection than `SELECT_PUBLIC` on purpose: this is reachable by
-   * any authenticated user, so it returns only what a picker renders. Inactive
-   * accounts are excluded — assigning work to a disabled account silently
-   * parks the issue with nobody.
+   * any authenticated user, so it returns only what a picker renders — which
+   * now includes `avatar`, the image the picker shows beside each name.
+   * Inactive accounts are excluded — assigning work to a disabled account
+   * silently parks the issue with nobody.
    */
   async findAssignable() {
     return this.prisma.user.findMany({
       where: { isActive: true },
-      select: { id: true, name: true, email: true, role: true },
+      select: { id: true, name: true, email: true, role: true, avatar: true },
       orderBy: { name: 'asc' },
     });
   }
 
   async create(dto: CreateUserDto, actorId: string) {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    // Lowercased because Better Auth looks users up by `email.toLowerCase()` on
+    // sign-in: an address stored with any capital letter is never found, and the
+    // login form reports it as a wrong password.
+    const email = dto.email.toLowerCase().trim();
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new ConflictException('Email already registered');
 
     const rounds = this.config.get<number>('security.bcryptRounds', 12);
@@ -77,13 +84,17 @@ export class UsersService {
 
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
+        email,
         name: dto.name,
         password: passwordHash,
         role: dto.role ?? Role.ANALYST,
       },
       select: SELECT_PUBLIC,
     });
+
+    // The credential the login form checks. Without it this account exists,
+    // renders in the Users panel, and cannot log in.
+    await setBetterAuthPassword(user.id, dto.password);
 
     this.audit.log({
       userId: actorId,
@@ -171,6 +182,10 @@ export class UsersService {
       data: { password: passwordHash },
     });
 
+    // Both surfaces, or the reset silently only takes on the REST one and the
+    // login form keeps accepting the old password.
+    await setBetterAuthPassword(id, newPassword);
+
     this.audit.log({
       userId: actorId,
       action: 'PASSWORD_RESET' as any,
@@ -199,99 +214,10 @@ export class UsersService {
     return { success: true };
   }
 
-  // ── Invitation system ─────────────────────────────────────────────────────────
-
-  async sendInvitation(dto: { email: string; role?: string }, actorId: string) {
-    const email = dto.email.toLowerCase().trim();
-    const role  = dto.role ?? 'ANALYST';
-
-    const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) throw new ConflictException('A user with this email already exists');
-
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-    // If a pending invite exists, renew it and resend instead of erroring
-    const pending = await (this.prisma as any).invitation.findFirst({
-      where: { email, accepted: false },
-    });
-
-    let token: string;
-    if (pending) {
-      token = crypto.randomBytes(32).toString('hex');
-      await (this.prisma as any).invitation.update({
-        where: { id: pending.id },
-        data: { token, role, expiresAt, invitedById: actorId },
-      });
-    } else {
-      token = crypto.randomBytes(32).toString('hex');
-      await (this.prisma as any).invitation.create({
-        data: { email, role, token, invitedById: actorId, expiresAt },
-      });
-    }
-
-    const inviteLink = this.buildInvitationLink(token);
-
-    // Logged as well as returned: an admin who closes the dialog before copying
-    // the link would otherwise have to revoke the invitation and issue a new one.
-    this.logger.log(`Invitation for ${email} (${role}): ${inviteLink}`);
-
-    this.audit.log({
-      userId: actorId,
-      action: 'CREATE',
-      resource: 'invitation',
-      resourceId: token.slice(0, 8),
-      metadata: { email, role, resent: !!pending },
-    });
-
-    return { success: true, expiresAt, resent: !!pending, inviteLink };
-  }
-
-  async verifyInvitation(token: string) {
-    const invite = await (this.prisma as any).invitation.findFirst({
-      where: { token, accepted: false, expiresAt: { gt: new Date() } },
-      include: { invitedBy: { select: { name: true, email: true } } },
-    });
-    if (!invite) throw new NotFoundException('Invitation not found or has expired');
-
-    return {
-      email:     invite.email,
-      role:      invite.role,
-      invitedBy: invite.invitedBy.name,
-      expiresAt: invite.expiresAt,
-    };
-  }
-
-  async acceptInvitation(token: string, userId: string) {
-    const invite = await (this.prisma as any).invitation.findFirst({
-      where: { token, accepted: false, expiresAt: { gt: new Date() } },
-    });
-    if (!invite) throw new NotFoundException('Invitation not found or has expired');
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { role: invite.role as Role, ownerId: invite.invitedById },
-    });
-
-    await (this.prisma as any).invitation.update({
-      where: { id: invite.id },
-      data: { accepted: true, acceptedAt: new Date() },
-    });
-
-    return { success: true };
-  }
-
-  /**
-   * Where an invited user goes to set their password.
-   *
-   * There is no mail transport here on purpose. This is self-hosted software an
-   * operator runs on their own network — often one with no outbound SMTP and no
-   * account with an email provider — so requiring a third-party API key before
-   * a second user can exist would put a hosted dependency in the middle of a
-   * local install. The link is returned to the admin who created the invitation
-   * and written to the log; how it reaches the invitee is their call.
-   */
-  private buildInvitationLink(token: string): string {
-    const frontendUrl = this.config.get('FRONTEND_URL', 'http://localhost:3000');
-    return `${frontendUrl}/accept-invite?token=${token}`;
-  }
+  // The email-invitation flow was removed. It never sent mail — this is
+  // self-hosted software with no SMTP transport — so an invitation only ever
+  // produced a link the administrator had to deliver by hand, which is strictly
+  // more work than `create` above, and left a half-configured account in the
+  // database until the invitee got round to it. Administrators create accounts
+  // directly from Settings → Users.
 }

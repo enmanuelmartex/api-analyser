@@ -1,15 +1,27 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { IconBug } from '@tabler/icons-react';
 import { issuesApi } from '@/lib/api';
-import type { IssueStatus, Paginated, SecurityIssue, Severity } from '@/types';
+import {
+  EMPTY_ISSUE_FILTERS,
+  hasActiveIssueFilters,
+  parseIssueFilters,
+  parseIssuePage,
+  serializeIssueFilters,
+  toApiValue,
+  type IssueFilterState,
+} from '@/lib/issue-list';
+import type { Paginated, SecurityIssue } from '@/types';
+import { useMarkSectionSeen } from '@/hooks/use-notification-summary';
 import { PageContainer } from '@/components/layout/page-container';
 import { PageHeader } from '@/components/layout/page-header';
 import { IssueStatsStrip } from '@/components/issues/issue-stats-strip';
+import { IssueFilters } from '@/components/issues/issue-filters';
 import { DataTable } from '@/components/tables/data-table';
 import { DataTableColumnHeader } from '@/components/tables/data-table-column-header';
 import { SeverityBadge } from '@/components/security/severity-badge';
@@ -20,29 +32,59 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDate } from '@/lib/utils';
 
-const SEVERITIES: Severity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
-const STATUSES: IssueStatus[] = [
-  'OPEN',
-  'ACKNOWLEDGED',
-  'RESOLVED',
-  'ACCEPTED_RISK',
-  'FALSE_POSITIVE',
-];
-
 export default function IssuesPage() {
-  const [severity, setSeverity] = useState('');
-  const [status, setStatus] = useState('');
-  const [page, setPage] = useState(1);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Arriving here is what "seen" means for the Issues badge. Fires once, and
+  // only when there is something to clear.
+  useMarkSectionSeen('issues');
+
+  // Filters and page live in the URL, so a filtered view is shareable, survives
+  // a reload, and can be reached straight from a summary card. Local state would
+  // be a second copy of the same thing and the cards could not write to it.
+  const params = useMemo(() => new URLSearchParams(searchParams.toString()), [searchParams]);
+  const filters = useMemo(() => parseIssueFilters(params), [params]);
+  const page = parseIssuePage(params);
+
+  const replaceQuery = useCallback(
+    (query: string) => router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false }),
+    [pathname, router],
+  );
+
+  // Any filter change returns to page 1: keeping the offset would land on an
+  // empty page whenever the narrower result set is shorter than the old one.
+  const applyFilters = useCallback(
+    (next: IssueFilterState) => replaceQuery(serializeIssueFilters(next)),
+    [replaceQuery],
+  );
+
+  const goToPage = useCallback(
+    (next: number) => replaceQuery(serializeIssueFilters(filters, Math.max(1, next))),
+    [filters, replaceQuery],
+  );
 
   const { data, isLoading, isError } = useQuery<Paginated<SecurityIssue>>({
-    queryKey: ['issues', severity, status, page],
+    queryKey: ['issues', 'list', filters.severity, filters.status, filters.search, page],
     queryFn: () =>
       issuesApi.list({
-        severity: severity || undefined,
-        status: status || undefined,
+        severity: toApiValue(filters.severity),
+        status: toApiValue(filters.status),
+        search: filters.search || undefined,
         page,
       }),
   });
+
+  // A `?page=` pointing past the end — a stale link, or a filter applied from a
+  // card while deep in the list — would render an empty table over a non-empty
+  // result set. Fall back to the last real page instead.
+  useEffect(() => {
+    if (!data || data.totalPages < 1 || page <= data.totalPages) return;
+    replaceQuery(serializeIssueFilters(filters, data.totalPages));
+  }, [data, page, filters, replaceQuery]);
+
+  const filtersActive = hasActiveIssueFilters(filters);
 
 
   const columns = useMemo<ColumnDef<SecurityIssue>[]>(
@@ -101,15 +143,6 @@ export default function IssuesPage() {
     [],
   );
 
-  if (isLoading) {
-    return (
-      <PageContainer>
-        <Skeleton className="mb-6 h-16 w-80 max-w-full" />
-        <Skeleton className="h-96 rounded-xl" />
-      </PageContainer>
-    );
-  }
-
   const issues = data?.data ?? [];
 
   return (
@@ -121,26 +154,34 @@ export default function IssuesPage() {
 
       <IssueStatsStrip />
 
-      <div className="flex flex-wrap gap-2">
-        <FilterGroup label="Severity" value={severity} options={SEVERITIES} onChange={(v) => { setSeverity(v); setPage(1); }} />
-        <FilterGroup label="Status" value={status} options={STATUSES} onChange={(v) => { setStatus(v); setPage(1); }} />
-      </div>
+      <IssueFilters value={filters} onChange={applyFilters} />
 
       {isError ? (
         <EmptyState icon={IconBug} title="Could not load issues" description="Try again in a moment." />
+      ) : isLoading ? (
+        <Skeleton className="h-96 rounded-xl" />
       ) : issues.length === 0 ? (
         <EmptyState
           icon={IconBug}
-          title={severity || status ? 'No issues match these filters' : 'No issues yet'}
+          title={filtersActive ? 'No issues match these filters' : 'No issues yet'}
           description={
-            severity || status
+            filtersActive
               ? 'Clear the filters to see all issues.'
               : 'Run a scan on a project to start detecting vulnerabilities.'
+          }
+          action={
+            filtersActive ? (
+              <Button variant="outline" size="sm" onClick={() => applyFilters(EMPTY_ISSUE_FILTERS)}>
+                Clear filters
+              </Button>
+            ) : undefined
           }
         />
       ) : (
         <>
-          <DataTable columns={columns} data={issues} />
+          {/* The toolbar's own search is hidden: search now lives in the filter
+              row above, where it queries every page instead of the loaded one. */}
+          <DataTable columns={columns} data={issues} hideToolbar />
 
           {data && data.totalPages > 1 && (
             <div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -148,14 +189,14 @@ export default function IssuesPage() {
                 Page {data.page} of {data.totalPages} · {data.total} issues
               </span>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={data.page <= 1} onClick={() => setPage((p) => p - 1)}>
+                <Button variant="outline" size="sm" disabled={data.page <= 1} onClick={() => goToPage(page - 1)}>
                   Previous
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   disabled={data.page >= data.totalPages}
-                  onClick={() => setPage((p) => p + 1)}
+                  onClick={() => goToPage(page + 1)}
                 >
                   Next
                 </Button>
@@ -165,36 +206,5 @@ export default function IssuesPage() {
         </>
       )}
     </PageContainer>
-  );
-}
-
-function FilterGroup({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: readonly string[];
-  onChange: (_value: string) => void;
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-xs text-muted-foreground">{label}:</span>
-      <Button variant={value === '' ? 'default' : 'outline'} size="sm" onClick={() => onChange('')}>
-        All
-      </Button>
-      {options.map((option) => (
-        <Button
-          key={option}
-          variant={value === option ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => onChange(option)}
-        >
-          {option.replace(/_/g, ' ')}
-        </Button>
-      ))}
-    </div>
   );
 }

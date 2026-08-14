@@ -1,8 +1,10 @@
 import type { Icon } from '@tabler/icons-react';
+import type { NotificationSection } from '@/types';
 import {
   IconLayoutDashboard,
   IconFolder,
   IconActivity,
+  IconCalendarClock,
   IconBug,
   IconFileText,
   IconShieldCheck,
@@ -17,6 +19,15 @@ export interface NavLeaf {
   exact?: boolean;
   /** Only show when the current user is an admin */
   adminOnly?: boolean;
+  /**
+   * Which unread counter badges this item, if any.
+   *
+   * Only three destinations carry one. Adding a badge to every entry would
+   * make the sidebar a wall of numbers and devalue the ones that matter —
+   * "something happened here that you have not seen" is only interesting for
+   * the sections where things happen on their own.
+   */
+  badge?: NotificationSection;
   /**
    * Optional subdivision within the group, rendered as a small heading above
    * the first item that carries it. Keeps account-level preferences visually
@@ -54,9 +65,15 @@ export interface NavGroup {
 export const NAV_MAIN: NavLeaf[] = [
   { title: 'Dashboard', url: '/dashboard', icon: IconLayoutDashboard, exact: true },
   { title: 'Projects', url: '/projects', icon: IconFolder },
-  { title: 'Scans', url: '/assessments', icon: IconActivity },
-  { title: 'Issues', url: '/issues', icon: IconBug },
-  { title: 'Reports', url: '/reports', icon: IconFileText },
+  { title: 'Scans', url: '/assessments', icon: IconActivity, badge: 'scans' },
+  // Directly after Scans: a schedule is a scan that runs itself, and the two
+  // are read together ("what ran, and what is about to run?").
+  //
+  // No badge of its own: a scheduled run's outcome is a scan, and it badges
+  // Scans. Counting it twice would make one event look like two.
+  { title: 'Scheduled Scans', url: '/scheduled-scans', icon: IconCalendarClock },
+  { title: 'Issues', url: '/issues', icon: IconBug, badge: 'issues' },
+  { title: 'Reports', url: '/reports', icon: IconFileText, badge: 'reports' },
   { title: 'Security Checks', url: '/plugins', icon: IconShieldCheck },
   { title: 'Settings', url: '/settings', icon: IconSettings },
 ];

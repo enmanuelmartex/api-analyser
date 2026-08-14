@@ -6,6 +6,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { SiteHeader } from "@/components/layout/site-header";
 import { CommandMenuProvider } from "@/components/layout/command-menu";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { useNotificationStream } from "@/hooks/use-notification-summary";
 
 /**
  * The dashboard chrome.
@@ -53,6 +54,20 @@ export function DashboardShell({
       } catch {}
     }
   }, [router]);
+
+  /*
+   * One EventSource for the whole application, opened here because this is the
+   * only component guaranteed to be mounted for the entire session.
+   *
+   * It updates the React Query cache that the sidebar badges and the header bell
+   * both read, so a scan finishing in another tab updates every counter without
+   * a refresh — and without either of them owning a connection of its own.
+   *
+   * Purely an optimisation: every notification is a database row before it is
+   * streamed, so a user who was offline sees exactly the same counts on their
+   * next page load.
+   */
+  useNotificationStream();
 
   return (
     <CommandMenuProvider>

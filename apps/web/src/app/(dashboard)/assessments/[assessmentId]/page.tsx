@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { IconArrowLeft, IconBug, IconChartBar, IconDownload, IconFileReport, IconPlayerStop, IconSparkles, IconTerminal2 } from '@tabler/icons-react';
+import { IconArrowLeft, IconBug, IconCalendarClock, IconChartBar, IconDownload, IconFileReport, IconPlayerStop, IconSparkles, IconTerminal2 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { assessmentsApi, reportsApi, scoringApi } from '@/lib/api';
 import type { Assessment, AssessmentScore, ScanProgress } from '@/types';
@@ -14,13 +14,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SeverityBadge } from '@/components/security/severity-badge';
 import { StatusBadge } from '@/components/security/finding-status-badge';
 import { ScoreDisplay } from '@/components/security/score-display';
 import { ScoreBreakdown } from '@/components/security/score-breakdown';
 import { ScanComparison } from '@/components/assessments/scan-comparison';
+import { AssessmentProgress } from '@/components/assessments/assessment-progress';
 import { DeleteConfirmationDialog } from '@/components/shared/delete-confirmation-dialog';
 import { formatDate, formatDuration } from '@/lib/utils';
 
@@ -30,6 +30,15 @@ export default function AssessmentDetailPage() {
   const { assessmentId } = useParams<{ assessmentId: string }>();
   const queryClient = useQueryClient();
   const [exporting, setExporting] = useState<string>();
+  /*
+   * The latest live message, e.g. "Running Mass Assignment...".
+   *
+   * Kept beside the cache rather than inside it: `currentStep` is a persisted
+   * column holding the stage name, and writing the prose message into it made
+   * the cached row disagree with the database — so a refresh changed what the
+   * page said even though nothing had happened.
+   */
+  const [liveMessage, setLiveMessage] = useState<string>();
   const query = useQuery<Assessment>({
     queryKey: ['assessments', assessmentId],
     queryFn: () => assessmentsApi.get(assessmentId),
@@ -44,10 +53,13 @@ export default function AssessmentDetailPage() {
     stream.onmessage = (event) => {
       try {
         const update = JSON.parse(event.data) as ScanProgress;
+        if (update.message) setLiveMessage(update.message);
         queryClient.setQueryData<Assessment>(['assessments', assessmentId], (current) => current ? {
           ...current,
           progress: update.progress ?? current.progress,
-          currentStep: update.message ?? update.step ?? current.currentStep,
+          // The stage name, matching the persisted column. The prose message
+          // goes to `liveMessage` instead.
+          currentStep: update.step ?? current.currentStep,
         } : current);
         if (update.completed || update.error) {
           stream.close();
@@ -153,9 +165,52 @@ export default function AssessmentDetailPage() {
         }
       />
 
+      {/*
+        Where this scan came from.
+
+        A scheduled run is an ordinary assessment — same model, same worker,
+        same findings — so nothing else on this page distinguishes it. Without
+        this line, a scan that appeared at 02:00 has no explanation at all, and
+        the operator's first question is "who ran this?".
+
+        The schedule may have been deleted since; the scan outlives it, so the
+        link is only rendered when the schedule is still there.
+      */}
+      {assessment.trigger === 'SCHEDULED' && (
+        <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+          <IconCalendarClock className="size-4 shrink-0" />
+          {assessment.schedule ? (
+            <span>
+              Triggered automatically by{' '}
+              <Link
+                href={`/scheduled-scans/${assessment.schedule.id}`}
+                className="font-medium text-foreground hover:underline"
+              >
+                {assessment.schedule.name}
+              </Link>
+            </span>
+          ) : (
+            <span>Triggered automatically by a scheduled scan that has since been deleted</span>
+          )}
+        </p>
+      )}
+
+      {/*
+        The stage stepper replaced a lone percentage bar. Everything it renders
+        comes from the worker — `status`, `progress` and `currentStep` are
+        persisted on the assessment row, and `liveMessage` is the latest frame
+        from the progress stream — so a reload mid-scan resumes at the same
+        stage instead of restarting the display.
+      */}
       <Card className={running ? 'border-primary/30' : undefined}>
-        <CardHeader><CardTitle>{running ? 'Assessment in progress' : assessment.status === 'COMPLETED' ? 'Assessment completed' : 'Assessment stopped'}</CardTitle><CardDescription>{assessment.currentStep || (running ? 'Waiting for the scanner worker…' : 'The execution has reached a terminal state.')}</CardDescription></CardHeader>
-        <CardContent><div className="flex items-center gap-3"><Progress value={assessment.progress} aria-label="Assessment progress" /><span className="w-12 text-right text-sm tabular-nums">{assessment.progress}%</span></div></CardContent>
+        <CardContent className="pt-6">
+          <AssessmentProgress
+            status={assessment.status}
+            progress={assessment.progress}
+            currentStep={assessment.currentStep}
+            message={liveMessage}
+          />
+        </CardContent>
       </Card>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
