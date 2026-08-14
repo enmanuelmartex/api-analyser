@@ -52,7 +52,64 @@ const COLORS = {
   medium: '#ca8a04',
   low: '#0891b2',
   info: '#64748b',
+  /** Improvement in a week-over-week figure. */
+  positive: '#15803d',
 };
+
+/** How a risk level is spelled for a reader. */
+const RISK_LABELS: Record<'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL', string> = {
+  LOW: 'Low',
+  MEDIUM: 'Medium',
+  HIGH: 'High',
+  CRITICAL: 'Critical',
+};
+
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const;
+
+/**
+ * `2026-08-13` → `August 13, 2026`.
+ *
+ * Parsed by splitting rather than with `new Date(value)`, which reads a bare
+ * date as midnight UTC and then renders it in the server's local zone — turning
+ * an evening scan in a western timezone into the following day. The date
+ * arrives already resolved in the recipient's zone; this only spells it.
+ */
+function formatCalendarDate(value: string): string {
+  const [year, month, day] = value.split('-');
+  const name = MONTH_NAMES[Number(month) - 1];
+  return name ? `${name} ${Number(day)}, ${year}` : value;
+}
+
+/** `August 7 – 13, 2026`, collapsed as far as the two ends allow. */
+function formatDateRange(from: string, to: string): string {
+  const [fromYear, fromMonth, fromDay] = from.split('-').map(Number);
+  const [toYear, toMonth, toDay] = to.split('-').map(Number);
+
+  const startMonth = MONTH_NAMES[fromMonth - 1];
+  const endMonth = MONTH_NAMES[toMonth - 1];
+  if (!startMonth || !endMonth) return `${from} – ${to}`;
+
+  if (fromYear !== toYear) {
+    return `${startMonth} ${fromDay}, ${fromYear} – ${endMonth} ${toDay}, ${toYear}`;
+  }
+  if (fromMonth !== toMonth) {
+    return `${startMonth} ${fromDay} – ${endMonth} ${toDay}, ${toYear}`;
+  }
+  return `${startMonth} ${fromDay} – ${toDay}, ${toYear}`;
+}
 
 function layout(options: { heading: string; body: string; preheader: string }): string {
   return `<!doctype html>
@@ -161,6 +218,20 @@ export interface ScanCompletedEmailInput {
   /** Set when the report was too large to attach, so the body can say why. */
   attachmentSkippedReason?: string;
   scheduleName?: string;
+
+  /*
+   * The fields the redesigned message added.
+   *
+   * All optional, because this renderer is also the fallback for a message
+   * whose summary row is incomplete, and an absent value must produce an
+   * omitted line rather than "undefined".
+   */
+  /** The recipient's display name. Absent for a configured team mailbox. */
+  userName?: string;
+  riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  endpointsEvaluated?: number;
+  /** Calendar date in the recipient's zone, `YYYY-MM-DD`. */
+  scanDate?: string;
 }
 
 /**
@@ -181,7 +252,34 @@ export function renderScanCompletedEmail(input: ScanCompletedEmailInput): Render
     ? `<p style="margin:20px 0 0 0;font:400 14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.muted};">Your PDF security report is attached to this email.</p>`
     : `<p style="margin:20px 0 0 0;font:400 14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.muted};">Your PDF security report is ready${input.attachmentSkippedReason ? ` (${escapeHtml(input.attachmentSkippedReason)})` : ''}. Open it from the button below.</p>`;
 
+  const greeting = input.userName?.trim()
+    ? `<p style="margin:0 0 16px 0;font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.ink};">Hi ${escapeHtml(input.userName.trim())},</p>`
+    : '';
+
+  // Risk and date sit beside the score rather than in it: the score is a
+  // number, these are the two facts that make it mean something.
+  const facts = [
+    input.riskLevel ? ['Risk', RISK_LABELS[input.riskLevel]] : null,
+    input.scanDate ? ['Date', formatCalendarDate(input.scanDate)] : null,
+  ].filter((row): row is [string, string] => row !== null);
+
+  const factRows = facts
+    .map(
+      ([label, value]) => `
+          <tr>
+            <td style="padding:8px 0 0 0;font:400 13px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.muted};">${escapeHtml(label)}</td>
+            <td align="right" style="padding:8px 0 0 0;font:600 13px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.ink};">${escapeHtml(value)}</td>
+          </tr>`,
+    )
+    .join('');
+
+  const coverage =
+    typeof input.endpointsEvaluated === 'number'
+      ? `<p style="margin:16px 0 0 0;font:400 14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.muted};">${input.totalFindings} finding${input.totalFindings === 1 ? '' : 's'} across ${input.endpointsEvaluated} endpoint${input.endpointsEvaluated === 1 ? '' : 's'} evaluated.</p>`
+      : '';
+
   const body = `
+    ${greeting}
     ${origin}
     <p style="margin:0;font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.ink};">
       The security scan for <strong>${escapeHtml(input.projectName)}</strong> has finished.
@@ -192,9 +290,11 @@ export function renderScanCompletedEmail(input: ScanCompletedEmailInput): Render
         <td style="padding:16px 20px;">
           <p style="margin:0;font:400 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.muted};text-transform:uppercase;letter-spacing:0.04em;">Security score</p>
           <p style="margin:4px 0 0 0;font:600 28px/1.2 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.ink};">${escapeHtml(score)}</p>
+          ${factRows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 0 0;">${factRows}</table>` : ''}
         </td>
       </tr>
     </table>
+    ${coverage}
 
     <p style="margin:24px 0 0 0;font:600 13px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.muted};text-transform:uppercase;letter-spacing:0.04em;">
       Issues (${input.totalFindings})
@@ -326,4 +426,148 @@ export function renderCriticalFindingEmail(input: CriticalFindingEmailInput): Re
       .filter((line) => line !== '')
       .join('\n'),
   };
+}
+
+// ── Weekly summary ───────────────────────────────────────────────────────────
+
+/** One figure and its comparison. `null` means there was no previous week. */
+export interface WeeklyMetricInput {
+  count: number;
+  changePercent: number | null;
+}
+
+export interface WeeklySummaryEmailInput {
+  userName?: string;
+  /** Monday of the reported week, `YYYY-MM-DD`. */
+  dateFrom: string;
+  /** Sunday, inclusive. */
+  dateTo: string;
+  assessments: WeeklyMetricInput;
+  findings: WeeklyMetricInput;
+  critical: WeeklyMetricInput;
+  activeProjects: number;
+  dashboardUrl: string;
+}
+
+/**
+ * "Your weekly summary."
+ *
+ * The local counterpart of the relay's `weekly-summary` template, rendered only
+ * on the direct-to-Resend path. The relay owns the canonical design — including
+ * the dark variant, which this has no equivalent of, because an install holding
+ * its own Resend key renders here and gets one look.
+ *
+ * The numbers, the period and the wording are the same in both, which is the
+ * part that matters: the two must not disagree about what happened last week.
+ */
+export function renderWeeklySummaryEmail(input: WeeklySummaryEmailInput): RenderedEmail {
+  const range = formatDateRange(input.dateFrom, input.dateTo);
+
+  const tiles = [
+    metricTile('Assessments', input.assessments, true),
+    metricTile('Findings', input.findings, false),
+    metricTile('Critical', input.critical, false),
+    metricTile('Projects', { count: input.activeProjects, changePercent: null }, true, 'active'),
+  ].join('');
+
+  const body = `
+    ${input.userName?.trim() ? `<p style="margin:0 0 16px 0;font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.ink};">Hi ${escapeHtml(input.userName.trim())},</p>` : ''}
+    <p style="margin:0;font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.ink};">
+      Here's a summary of your API security activity over the past week.
+    </p>
+    <p style="margin:16px 0 0 0;font:600 13px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.muted};">${escapeHtml(range)}</p>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0 0 0;">
+      ${tiles}
+    </table>
+
+    ${button(input.dashboardUrl, 'View Dashboard')}
+  `;
+
+  return {
+    subject: 'Your weekly summary — API Analyzer',
+    html: layout({
+      heading: 'Weekly Summary',
+      preheader: `${range} — ${input.assessments.count} assessments, ${input.findings.count} findings`,
+      body,
+    }),
+    text: [
+      'API Analyzer',
+      '',
+      'Weekly Summary',
+      '',
+      input.userName?.trim() ? `Hi ${input.userName.trim()},` : 'Hi,',
+      '',
+      "Here's a summary of your API security activity over the past week.",
+      '',
+      range,
+      '',
+      textMetric('Assessments', input.assessments),
+      textMetric('Findings', input.findings),
+      textMetric('Critical', input.critical),
+      `Projects     ${input.activeProjects} (active)`,
+      '',
+      input.dashboardUrl ? `View your dashboard: ${input.dashboardUrl}` : '',
+    ]
+      .filter((line) => line !== '')
+      .join('\n'),
+  };
+}
+
+/**
+ * One metric row.
+ *
+ * `higherIsBetter` decides the colour, not the sign: more assessments is
+ * progress and reads green, more findings is a regression and reads red, and
+ * both are `+`. Colouring by direction alone would congratulate a reader on the
+ * week their critical count doubled.
+ */
+function metricTile(
+  label: string,
+  metric: WeeklyMetricInput,
+  higherIsBetter: boolean,
+  caption?: string,
+): string {
+  const change = formatPercent(metric.changePercent);
+  const colour =
+    change === null || metric.changePercent === 0
+      ? COLORS.muted
+      : metric.changePercent! > 0 === higherIsBetter
+        ? COLORS.positive
+        : COLORS.critical;
+
+  const trailing = change
+    ? `<span style="font:600 13px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${colour};">${escapeHtml(change)}</span> <span style="font:400 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.muted};">vs last week</span>`
+    : caption
+      ? `<span style="font:400 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.muted};">${escapeHtml(caption)}</span>`
+      : '';
+
+  return `
+      <tr>
+        <td style="padding:0 0 10px 0;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${COLORS.surface};border-radius:8px;">
+            <tr>
+              <td style="padding:14px 18px;">
+                <p style="margin:0;font:600 11px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.muted};text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(label)}</p>
+                <p style="margin:6px 0 0 0;font:600 26px/1.1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${COLORS.ink};">${metric.count.toLocaleString('en-US')}</p>
+                ${trailing ? `<p style="margin:6px 0 0 0;">${trailing}</p>` : ''}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>`;
+}
+
+function textMetric(label: string, metric: WeeklyMetricInput): string {
+  const change = formatPercent(metric.changePercent);
+  const suffix = change ? ` (${change} vs last week)` : ' (no comparison available)';
+  return `${label.padEnd(12)} ${metric.count}${suffix}`;
+}
+
+/** `+12%`, `-8%`, `0%`, or null when there is no baseline. See `percentChange`. */
+function formatPercent(value: number | null): string | null {
+  if (value === null || !Number.isFinite(value)) return null;
+  const rounded = Math.round(value);
+  if (rounded === 0) return '0%';
+  return rounded > 0 ? `+${rounded}%` : `${rounded}%`;
 }

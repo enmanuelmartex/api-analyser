@@ -83,8 +83,27 @@ export const authApi = {
   /**
    * Self-service profile update. Separate from `usersApi.update`, which is
    * admin-only — a non-admin cannot call it even for their own account.
+   *
+   * A true partial update: send only the keys you mean to change. `null` is a
+   * value on the preference fields — it clears the choice, which is how an
+   * account goes back to the default and, for `timeZone`, back to following the
+   * browser. Omitting a key leaves it alone, so saving a display name cannot
+   * quietly reset a timezone.
    */
-  updateMe: (data: { name: string }) => api.patch('/auth/me', data).then((r) => r.data),
+  updateMe: (data: {
+    name?: string;
+    avatarColor?: string | null;
+    timeZone?: string | null;
+    dateFormat?: string | null;
+    timeFormat?: string | null;
+    /**
+     * Mirrored from `next-themes`, which keeps the real choice in
+     * `localStorage`. Persisted so the SERVER knows which variant of a
+     * transactional email to render — a Vercel function cannot read a
+     * browser's storage, and an email cannot ask. See `ThemeSync`.
+     */
+    theme?: 'system' | 'light' | 'dark' | null;
+  }) => api.patch('/auth/me', data).then((r) => r.data),
   // Exchange a Better Auth session token for a JWT used by all domain routes
   exchangeSession: (sessionToken: string) =>
     api.post('/auth/exchange-session', { token: sessionToken }).then((r) => r.data),

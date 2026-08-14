@@ -7,6 +7,16 @@ export interface User {
   isActive?: boolean;
   lastLogin?: string;
   createdAt: string;
+  /*
+   * Display preferences. Null throughout means "never chosen", which resolves
+   * to the product default — and for `timeZone`, to the browser's own zone.
+   * Mirrors `apps/api/src/modules/auth/display-preferences.ts`; the renderers
+   * are `components/shared/user-avatar.tsx` and `lib/user-preferences.ts`.
+   */
+  avatarColor?: string | null;
+  timeZone?: string | null;
+  dateFormat?: string | null;
+  timeFormat?: string | null;
 }
 
 export type AuditActionType =
@@ -21,6 +31,8 @@ export interface ManagedUser {
   role: 'ADMIN' | 'ANALYST' | 'VIEWER';
   /** Better Auth writes its `image` into this column; null for local accounts. */
   avatar?: string | null;
+  /** The palette key the account picked for its initials. See `user-avatar.tsx`. */
+  avatarColor?: string | null;
   isActive: boolean;
   lastLogin?: string;
   createdAt: string;
@@ -235,6 +247,7 @@ export interface NotificationPreferences {
   emailScanFailed: boolean;
   emailReportGenerated: boolean;
   emailCriticalFinding: boolean;
+  emailWeeklySummary: boolean;
 
   // Experience
   soundEnabled: boolean;
@@ -340,7 +353,13 @@ export interface SecurityIssue {
   createdAt: string;
   updatedAt: string;
   project?: { id: string; name: string };
-  assignee?: { id: string; name: string; email: string; avatar?: string | null } | null;
+  assignee?: {
+    id: string;
+    name: string;
+    email: string;
+    avatar?: string | null;
+    avatarColor?: string | null;
+  } | null;
   occurrences?: FindingOccurrence[];
   statusChanges?: IssueStatusChange[];
 }
@@ -521,6 +540,14 @@ export interface AiProviderStatus {
   model:     string;
   available: boolean;
   reason?:   string;
+  /**
+   * Providers that hold a credential, whether or not one is active.
+   *
+   * Non-empty while `available` is false means the instance has a key saved but
+   * nothing activated — a different problem, with a different fix, from having
+   * no provider at all.
+   */
+  configuredProviders?: string[];
 }
 
 export type AiProfile = 'minimal' | 'balanced' | 'complete' | 'custom';
@@ -1125,6 +1152,7 @@ export interface AssignableUser {
   role: string;
   /** Better Auth writes its `image` into this column; null for local accounts. */
   avatar?: string | null;
+  avatarColor?: string | null;
 }
 
 /** Aggregates from `GET /issues/stats`. Prisma groupBy shape, kept verbatim. */

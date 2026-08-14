@@ -13,6 +13,44 @@ import { setBetterAuthPassword } from '../../lib/better-auth-credentials';
 import { AuditService } from '../audit/audit.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+
+/** The profile columns `PATCH /auth/me` is allowed to write. */
+const PROFILE_FIELDS = [
+  'name',
+  'avatarColor',
+  'timeZone',
+  'dateFormat',
+  'timeFormat',
+  // Mirrored from the browser's own theme store so the email pipeline, which
+  // renders server-side, can pick the light or dark variant of a message.
+  'theme',
+] as const;
+
+/**
+ * The subset of a profile PATCH that was actually asked for.
+ *
+ * Keys the request omitted are dropped; keys it sent as `null` are kept, because
+ * null is a value here — "clear my choice" — and not the absence of one. Empty
+ * strings are normalised to null so a cleared select and an unset one are the
+ * same state in the database rather than two spellings of it.
+ *
+ * Exported so the controller can name the changed fields in the audit record
+ * without re-deriving the rule and drifting from it.
+ */
+export function profileChanges(dto: UpdateProfileDto): Partial<Record<(typeof PROFILE_FIELDS)[number], string | null>> {
+  const changes: Record<string, string | null> = {};
+
+  for (const field of PROFILE_FIELDS) {
+    const value = dto[field];
+    if (value === undefined) continue;
+    // `name` can never be null — the DTO rejects it — so this only ever nulls a
+    // preference column.
+    changes[field] = value === null || value === '' ? null : value;
+  }
+
+  return changes;
+}
 
 @Injectable()
 export class AuthService {
@@ -176,6 +214,15 @@ export class AuthService {
         name: true,
         role: true,
         avatar: true,
+        // Display preferences travel with the identity rather than on a route of
+        // their own: the client already fetches `me` before it renders anything,
+        // and a second request would mean the first timestamps paint in the
+        // wrong format and then move.
+        avatarColor: true,
+        timeZone: true,
+        dateFormat: true,
+        timeFormat: true,
+        theme: true,
         lastLogin: true,
         createdAt: true,
       },
@@ -188,12 +235,23 @@ export class AuthService {
    * Scoped to the authenticated id — the id is never taken from the request
    * body, so this cannot be pointed at another account. Returns the same shape
    * as `me()` so the client can replace its cached user directly.
+   *
+   * A partial update in the strict sense: only keys actually present in the
+   * request reach Prisma. Spreading the DTO wholesale would send `name:
+   * undefined` for a preferences-only PATCH — harmless with Prisma, but it also
+   * sends `timeZone: undefined` for a rename, and the moment anything here
+   * grows a `null`-vs-missing distinction that becomes a silent data loss. The
+   * distinction is kept explicit instead: absent means untouched, `null` means
+   * cleared back to the default.
    */
-  async updateProfile(userId: string, data: { name: string }) {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { name: data.name },
-    });
+  async updateProfile(userId: string, data: UpdateProfileDto) {
+    const changes = profileChanges(data);
+
+    // Nothing to write. Still returns the current profile so the caller's
+    // "replace my cached user with the response" path holds for every request.
+    if (Object.keys(changes).length === 0) return this.me(userId);
+
+    await this.prisma.user.update({ where: { id: userId }, data: changes });
 
     return this.me(userId);
   }

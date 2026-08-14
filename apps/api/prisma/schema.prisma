@@ -369,6 +369,40 @@ model User {
   emailVerified Boolean   @default(false)
   ownerId       String?
 
+  /// Display preferences, all nullable, and null is a meaning rather than a gap:
+  /// "this account has not chosen, so fall back to the product default".
+  ///
+  /// Stored as plain strings rather than enums on purpose. The set of date
+  /// formats and avatar colours is a presentation catalogue owned by the web
+  /// app — adding "14 Aug 2026" to the list should not require a database
+  /// migration, and a value the browser no longer recognises degrades to the
+  /// default instead of failing. The API still validates every value against a
+  /// known set at the boundary (see `auth/display-preferences.ts`), so a typo
+  /// is rejected at write time rather than discovered at read time.
+  ///
+  /// `timeZone` is the exception: it is an IANA name and is validated against
+  /// the runtime's own tz database, exactly as scheduled scans are.
+  avatarColor String?
+  timeZone    String?
+  dateFormat  String?
+  timeFormat  String?
+
+  /// Light/dark preference — `system`, `light` or `dark`.
+  ///
+  /// ADDED FOR EMAIL, and that is the whole reason it is a column rather than
+  /// staying in the browser. `next-themes` keeps the choice in `localStorage`,
+  /// which is exactly the right place for a preference only the browser acts
+  /// on — but the transactional emails are rendered in a Vercel function that
+  /// has no access to it, and an email cannot ask. Persisting it here is what
+  /// lets the server resolve which variant of a message to send.
+  ///
+  /// Null means "never chosen", and resolves to the product default the same
+  /// way every other preference here does. `system` is stored verbatim rather
+  /// than resolved at write time, because what the OS reports can change after
+  /// the user sets it; the email pipeline resolves `system` to `light` at send
+  /// time, since a server has no way to observe an OS theme.
+  theme String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1594,6 +1628,17 @@ model NotificationPreference {
   emailScanFailed      Boolean @default(true)
   emailReportGenerated Boolean @default(true)
   emailCriticalFinding Boolean @default(true)
+
+  /// The weekly activity digest.
+  ///
+  /// Its own switch rather than riding on `emailScanCompleted`, because it is a
+  /// different kind of message: the others are reactions to something the user
+  /// caused, this one arrives on a schedule whether or not they did anything.
+  /// Someone who wants to know the moment a scan finishes may reasonably not
+  /// want a Monday digest, and vice versa.
+  ///
+  /// Still subordinate to `emailEnabled`, like every switch above it.
+  emailWeeklySummary Boolean @default(true)
 
   /// Play a short sound on arrival. Browser autoplay policy still applies; the
   /// UI never tries to work around it.

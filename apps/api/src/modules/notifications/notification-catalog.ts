@@ -44,6 +44,16 @@ export interface EmailPreferenceFlags {
   emailScanFailed: boolean;
   emailReportGenerated: boolean;
   emailCriticalFinding: boolean;
+  /**
+   * The weekly digest.
+   *
+   * The one email switch with no `NotificationType` behind it, because it is
+   * not a reaction to an event: nothing happens that a notification could
+   * describe, a scheduler simply comes round on Monday. It is therefore read
+   * directly by the weekly job rather than through `wantsEmail`, which takes a
+   * notification type — see `NotificationPreferencesService.wantsWeeklySummary`.
+   */
+  emailWeeklySummary: boolean;
 }
 
 /** Presentation-only switches. Neither gates delivery; both shape arrival. */
@@ -194,6 +204,7 @@ export const DEFAULT_PREFERENCES: PreferenceFlags = {
   emailScanFailed: true,
   emailReportGenerated: true,
   emailCriticalFinding: true,
+  emailWeeklySummary: true,
 
   soundEnabled: false,
   desktopEnabled: false,

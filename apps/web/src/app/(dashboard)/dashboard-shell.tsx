@@ -6,7 +6,9 @@ import { useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { IconLoader2 } from "@tabler/icons-react";
 import { authApi } from "@/lib/api";
+import { clearStoredPreferences, setPreferences } from "@/lib/user-preferences";
 import { useNotificationStream } from "@/hooks/use-notification-summary";
+import { ThemeSync } from "@/components/layout/theme-sync";
 
 /**
  * `ssr: false` is safe (not just an optimisation) here: `ready` — the only
@@ -36,6 +38,10 @@ function SessionSpinner() {
 function clearSession() {
   localStorage.removeItem("api_analyser_token");
   localStorage.removeItem("api_analyser_user");
+  // The cached preferences belong to the account that just went away. Leaving
+  // them behind means the next person to sign in on this machine reads their
+  // timestamps in a stranger's timezone until `/auth/me` returns.
+  clearStoredPreferences();
 }
 
 /**
@@ -97,12 +103,6 @@ export function DashboardShell({
     }
   }, [hasToken, isError, router]);
 
-  const ready = hasToken === true && !isLoading && !isError && !!user;
-
-  if (!ready) {
-    return <SessionSpinner />;
-  }
-
   /*
    * One EventSource for the whole application, opened here because this is the
    * only component guaranteed to be mounted for the entire session.
@@ -114,11 +114,48 @@ export function DashboardShell({
    * Purely an optimisation: every notification is a database row before it is
    * streamed, so a user who was offline sees exactly the same counts on their
    * next page load.
+   *
+   * Called unconditionally, ABOVE the `!ready` return below. It sat underneath
+   * it until the session gate was added, which meant the hook ran on some
+   * renders and not others — React matches hooks positionally, so the counts
+   * silently attached themselves to whatever hook happened to occupy that slot.
+   * Connecting early costs nothing: the effect reads the token itself and does
+   * not open a stream without one.
    */
   useNotificationStream();
 
+  const ready = hasToken === true && !isLoading && !isError && !!user;
+
+  /*
+   * The account's timezone and date format, pushed into the store every
+   * dated view reads from (`lib/user-preferences.ts`).
+   *
+   * Done here during render rather than in an effect, and deliberately: an
+   * effect runs *after* the children have painted, so every timestamp on the
+   * first screen would render in the default format and then visibly reformat
+   * itself. `setPreferences` compares before it writes and no-ops when nothing
+   * differs, so calling it on every render is free and cannot loop.
+   *
+   * This is also the only place it needs doing. `/auth/me` is the one request
+   * guaranteed to precede any protected content, and the settings screen writes
+   * its result back into this same `['me']` cache entry — so a saved preference
+   * arrives here on the very next render.
+   */
+  if (ready) setPreferences(user);
+
+  if (!ready) {
+    return <SessionSpinner />;
+  }
+
   return (
     <DashboardChrome user={user} defaultSidebarOpen={defaultSidebarOpen}>
+      {/*
+        Mounted here rather than beside the other providers, because it issues
+        an authenticated PATCH. Above this point there is no confirmed session —
+        `(auth)` routes render the same provider tree — and a mirror that fired
+        on the login screen would 401 on every visit.
+      */}
+      <ThemeSync />
       {children}
     </DashboardChrome>
   );

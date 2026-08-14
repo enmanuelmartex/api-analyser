@@ -31,4 +31,23 @@ export interface ScanFailedJob {
   scheduleName?: string;
 }
 
-export type EmailJob = ScanReportReadyJob | ScanFailedJob;
+/**
+ * A user's weekly activity digest is due.
+ *
+ * Carries the user and the week, and no numbers: the processor computes the
+ * metrics itself, so a job that sat in the queue through a restart reports the
+ * week as it actually was rather than a snapshot captured at enqueue time.
+ *
+ * `weekStart` is the Monday of the reported week as `YYYY-MM-DD` in the user's
+ * own zone. It is both the thing that makes the idempotency key stable — the
+ * same week always produces the same key, however many times the scheduler
+ * ticks — and what stops a retry a day later from silently reporting a
+ * different week.
+ */
+export interface WeeklySummaryJob {
+  type: 'weekly-summary';
+  userId: string;
+  weekStart: string;
+}
+
+export type EmailJob = ScanReportReadyJob | ScanFailedJob | WeeklySummaryJob;

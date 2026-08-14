@@ -31,8 +31,10 @@ export type RelayPayload =
   | {
       template: 'scan-report';
       data: {
+        userName?: string;
         projectName: string;
         securityScore?: number | null;
+        riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
         counts?: {
           critical: number;
           high: number;
@@ -41,12 +43,16 @@ export type RelayPayload =
           info: number;
         };
         totalFindings?: number;
+        endpointsEvaluated?: number;
+        /** Calendar date in the recipient's zone, `YYYY-MM-DD`. Never an instant. */
+        scanDate?: string;
         reportUrl?: string;
       };
     }
   | {
       template: 'scan-failed';
       data: {
+        userName?: string;
         projectName: string;
         reason: string;
         scanUrl?: string;
@@ -56,11 +62,49 @@ export type RelayPayload =
   | {
       template: 'critical-finding';
       data: {
+        userName?: string;
         projectName: string;
         criticalCount: number;
         issuesUrl?: string;
       };
+    }
+  | {
+      template: 'weekly-summary';
+      data: {
+        userName?: string;
+        /** Monday of the reported week, `YYYY-MM-DD` in the recipient's zone. */
+        dateFrom: string;
+        /** Sunday, inclusive. */
+        dateTo: string;
+        assessments: WeeklyMetricPayload;
+        findings: WeeklyMetricPayload;
+        critical: WeeklyMetricPayload;
+        activeProjects: number;
+        dashboardUrl?: string;
+      };
     };
+
+/**
+ * One figure and its week-over-week change.
+ *
+ * `changePercent` is nullable and NOT optional. The relay's schema requires the
+ * key to be present, so "there was no previous week to compare against" has to
+ * be stated rather than implied by omission — which is what stops a forgotten
+ * field from being rendered as "no change".
+ */
+export interface WeeklyMetricPayload {
+  count: number;
+  changePercent: number | null;
+}
+
+/**
+ * Which palette the relay should render into.
+ *
+ * Resolved from the recipient's stored preference before the request is made.
+ * `system` is never sent: the relay has no OS to consult, so the API collapses
+ * it to a concrete value — see `resolveEmailTheme`.
+ */
+export type RelayTheme = 'light' | 'dark';
 
 export interface OutboundMessage {
   to: string;
@@ -70,6 +114,13 @@ export interface OutboundMessage {
   attachments?: MessageAttachment[];
   /** Present on every message that is allowed to travel through the relay. */
   relay?: RelayPayload;
+  /**
+   * Which variant the relay should render.
+   *
+   * Only meaningful for the relay: the direct-to-Resend transport renders its
+   * own HTML locally and has one variant. Absent means light.
+   */
+  theme?: RelayTheme;
 }
 
 export interface TransportSuccess {

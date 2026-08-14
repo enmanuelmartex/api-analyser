@@ -79,6 +79,10 @@ export class RelayTransport implements MailTransport {
     const body = {
       to: message.to,
       ...message.relay,
+      // Only sent when resolved. The relay defaults to light for an absent
+      // theme and rejects `system`, so an unset preference is left off rather
+      // than guessed at here.
+      ...(message.theme ? { theme: message.theme } : {}),
       ...(attachment && message.relay.template === 'scan-report'
         ? {
             attachment: {

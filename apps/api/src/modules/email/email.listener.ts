@@ -48,7 +48,7 @@ export class EmailListener {
         assessmentId: payload.assessmentId,
         userId: payload.userId,
       },
-      `report-ready:${payload.reportId}`,
+      `report-ready-${payload.reportId}`,
     );
   }
 
@@ -62,7 +62,7 @@ export class EmailListener {
         reason: payload.reason,
         scheduleName: payload.scheduleName,
       },
-      `scan-failed:${payload.assessmentId}`,
+      `scan-failed-${payload.assessmentId}`,
     );
   }
 

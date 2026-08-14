@@ -78,6 +78,12 @@ const EMAIL_ITEMS: {
     description:
       'Only sent on its own if you have muted scan-completed emails — otherwise the breakdown is already in that email.',
   },
+  {
+    key: 'emailWeeklySummary',
+    label: 'Weekly summary',
+    description:
+      'A Monday digest of the previous week: assessments run, findings, criticals, and how each compares with the week before.',
+  },
 ];
 
 const GROUPS: PreferenceGroup[] = [

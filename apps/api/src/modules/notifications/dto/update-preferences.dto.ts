@@ -25,6 +25,7 @@ export class UpdatePreferencesDto {
   @IsOptional() @IsBoolean() emailScanFailed?: boolean;
   @IsOptional() @IsBoolean() emailReportGenerated?: boolean;
   @IsOptional() @IsBoolean() emailCriticalFinding?: boolean;
+  @IsOptional() @IsBoolean() emailWeeklySummary?: boolean;
 
   // ── Experience ────────────────────────────────────────────────────────────
   @IsOptional() @IsBoolean() soundEnabled?: boolean;

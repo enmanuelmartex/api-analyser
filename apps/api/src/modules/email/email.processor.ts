@@ -6,14 +6,48 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ReportsService } from '../reports/reports.service';
 import { NotificationPreferencesService } from '../notifications/notification-preferences.service';
 import { SettingsService } from '../settings/settings.service';
-import { EmailService, maskEmail } from './email.service';
-import { EMAIL_QUEUE, type EmailJob, type ScanFailedJob, type ScanReportReadyJob } from './email.jobs';
+import { resolveEmailTheme } from '../auth/display-preferences';
+import { EmailService, maskEmail, type RelayTheme } from './email.service';
+import {
+  EMAIL_QUEUE,
+  type EmailJob,
+  type ScanFailedJob,
+  type ScanReportReadyJob,
+  type WeeklySummaryJob,
+} from './email.jobs';
 import {
   renderCriticalFindingEmail,
   renderScanCompletedEmail,
   renderScanFailedEmail,
+  renderWeeklySummaryEmail,
 } from './email-templates';
-import { deliveryKey, planRecipients, type PlannedRecipient } from './report-recipients';
+import {
+  deliveryKey,
+  planRecipients,
+  weeklyDeliveryKey,
+  type PlannedRecipient,
+} from './report-recipients';
+import { calendarDateIn } from './week-range';
+import { WeeklySummaryService } from './weekly-summary.service';
+
+/** The risk levels the summary can hold, and the only ones the relay accepts. */
+const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
+
+type RiskLevel = (typeof RISK_LEVELS)[number];
+
+/**
+ * Narrows the free-text `riskLevel` column to what the relay's enum accepts.
+ *
+ * The column is a plain string with a `"LOW"` default rather than a database
+ * enum, so an older row — or one written by a future scorer — could hold
+ * anything. An unrecognised value becomes `undefined`, which renders as an
+ * omitted row rather than earning a 400 from the relay and losing the whole
+ * email over a cosmetic field.
+ */
+function normaliseRiskLevel(value: string | null | undefined): RiskLevel | undefined {
+  const upper = value?.toUpperCase();
+  return RISK_LEVELS.includes(upper as RiskLevel) ? (upper as RiskLevel) : undefined;
+}
 
 /**
  * The relay caps a `reason` at 1000 characters. Truncated here rather than
@@ -46,6 +80,7 @@ export class EmailProcessor extends WorkerHost {
     private settings: SettingsService,
     private email: EmailService,
     private config: ConfigService,
+    private weekly: WeeklySummaryService,
   ) {
     super();
   }
@@ -56,6 +91,8 @@ export class EmailProcessor extends WorkerHost {
         return this.sendReportReady(job.data);
       case 'scan-failed':
         return this.sendScanFailed(job.data);
+      case 'weekly-summary':
+        return this.sendWeeklySummary(job.data);
       default: {
         // Exhaustive: a new job type added without a branch is a compile error.
         const unreachable: never = job.data;
@@ -79,6 +116,7 @@ export class EmailProcessor extends WorkerHost {
       select: {
         id: true,
         summary: true,
+        completedAt: true,
         project: { select: { id: true, name: true } },
       },
     });
@@ -95,6 +133,11 @@ export class EmailProcessor extends WorkerHost {
     const totalFindings = assessment.summary?.totalFindings ?? 0;
     const securityScore = assessment.summary?.securityScore ?? null;
     const projectName = assessment.project.name || 'your project';
+    // "Evaluated" means tested, not discovered: a specification can carry
+    // endpoints the run never reached, and reporting those as evaluated would
+    // overstate the coverage the score was computed from.
+    const endpointsEvaluated = assessment.summary?.testedEndpoints ?? undefined;
+    const riskLevel = normaliseRiskLevel(assessment.summary?.riskLevel);
 
     const owner = await this.activeOwner(job.userId);
 
@@ -187,22 +230,42 @@ export class EmailProcessor extends WorkerHost {
 
     const reportUrl = this.appUrl(`/reports/${job.reportId}`);
 
-    const rendered = renderScanCompletedEmail({
-      projectName,
-      securityScore,
-      counts,
-      totalFindings,
-      reportUrl: reportUrl ?? '',
-      attached: attachment !== null,
-      attachmentSkippedReason: skippedReason,
-    });
-
     this.logger.log(
       `[Email] Sending report ${job.reportId} to ${pending.length} recipient(s): ` +
         pending.map((recipient) => maskEmail(recipient.address)).join(', '),
     );
 
+    /*
+     * Rendered per recipient rather than once.
+     *
+     * The message now carries the reader's own name and their own light/dark
+     * choice, so it is genuinely different per address — the project owner gets
+     * "Hi Ada," in dark, while the team mailbox on `security@` gets a neutral
+     * greeting in light because there is no person behind it to have a
+     * preference. The expensive part is not the render: it is the PDF, which is
+     * read from disk once above and shared by every send.
+     */
     for (const recipient of pending) {
+      const person = await this.recipientProfile(recipient.userId);
+      const scanDate = calendarDateIn(
+        assessment.completedAt ?? new Date(),
+        person.timeZone,
+      );
+
+      const rendered = renderScanCompletedEmail({
+        userName: person.name,
+        projectName,
+        securityScore,
+        riskLevel,
+        counts,
+        totalFindings,
+        endpointsEvaluated,
+        scanDate,
+        reportUrl: reportUrl ?? '',
+        attached: attachment !== null,
+        attachmentSkippedReason: skippedReason,
+      });
+
       results.push(
         await this.email.send({
           idempotencyKey: deliveryKey('report-ready', job.reportId, recipient.address),
@@ -213,13 +276,18 @@ export class EmailProcessor extends WorkerHost {
           entityId: job.reportId,
           projectName,
           attachments: attachment ? [attachment] : undefined,
+          theme: person.theme,
           relay: {
             template: 'scan-report',
             data: {
+              userName: person.name,
               projectName,
               securityScore,
+              riskLevel,
               counts,
               totalFindings,
+              endpointsEvaluated,
+              scanDate,
               reportUrl,
             },
           },
@@ -229,6 +297,131 @@ export class EmailProcessor extends WorkerHost {
     }
 
     return { results };
+  }
+
+  /**
+   * "Your weekly summary", with the numbers computed at send time.
+   *
+   * The job carries a user id and a week, never the figures. A digest that sat
+   * in the queue through a restart therefore reports the week as it actually
+   * was, and a retry after a partial failure cannot deliver stale numbers.
+   *
+   * Every gate is re-checked here rather than trusted from the scheduler,
+   * because a job can wait: a user who turned email off in the intervening
+   * minutes must not receive one.
+   */
+  private async sendWeeklySummary(job: WeeklySummaryJob) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: job.userId },
+      select: { id: true, email: true, name: true, isActive: true, theme: true },
+    });
+
+    if (!user?.isActive || !user.email) return { skipped: 'user-unavailable' };
+
+    if (!(await this.preferences.wantsWeeklySummary(user.id))) {
+      return { skipped: 'preference-off' };
+    }
+
+    const key = weeklyDeliveryKey(job.weekStart, user.email);
+    if (await this.email.alreadySent(key)) return { skipped: 'already-sent' };
+
+    const summary = await this.weekly.compute(user.id);
+    if (!summary) return { skipped: 'no-projects' };
+
+    /*
+     * A week in which nothing happened is not worth an email.
+     *
+     * Sending four zeroes every Monday to someone who is not currently using
+     * the product is how a useful digest becomes something people filter. The
+     * check is deliberately narrow — no assessments in EITHER week and no
+     * active projects — so a quiet week between two busy ones still reports,
+     * because "you ran nothing this week" is real information there.
+     */
+    if (summary.isEmpty) {
+      this.logger.log(`[Weekly] Nothing to report for ${user.id}; not sending a digest.`);
+      return { skipped: 'no-activity' };
+    }
+
+    const dashboardUrl = this.weekly.dashboardUrl();
+    const theme = resolveEmailTheme(user.theme);
+
+    const rendered = renderWeeklySummaryEmail({
+      userName: user.name,
+      dateFrom: summary.week.fromDate,
+      dateTo: summary.week.toDate,
+      assessments: summary.assessments,
+      findings: summary.findings,
+      critical: summary.critical,
+      activeProjects: summary.activeProjects,
+      dashboardUrl: dashboardUrl ?? '',
+    });
+
+    this.logger.log(
+      `[Weekly] Sending ${summary.week.fromDate}..${summary.week.toDate} digest to ` +
+        `${maskEmail(user.email)}`,
+    );
+
+    return {
+      result: await this.email.send({
+        idempotencyKey: key,
+        userId: user.id,
+        to: user.email,
+        template: 'weekly-summary',
+        entityType: 'user',
+        entityId: user.id,
+        theme,
+        relay: {
+          template: 'weekly-summary',
+          data: {
+            userName: user.name,
+            dateFrom: summary.week.fromDate,
+            dateTo: summary.week.toDate,
+            assessments: summary.assessments,
+            findings: summary.findings,
+            critical: summary.critical,
+            activeProjects: summary.activeProjects,
+            dashboardUrl,
+          },
+        },
+        ...rendered,
+      }),
+    };
+  }
+
+  /**
+   * The name, zone and theme to render for one recipient.
+   *
+   * A configured team mailbox has no user id and therefore no preferences: it
+   * gets no greeting name, the system zone, and the light variant. That is the
+   * correct answer rather than a fallback — there is nobody whose preference
+   * could be consulted, and guessing one would be inventing it.
+   */
+  private async recipientProfile(userId: string | undefined): Promise<{
+    name?: string;
+    timeZone: string;
+    theme: RelayTheme;
+  }> {
+    const systemZone = this.systemTimeZone();
+    if (!userId) return { timeZone: systemZone, theme: 'light' };
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, timeZone: true, theme: true },
+    });
+
+    return {
+      name: user?.name || undefined,
+      timeZone: user?.timeZone || systemZone,
+      theme: resolveEmailTheme(user?.theme),
+    };
+  }
+
+  private systemTimeZone(): string {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+      return 'UTC';
+    }
   }
 
   private async sendScanFailed(job: ScanFailedJob) {

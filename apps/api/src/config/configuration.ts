@@ -170,5 +170,20 @@ export default () => ({
     relayUrl: process.env.MAIL_RELAY_URL || '',
     /** Never logged. Each transport redacts its own credential before returning. */
     relayToken: process.env.MAIL_RELAY_TOKEN || '',
+    /**
+     * The Monday activity digest.
+     *
+     * On by default, but gated twice more before anything is sent: a transport
+     * must be configured at all, and each user's own `emailWeeklySummary`
+     * preference must be on beneath their master `emailEnabled` — which is off
+     * until someone turns it on. So the default here does not mail anybody who
+     * has not already opted into email.
+     */
+    weeklySummaryEnabled: process.env.WEEKLY_SUMMARY_ENABLED !== 'false',
+    /**
+     * Local hour, on Monday, at which the digest becomes due — in each
+     * recipient's own timezone, not the server's. Clamped to 0-23.
+     */
+    weeklySummaryHour: parseInt(process.env.WEEKLY_SUMMARY_HOUR, 10) || 8,
   },
 });

@@ -6,6 +6,8 @@ import { EmailListener } from './email.listener';
 import { EMAIL_QUEUE } from './email.jobs';
 import { ReportsModule } from '../reports/reports.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { WeeklySummaryService } from './weekly-summary.service';
+import { WeeklySummaryScheduler } from './weekly-summary.scheduler';
 
 /**
  * Outbound transactional email.
@@ -22,7 +24,13 @@ import { NotificationsModule } from '../notifications/notifications.module';
     ReportsModule,
     NotificationsModule,
   ],
-  providers: [EmailService, EmailProcessor, EmailListener],
+  providers: [
+    EmailService,
+    EmailProcessor,
+    EmailListener,
+    WeeklySummaryService,
+    WeeklySummaryScheduler,
+  ],
   exports: [EmailService],
 })
 export class EmailModule {}

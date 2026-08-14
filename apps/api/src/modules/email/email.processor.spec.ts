@@ -10,9 +10,24 @@ import { EmailProcessor } from './email.processor';
  *   • it never announces a report that is not COMPLETED.
  */
 
+/**
+ * When the fixture's scan finished, as an instant.
+ *
+ * 02:30 UTC on the 14th, which is 22:30 on the 13th in `America/Santo_Domingo`.
+ * The two dates differing is the point: a processor that formatted the
+ * timestamp in UTC instead of in the recipient's zone would report the wrong
+ * day, and this instant is what makes that visible rather than coincidentally
+ * correct.
+ */
+const COMPLETED_AT = new Date('2026-08-14T02:30:00Z');
+
 interface Options {
   preferences?: Record<string, boolean>;
   user?: any;
+  /** Overrides on the assessment summary — risk level, endpoint count, … */
+  summary?: Record<string, unknown>;
+  /** What `WeeklySummaryService.compute` returns. `null` means "no projects". */
+  weeklySummary?: any;
   reportStatus?: string;
   fileSize?: number;
   maxAttachmentBytes?: number;
@@ -57,7 +72,12 @@ function makeProcessor(options: Options = {}) {
           mediumCount: 5,
           lowCount: 2,
           infoCount: 0,
+          ...options.summary,
         },
+        // Late enough in the UTC day that anywhere west of Greenwich is still
+        // on the previous date — which is what makes the timezone test below
+        // able to fail.
+        completedAt: COMPLETED_AT,
         project: { id: 'proj_1', name: 'Production API' },
       }),
     },
@@ -92,6 +112,17 @@ function makeProcessor(options: Options = {}) {
       };
       return map[type] ?? false;
     },
+    wantsWeeklySummary: async () =>
+      preferences.emailEnabled && (preferences.emailWeeklySummary ?? true),
+  };
+
+  const weekly = {
+    // `in` rather than `??`, because null is a meaningful value here — "this
+    // user has no projects" — and `??` would fall through to the default.
+    compute: async () =>
+      'weeklySummary' in options ? options.weeklySummary : DEFAULT_WEEKLY_SUMMARY,
+    dashboardUrl: () =>
+      options.appUrl === '' ? undefined : `${options.appUrl ?? 'https://scan.example.com'}/dashboard`,
   };
 
   const email = {
@@ -127,10 +158,30 @@ function makeProcessor(options: Options = {}) {
     settings as any,
     email as any,
     config as any,
+    weekly as any,
   );
 
   return { processor, sent, resolveCalls };
 }
+
+/** A representative week, for the digest tests. */
+const DEFAULT_WEEKLY_SUMMARY = {
+  week: {
+    start: new Date('2026-09-07T04:00:00Z'),
+    endExclusive: new Date('2026-09-14T04:00:00Z'),
+    fromDate: '2026-09-07',
+    toDate: '2026-09-13',
+  },
+  assessments: { count: 14, changePercent: 12 },
+  findings: { count: 23, changePercent: -8 },
+  critical: { count: 3, changePercent: 0 },
+  activeProjects: 3,
+  isEmpty: false,
+};
+
+const WEEKLY_JOB = {
+  data: { type: 'weekly-summary', userId: 'user_1', weekStart: '2026-09-07' },
+} as any;
 
 const READY_JOB = {
   data: { type: 'scan-report-ready', reportId: 'report_456', assessmentId: 'scan_123', userId: 'user_1' },
@@ -393,8 +444,108 @@ describe('configured recipients', () => {
         counts: { critical: 1, high: 3, medium: 5, low: 2, info: 0 },
         totalFindings: 11,
         reportUrl: 'https://scan.example.com/reports/report_456',
+        /*
+         * The fields the redesigned template added, absent in this fixture
+         * because its summary carries no risk level or endpoint count and its
+         * recipient is a configured mailbox with no name.
+         *
+         * Asserted as explicit `undefined` rather than omitted from the
+         * expectation: `toEqual` would accept either, and writing them out is
+         * what proves the payload degrades to "field not sent" rather than to
+         * a string reading "undefined". `JSON.stringify` drops these keys, so
+         * the relay receives an object without them and its `.optional()`
+         * schema accepts it.
+         */
+        userName: undefined,
+        riskLevel: undefined,
+        endpointsEvaluated: undefined,
+        // A calendar date, never a timestamp. The relay's schema rejects
+        // anything carrying a time or an offset — see the note in its
+        // `format.ts` on why a timezone never crosses that boundary. The exact
+        // value depends on the runner's zone; the zone-specific behaviour is
+        // pinned by the test below instead.
+        scanDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       },
     });
+  });
+
+  /*
+   * The UTC off-by-one, as a test.
+   *
+   * The scan finished at 02:30 UTC on the 14th, which is 22:30 on the 13th for
+   * a user in Santo Domingo. They ran it on the 13th and the email has to say
+   * so. Formatting the instant in UTC — the obvious implementation — produces
+   * "August 14" and is wrong for every user west of Greenwich, in the evening,
+   * which is to say in production and never in a test written in UTC.
+   */
+  it('resolves the scan date in the recipient own timezone, not UTC', async () => {
+    const { processor, sent } = makeProcessor({
+      user: {
+        id: 'user_1',
+        email: 'owner@example.com',
+        isActive: true,
+        name: 'Ada',
+        timeZone: 'America/Santo_Domingo',
+        theme: 'dark',
+      },
+    });
+
+    await processor.process(READY_JOB);
+
+    expect(sent[0].relay.data.scanDate).toBe('2026-08-13');
+    expect(sent[0].relay.data.userName).toBe('Ada');
+    // The stored preference decides the variant; the relay never guesses.
+    expect(sent[0].theme).toBe('dark');
+  });
+
+  it('greets a configured mailbox neutrally and renders it light', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['security@corp.example'],
+      // No owner at all, so the only recipient is the configured address.
+      user: null,
+    });
+
+    await processor.process(READY_JOB);
+
+    // There is no person behind a team mailbox to have a name or a preference,
+    // so the message carries neither rather than borrowing someone else's.
+    expect(sent[0].relay.data.userName).toBeUndefined();
+    expect(sent[0].theme).toBe('light');
+  });
+
+  it('passes the risk level and endpoint count through when the summary has them', async () => {
+    const { processor, sent } = makeProcessor({
+      summary: { riskLevel: 'HIGH', testedEndpoints: 12 },
+    });
+
+    await processor.process(READY_JOB);
+
+    expect(sent[0].relay.data.riskLevel).toBe('HIGH');
+    expect(sent[0].relay.data.endpointsEvaluated).toBe(12);
+  });
+
+  /*
+   * `riskLevel` is a plain string column with a "LOW" default rather than a
+   * database enum, so an old row or a future scorer could hold anything. An
+   * unrecognised value must become an omitted field, not a 400 from the relay
+   * that loses the whole email over a cosmetic row.
+   */
+  it('drops a risk level the relay would reject rather than losing the email', async () => {
+    const { processor, sent } = makeProcessor({
+      summary: { riskLevel: 'CATASTROPHIC' },
+    });
+
+    await processor.process(READY_JOB);
+
+    expect(sent[0].relay.data.riskLevel).toBeUndefined();
+  });
+
+  it('accepts a lower-case risk level from an older row', async () => {
+    const { processor, sent } = makeProcessor({ summary: { riskLevel: 'high' } });
+
+    await processor.process(READY_JOB);
+
+    expect(sent[0].relay.data.riskLevel).toBe('HIGH');
   });
 
   it('omits the link entirely when the install has no app URL', async () => {
@@ -468,5 +619,196 @@ describe('scan-failed email', () => {
     await processor.process(FAILED_JOB);
 
     expect(sent).toHaveLength(0);
+  });
+});
+
+/**
+ * The weekly digest, from queued job to a message handed to `EmailService`.
+ *
+ * The job carries only a user id and a week; every figure and every gate is
+ * resolved here, at send time. That is what makes a job which sat in the queue
+ * through a restart report the week as it actually was.
+ */
+describe('weekly summary', () => {
+  it('sends a digest built from the computed metrics', async () => {
+    const { processor, sent } = makeProcessor({
+      user: {
+        id: 'user_1',
+        email: 'ada@example.com',
+        name: 'Ada',
+        isActive: true,
+        theme: 'dark',
+      },
+    });
+
+    await processor.process(WEEKLY_JOB);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe('ada@example.com');
+    expect(sent[0].template).toBe('weekly-summary');
+    expect(sent[0].theme).toBe('dark');
+    expect(sent[0].relay).toEqual({
+      template: 'weekly-summary',
+      data: {
+        userName: 'Ada',
+        dateFrom: '2026-09-07',
+        dateTo: '2026-09-13',
+        assessments: { count: 14, changePercent: 12 },
+        findings: { count: 23, changePercent: -8 },
+        critical: { count: 3, changePercent: 0 },
+        activeProjects: 3,
+        dashboardUrl: 'https://scan.example.com/dashboard',
+      },
+    });
+  });
+
+  /*
+   * Layer 3 of the duplicate guard, from the caller's side.
+   *
+   * The key is derived from the WEEK, not from the send date, so a job retried
+   * days later produces the same key — and `EmailService` claims it on a unique
+   * index before the transport is called.
+   */
+  it('keys idempotency on the week, so a retry cannot send a second copy', async () => {
+    const { processor, sent } = makeProcessor({
+      user: { id: 'user_1', email: 'Ada@Example.com', name: 'Ada', isActive: true },
+    });
+
+    await processor.process(WEEKLY_JOB);
+
+    // Lower-cased, so two spellings of one address cannot both be delivered.
+    expect(sent[0].idempotencyKey).toBe('weekly-summary:2026-09-07:ada@example.com');
+  });
+
+  it('does not send when the digest was already delivered for that week', async () => {
+    const { processor, sent } = makeProcessor({ alreadySent: true });
+
+    const result: any = await processor.process(WEEKLY_JOB);
+
+    expect(sent).toHaveLength(0);
+    expect(result.skipped).toBe('already-sent');
+  });
+
+  /*
+   * Re-checked here rather than trusted from the scheduler: a job can wait in
+   * the queue, and a user who switched email off in the meantime must not
+   * receive one.
+   */
+  it('re-checks the preference at send time, not at queue time', async () => {
+    const { processor, sent } = makeProcessor({
+      preferences: { emailEnabled: false },
+    });
+
+    const result: any = await processor.process(WEEKLY_JOB);
+
+    expect(sent).toHaveLength(0);
+    expect(result.skipped).toBe('preference-off');
+  });
+
+  it('does not send to a deactivated account', async () => {
+    const { processor, sent } = makeProcessor({
+      user: { id: 'user_1', email: 'ada@example.com', isActive: false },
+    });
+
+    const result: any = await processor.process(WEEKLY_JOB);
+
+    expect(sent).toHaveLength(0);
+    expect(result.skipped).toBe('user-unavailable');
+  });
+
+  it('does not send to an account with no address', async () => {
+    const { processor, sent } = makeProcessor({
+      user: { id: 'user_1', email: null, isActive: true },
+    });
+
+    await processor.process(WEEKLY_JOB);
+
+    expect(sent).toHaveLength(0);
+  });
+
+  it('sends nothing for a user with no projects', async () => {
+    const { processor, sent } = makeProcessor({ weeklySummary: null });
+
+    const result: any = await processor.process(WEEKLY_JOB);
+
+    expect(sent).toHaveLength(0);
+    expect(result.skipped).toBe('no-projects');
+  });
+
+  /*
+   * Four zeroes every Monday is how a useful digest becomes something people
+   * filter. The check is narrow on purpose — see the note on `isEmpty`.
+   */
+  it('declines to send a digest describing nothing at all', async () => {
+    const { processor, sent } = makeProcessor({
+      weeklySummary: { ...DEFAULT_WEEKLY_SUMMARY, isEmpty: true },
+    });
+
+    const result: any = await processor.process(WEEKLY_JOB);
+
+    expect(sent).toHaveLength(0);
+    expect(result.skipped).toBe('no-activity');
+  });
+
+  it('renders light for a user who has never chosen a theme', async () => {
+    const { processor, sent } = makeProcessor({
+      user: { id: 'user_1', email: 'ada@example.com', name: 'Ada', isActive: true, theme: null },
+    });
+
+    await processor.process(WEEKLY_JOB);
+
+    expect(sent[0].theme).toBe('light');
+  });
+
+  /*
+   * `system` cannot be honoured server-side — there is no OS to consult — so it
+   * must collapse to a concrete value. The relay rejects the word outright, so
+   * sending it through would lose the email.
+   */
+  it('resolves the "system" theme to a concrete variant', async () => {
+    const { processor, sent } = makeProcessor({
+      user: { id: 'user_1', email: 'ada@example.com', name: 'Ada', isActive: true, theme: 'system' },
+    });
+
+    await processor.process(WEEKLY_JOB);
+
+    expect(sent[0].theme).toBe('light');
+  });
+
+  it('omits the dashboard link when the install has no app URL', async () => {
+    const { processor, sent } = makeProcessor({ appUrl: '' });
+
+    await processor.process(WEEKLY_JOB);
+
+    expect(sent[0].relay.data.dashboardUrl).toBeUndefined();
+  });
+
+  it('carries a plain-text alternative and never leaks a placeholder', async () => {
+    const { processor, sent } = makeProcessor();
+
+    await processor.process(WEEKLY_JOB);
+
+    expect(sent[0].text.length).toBeGreaterThan(80);
+    expect(sent[0].text).not.toContain('undefined');
+    expect(sent[0].html).not.toContain('undefined');
+    expect(sent[0].html).not.toContain('NaN');
+    expect(sent[0].html).not.toContain('Infinity');
+  });
+
+  it('renders no percentage when a week has no baseline', async () => {
+    const { processor, sent } = makeProcessor({
+      weeklySummary: {
+        ...DEFAULT_WEEKLY_SUMMARY,
+        assessments: { count: 7, changePercent: null },
+        findings: { count: 0, changePercent: null },
+        critical: { count: 0, changePercent: null },
+      },
+    });
+
+    await processor.process(WEEKLY_JOB);
+
+    expect(sent[0].html).not.toContain('Infinity');
+    expect(sent[0].html).not.toContain('NaN');
+    expect(sent[0].text).toContain('no comparison available');
   });
 });

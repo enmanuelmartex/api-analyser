@@ -3,11 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { isTransportFailure } from './transports/mail-transport';
-import type { MailTransport, RelayPayload } from './transports/mail-transport';
+import type { MailTransport, RelayPayload, RelayTheme } from './transports/mail-transport';
 import { RelayTransport } from './transports/relay.transport';
 import { ResendTransport } from './transports/resend.transport';
 
-export type { RelayPayload } from './transports/mail-transport';
+export type { RelayPayload, RelayTheme } from './transports/mail-transport';
 
 /** Prisma's unique-constraint violation. */
 const UNIQUE_VIOLATION = 'P2002';
@@ -43,6 +43,11 @@ export interface SendEmailInput {
    * recorded as FAILED with a reason saying so, rather than arriving wrong.
    */
   relay?: RelayPayload;
+  /**
+   * Which variant the relay should render, resolved from the recipient's
+   * stored preference. Absent means light.
+   */
+  theme?: RelayTheme;
 }
 
 export type SendResult =
@@ -202,6 +207,7 @@ export class EmailService {
         text: input.text,
         attachments: input.attachments,
         relay: input.relay,
+        theme: input.theme,
       });
 
       // A transport never throws — a rejection is a returned value, already

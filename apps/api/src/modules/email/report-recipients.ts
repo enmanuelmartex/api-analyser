@@ -100,3 +100,15 @@ export function planRecipients(input: RecipientPlanInput): PlannedRecipient[] {
 export function deliveryKey(prefix: string, entityId: string, address: string): string {
   return `${prefix}:${entityId}:${address.trim().toLowerCase()}`;
 }
+
+/**
+ * The idempotency key for one user's digest for one week.
+ *
+ * Keyed on the WEEK, never on the send date. That distinction is what makes the
+ * scheduler's catch-up window safe: a digest queued on Monday and a digest
+ * queued on Wednesday after an outage both describe the same week, produce the
+ * same key, and therefore cannot both be delivered.
+ */
+export function weeklyDeliveryKey(weekStart: string, address: string): string {
+  return deliveryKey('weekly-summary', weekStart, address);
+}

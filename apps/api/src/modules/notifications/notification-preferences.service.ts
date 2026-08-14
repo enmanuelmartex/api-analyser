@@ -77,6 +77,19 @@ export class NotificationPreferencesService {
     return preferences.emailEnabled && preferences[emailPreference];
   }
 
+  /**
+   * Whether this user wants the weekly digest.
+   *
+   * Separate from `wantsEmail` because that one is keyed by `NotificationType`,
+   * and the digest has none — nothing happened that a notification could
+   * describe. Both gates that do apply are still applied, in the same order:
+   * the master switch first, then the per-event one.
+   */
+  async wantsWeeklySummary(userId: string): Promise<boolean> {
+    const preferences = await this.get(userId);
+    return preferences.emailEnabled && preferences.emailWeeklySummary;
+  }
+
   /** Narrows an arbitrary patch to the keys the model actually has. */
   private pick(patch: Partial<PreferenceFlags>): Partial<PreferenceFlags> {
     const clean: Partial<PreferenceFlags> = {};
