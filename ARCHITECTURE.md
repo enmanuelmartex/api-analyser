@@ -11,7 +11,7 @@ Contexto de arquitectura: qué hace cada sección, de dónde saca sus datos y qu
 1. [Qué es API Analyser](#qué-es-api_analyser)
 2. [El flujo central](#el-flujo-central)
 3. [Mapa de secciones](#mapa-de-secciones)
-4. [Dashboard](#dashboard) · [Projects](#projects) · [Assessments](#assessments) · [Findings](#findings) · [Reports](#reports) · [Finance](#finance) · [Plugins](#plugins) · [Settings](#settings) · [Autenticación](#autenticación-y-roles)
+4. [Dashboard](#dashboard) · [Projects](#projects) · [Assessments](#assessments) · [Scheduled Scans](#scheduled-scans) · [Findings](#findings) · [Reports](#reports) · [Finance](#finance) · [Plugins](#plugins) · [Settings](#settings) · [Autenticación](#autenticación-y-roles)
 5. [Modelo de datos](#modelo-de-datos)
 6. [Vocabulario de estados](#vocabulario-de-estados)
 7. [Huecos detectados](#huecos-detectados)
@@ -108,6 +108,36 @@ El historial de ejecuciones del escáner. Cada fila es una corrida contra un pro
 El detalle añade progreso en vivo por SSE, los logs de la ejecución (`AssessmentLog`), el desglose del resumen y los hallazgos de esa corrida.
 
 **Filtros:** texto sobre nombre de proyecto o URL, estado multi-selección, rango de duración y rango de fechas de inicio. Cada uno es un control independiente cuyo trigger muestra lo aplicado sin abrirlo; los activos aparecen como chips retirables.
+
+---
+
+## Scheduled Scans
+
+**Rutas:** `/scheduled-scans` · `/scheduled-scans/[scheduleId]`
+**API:** `GET|POST /scheduled-scans` · `GET|PATCH|DELETE /scheduled-scans/:id` · `POST /scheduled-scans/:id/{pause,resume,run}` · `GET /scheduled-scans/:id/executions` · `GET /scheduled-scans/{upcoming,timezones}` · `POST /scheduled-scans/preview`
+**Modelos:** `ScheduledScan` · `ScheduleExecution` (y `Assessment.trigger` / `Assessment.scheduleId`)
+
+Escaneos que se ejecutan solos. Un schedule guarda **cuándo** y **con qué**, y nada más: cuando llega la hora, el scheduler llama a `AssessmentsService.createAndRun` — el mismo método del botón *Run Assessment* — y el pipeline existente hace el resto. **No hay un segundo motor de escaneo**; una ejecución programada es un `Assessment` normal que lleva `trigger = SCHEDULED`.
+
+**Cómo corre.** Un *heartbeat* en proceso despierta cada 60 s, busca los schedules vencidos y reclama cada ocurrencia con un *compare-and-swap* sobre `nextRunAt`. Vive en el backend: sigue funcionando con el navegador cerrado y sobrevive a reinicios de API, worker o Redis — Postgres guarda el estado.
+
+Antes era un *repeatable job* de BullMQ, y **falló en producción**: BullMQ deriva el id del job del propio slot (`repeat:<hash>:<millis>`) y rechaza un id repetido, así que reiniciar la API dentro del mismo minuto de un tick ya completado colisionaba con ese job y la cadena nunca se extendía. Resultado: el scheduler se detenía **para siempre y en silencio**, mientras la UI seguía mostrando cada schedule como `Active`. El heartbeat en proceso no tiene cadena que romper, y la corrección (no duplicar escaneos) nunca dependió de él sino de Postgres.
+
+**Sin duplicados.** Dos capas independientes: el CAS sobre `nextRunAt` hace que de dos instancias en carrera solo una gane; y `schedule_executions` tiene `UNIQUE (scheduleId, scheduledFor)` como red de seguridad en base de datos. Con varias réplicas todas laten, pero solo una arranca cada escaneo. Además `skipIfRunning` (activo por defecto) evita lanzar un escaneo mientras el anterior del mismo schedule sigue corriendo — la ocurrencia se registra como `SKIPPED`, no se pierde en silencio.
+
+**El silencio es visible.** Un tick que falla se registra como `scheduler.tick.failed` (categoría `WORKER`, severidad `ERROR`) y notifica a los administradores una vez por racha. `GET /scheduled-scans/health` expone `lastTickAt` y `healthy`: si el último tick tiene más de tres minutos, ningún schedule se está ejecutando, diga lo que diga la lista.
+
+**Timezones.** Cada schedule guarda un nombre IANA (`America/Santo_Domingo`), nunca un offset: un offset no puede expresar «02:00 locales, antes y después del cambio de hora». `DAILY`/`WEEKLY`/`MONTHLY`/`CUSTOM` son reglas de reloj de pared; `HOURLY` es de tiempo transcurrido. Ambos sentidos del horario de verano están cubiertos por tests.
+
+**Al reanudar o tras una caída no se reproduce el atraso:** la siguiente ocurrencia se calcula desde *ahora*, así que un servicio caído una semana ejecuta una vez y retoma su cadencia, en lugar de disparar siete días de backlog contra una API productiva.
+
+**Qué muestra:** tabla con nombre, proyecto, frecuencia, última y próxima ejecución (en la timezone del schedule) y estado. El detalle añade el historial de ejecuciones, donde cada fila enlaza al assessment correspondiente — y desde ahí a findings y reports.
+
+**Estados:** `ACTIVE`, `PAUSED` y `COMPLETED` son los persistidos; `RUNNING` y `FAILED` se derivan de la última ejecución al leer, para que un worker caído no deje un schedule congelado en `RUNNING`.
+
+**Borrar un schedule no borra sus escaneos:** `Assessment.scheduleId` es `ON DELETE SET NULL`, así que findings y reports quedan intactos.
+
+Documentación completa: [`docs/SCHEDULED-SCANS.md`](docs/SCHEDULED-SCANS.md).
 
 ---
 

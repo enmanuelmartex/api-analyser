@@ -10,12 +10,10 @@ import {
   Query,
   ParseIntPipe,
   DefaultValuePipe,
-  NotFoundException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UsersService } from './users.service';
 import { AuditService } from '../audit/audit.service';
@@ -24,8 +22,6 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangeRoleDto } from './dto/change-role.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SetStatusDto } from './dto/set-status.dto';
-import { InviteUserDto } from './dto/invite-user.dto';
-import { AuditAction } from '@prisma/client';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -43,26 +39,22 @@ export class UsersController {
     return this.users.findAll();
   }
 
+  /**
+   * Kept as a thin alias of `GET /audit/logs`.
+   *
+   * The log explorer moved to its own controller when it grew filters, a live
+   * stream and retention. This route stays because it is the one the previous
+   * UI called; it forwards rather than reimplementing, so there is one query
+   * path and one set of permissions.
+   */
   @Get('audit-logs')
   getAuditLogs(
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
     @Query('userId') userId?: string,
-    @Query('action') action?: string,
     @Query('resource') resource?: string,
   ) {
-    return this.audit.findAll({
-      userId,
-      action: action as AuditAction | undefined,
-      resource,
-      limit,
-      offset,
-    });
-  }
-
-  @Post('invite')
-  invite(@Body() dto: InviteUserDto, @CurrentUser() actor: any) {
-    return this.users.sendInvitation(dto, actor.id);
+    return this.audit.findAll({ userId, resource, limit, offset });
   }
 
   /**
@@ -80,20 +72,6 @@ export class UsersController {
   @Get('assignable')
   listAssignable() {
     return this.users.findAssignable();
-  }
-
-  @Public()
-  @Roles()
-  @Get('verify-invite')
-  verifyInvite(@Query('token') token: string) {
-    if (!token) throw new NotFoundException('Token is required');
-    return this.users.verifyInvitation(token);
-  }
-
-  @Roles()
-  @Post('accept-invite')
-  acceptInvite(@Body('token') token: string, @CurrentUser() user: any) {
-    return this.users.acceptInvitation(token, user.id);
   }
 
   // ── Dynamic :id routes ────────────────────────────────────────────────────

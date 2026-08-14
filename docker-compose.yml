@@ -99,7 +99,38 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       MAX_CONCURRENT_SCANS: ${MAX_CONCURRENT_SCANS:-3}
+      # Logs and notifications. These are DEFAULTS — an administrator overrides
+      # them at runtime from Settings, and the override lives in the database,
+      # so a container restart does not undo it. The retention job runs on the
+      # BullMQ queue that Redis already backs; no extra service is needed, and
+      # adding an `api` replica would not run it twice.
+      LOG_COLLECTION_ENABLED: ${LOG_COLLECTION_ENABLED:-true}
+      LOG_LIVE_STREAM_ENABLED: ${LOG_LIVE_STREAM_ENABLED:-true}
+      LOG_RETENTION_ENABLED: ${LOG_RETENTION_ENABLED:-true}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
+      LOG_MAX_RECORDS: ${LOG_MAX_RECORDS:-500000}
+      LOG_CLEANUP_INTERVAL_HOURS: ${LOG_CLEANUP_INTERVAL_HOURS:-24}
+      NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-true}
+      NOTIFICATIONS_RETENTION_DAYS: ${NOTIFICATIONS_RETENTION_DAYS:-90}
       REPORTS_DIR: /app/reports
+      # Outbound email, via Resend. Optional: with no key the API boots, logs
+      # that email is disabled and records every send as SKIPPED — in-app
+      # notifications are unaffected.
+      #
+      # The `reports` and `email` queues are consumed by this service, alongside
+      # `scanner` and the log-retention queue. There is deliberately no separate
+      # worker container: BullMQ workers are registered by the same Nest process
+      # that registers the queues, so one `api` service processes everything and
+      # there is no way to end up running two copies of a worker by accident.
+      # Scaling `api` would scale the workers with it, which is the intended
+      # behaviour — the queues are the coordination point.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-onboarding@resend.dev}
+      RESEND_FROM_NAME: ${RESEND_FROM_NAME:-API Analyzer}
+      # Links inside emails. Falls back to FRONTEND_URL, which is already set
+      # above, so this only needs setting when the two differ.
+      APP_URL: ${APP_URL:-}
+      EMAIL_MAX_ATTACHMENT_BYTES: ${EMAIL_MAX_ATTACHMENT_BYTES:-8388608}
       DOCKER_ENV: "true"
       # Required for the localhost → host.docker.internal rewrite to be usable:
       # host-gateway resolves to a private IP, so the SSRF check rejects it

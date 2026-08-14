@@ -2,7 +2,7 @@
  * The product's visible identity — the single source of truth for the API.
  *
  * Used by everything the server renders for a human: PDF and HTML reports,
- * invitation emails, the Swagger title and the console banner.
+ * the Swagger title and the console banner.
  *
  * SYNC CONTRACT: `apps/web/src/lib/brand.ts` holds the same values for the web
  * app. The two apps share no workspace package, so these constants are

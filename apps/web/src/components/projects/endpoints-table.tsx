@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { IconBraces, IconSearch } from '@tabler/icons-react';
+import { IconArrowRight, IconBraces, IconChevronUp, IconSearch } from '@tabler/icons-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,12 @@ import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/ui/empty-state';
 import { MethodBadge } from '@/components/security/method-badge';
 import { SeverityBadge } from '@/components/security/severity-badge';
+import {
+  ALL_TAGS,
+  ActiveFilterChips,
+  MethodMultiSelect,
+  TagSelect,
+} from '@/components/projects/endpoint-filters';
 import type { Endpoint, SecurityIssue } from '@/types';
 
 /**
@@ -28,7 +34,20 @@ import type { Endpoint, SecurityIssue } from '@/types';
  * that survives a re-import.
  */
 
-const ALL_METHODS = 'ALL';
+/**
+ * Rows rendered before the list is expanded.
+ *
+ * A real specification carries hundreds of operations, and rendering all of
+ * them made the project page scroll for several screens before reaching
+ * anything else on it — Recent assessments, immediately to the right on a wide
+ * viewport, was pushed entirely below the fold on a narrow one. Eight is enough
+ * to show the shape of the list and to make a filter's effect visible without
+ * expanding.
+ */
+const COLLAPSED_ROWS = 8;
+
+/** Canonical HTTP ordering, so the method filter never lists PUT before GET. */
+const METHOD_ORDER = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'TRACE'];
 
 export function EndpointsTable({
   endpoints,
@@ -41,8 +60,9 @@ export function EndpointsTable({
   className?: string;
 }) {
   const [search, setSearch] = useState('');
-  const [method, setMethod] = useState<string>(ALL_METHODS);
-  const [tag, setTag] = useState<string>(ALL_METHODS);
+  const [methods, setMethods] = useState<string[]>([]);
+  const [tag, setTag] = useState<string>(ALL_TAGS);
+  const [expanded, setExpanded] = useState(false);
 
   const issuesByRoute = useMemo(() => {
     const map = new Map<string, SecurityIssue[]>();
@@ -55,13 +75,22 @@ export function EndpointsTable({
     return map;
   }, [issues]);
 
-  const methods = useMemo(
-    () => [ALL_METHODS, ...Array.from(new Set(endpoints.map((e) => e.method))).sort()],
-    [endpoints],
-  );
+  const availableMethods = useMemo(() => {
+    const present = Array.from(new Set(endpoints.map((e) => e.method)));
+    return present.sort((a, b) => {
+      const rankA = METHOD_ORDER.indexOf(a);
+      const rankB = METHOD_ORDER.indexOf(b);
+      // Anything unrecognised sorts alphabetically after the known verbs rather
+      // than jumping to the front on an index of -1.
+      if (rankA === -1 && rankB === -1) return a.localeCompare(b);
+      if (rankA === -1) return 1;
+      if (rankB === -1) return -1;
+      return rankA - rankB;
+    });
+  }, [endpoints]);
 
-  const tags = useMemo(
-    () => [ALL_METHODS, ...Array.from(new Set(endpoints.flatMap((e) => e.tags ?? []))).sort()],
+  const availableTags = useMemo(
+    () => Array.from(new Set(endpoints.flatMap((e) => e.tags ?? []))).sort(),
     [endpoints],
   );
 
@@ -73,11 +102,24 @@ export function EndpointsTable({
         endpoint.path.toLowerCase().includes(term) ||
         endpoint.summary?.toLowerCase().includes(term) ||
         endpoint.tags?.some((t) => t.toLowerCase().includes(term));
-      const matchesMethod = method === ALL_METHODS || endpoint.method === method;
-      const matchesTag = tag === ALL_METHODS || endpoint.tags?.includes(tag);
+      // An empty method selection means every method, not none.
+      const matchesMethod = methods.length === 0 || methods.includes(endpoint.method);
+      const matchesTag = tag === ALL_TAGS || Boolean(endpoint.tags?.includes(tag));
       return matchesSearch && matchesMethod && matchesTag;
     });
-  }, [endpoints, search, method, tag]);
+  }, [endpoints, search, methods, tag]);
+
+  /*
+   * Narrowing the list collapses it again.
+   *
+   * Without this, expanding to 300 rows and then filtering to 4 leaves the
+   * section expanded, so the next widening of the filter silently dumps
+   * hundreds of rows back onto the page. Re-collapsing keeps the page's height
+   * a function of the filters rather than of the order they were applied in.
+   */
+  useEffect(() => {
+    setExpanded(false);
+  }, [search, methods, tag]);
 
   if (endpoints.length === 0) {
     return (
@@ -90,10 +132,15 @@ export function EndpointsTable({
     );
   }
 
+  const visible = expanded ? filtered : filtered.slice(0, COLLAPSED_ROWS);
+  const hidden = filtered.length - visible.length;
+
   return (
     <div className={cn('space-y-3', className)}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative max-w-sm flex-1">
+      {/* Search grows, the two selects stay their natural width; all three wrap
+          onto their own line on a narrow viewport rather than being squeezed. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[12rem] flex-1">
           <IconSearch
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden="true"
@@ -101,41 +148,53 @@ export function EndpointsTable({
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search path, summary or tag…"
+            placeholder="Search endpoints…"
             className="pl-9"
             aria-label="Search endpoints"
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          {methods.map((m) => (
-            <FilterChip key={m} active={method === m} onClick={() => setMethod(m)}>
-              {m === ALL_METHODS ? 'All methods' : m}
-            </FilterChip>
-          ))}
-        </div>
+        <MethodMultiSelect
+          methods={availableMethods}
+          selected={methods}
+          onChange={setMethods}
+        />
+
+        {availableTags.length > 0 && (
+          <TagSelect tags={availableTags} value={tag} onChange={setTag} />
+        )}
       </div>
 
-      {tags.length > 1 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {tags.slice(0, 12).map((t) => (
-            <FilterChip key={t} active={tag === t} onClick={() => setTag(t)}>
-              {t === ALL_METHODS ? 'All tags' : t}
-            </FilterChip>
-          ))}
-        </div>
-      )}
+      <ActiveFilterChips
+        methods={methods}
+        tag={tag}
+        onClearMethod={(method) => setMethods((current) => current.filter((m) => m !== method))}
+        onClearTag={() => setTag(ALL_TAGS)}
+      />
 
       <p className="text-xs text-muted-foreground">
-        {filtered.length} of {endpoints.length} endpoints
+        {filtered.length === endpoints.length
+          ? `${endpoints.length} endpoint${endpoints.length === 1 ? '' : 's'}`
+          : `${filtered.length} of ${endpoints.length} endpoints`}
       </p>
 
       {filtered.length === 0 ? (
         <EmptyState icon={IconBraces} title="No endpoints match these filters" compact />
       ) : (
-        <div className="overflow-x-auto rounded-md border border-border">
-          <ul className="divide-y divide-border">
-            {filtered.map((endpoint) => {
+        <div className="rounded-md border border-border">
+          {/*
+            Expanding scrolls inside the section instead of growing the page.
+            "View all" on a 371-endpoint specification would otherwise trade one
+            unusable page for another — the point of collapsing was to keep the
+            rest of the project reachable.
+          */}
+          <ul
+            className={cn(
+              'divide-y divide-border',
+              expanded && 'max-h-[32rem] overflow-y-auto overscroll-contain',
+            )}
+          >
+            {visible.map((endpoint) => {
               const related = issuesByRoute.get(`${endpoint.method}|${endpoint.path}`) ?? [];
               const worst = worstSeverity(related);
 
@@ -201,36 +260,37 @@ export function EndpointsTable({
               );
             })}
           </ul>
+
+          {/*
+            The expander lives in the list's own footer rather than in a card of
+            its own: it is the last row of this table, and giving it a container
+            would make a control that is only sometimes present look like a
+            separate section of the page.
+          */}
+          {(hidden > 0 || expanded) && (
+            <div className="border-t border-border">
+              <button
+                type="button"
+                onClick={() => setExpanded((current) => !current)}
+                className="flex w-full items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+              >
+                {expanded ? (
+                  <>
+                    <IconChevronUp className="size-3.5" />
+                    Show fewer
+                  </>
+                ) : (
+                  <>
+                    View all {filtered.length.toLocaleString()} endpoints
+                    <IconArrowRight className="size-3.5" />
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
-  );
-}
-
-function FilterChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        active
-          ? 'border-primary/30 bg-primary/10 text-primary'
-          : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground',
-      )}
-    >
-      {children}
-    </button>
   );
 }
 

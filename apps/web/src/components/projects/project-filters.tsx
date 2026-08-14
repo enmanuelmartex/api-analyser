@@ -30,8 +30,7 @@ import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { FilterChips } from '@/components/filters/filter-chips';
 import { FilterPopover, FILTER_SURFACE_CLASS } from '@/components/filters/filter-popover';
-
-const SEARCH_DEBOUNCE_MS = 250;
+import { useDebouncedField } from '@/hooks/use-debounced-field';
 
 const ENVIRONMENT_OPTIONS = Object.keys(ENVIRONMENT_LABELS) as ProjectEnvironmentOption[];
 const SORT_OPTIONS = Object.keys(SORT_LABELS) as ProjectSortKey[];
@@ -164,25 +163,3 @@ export function ProjectFilters({ value, onChange, hasDrafts = false, className }
   );
 }
 
-/**
- * Keeps the input responsive while committing to the URL on a short delay.
- * Refs keep the effect dependent on the draft alone, so a re-render mid-typing
- * does not restart the timer.
- */
-function useDebouncedField(committed: string, commit: (_next: string) => void) {
-  const [draft, setDraft] = React.useState(committed);
-  const commitRef = React.useRef(commit);
-  const committedRef = React.useRef(committed);
-  commitRef.current = commit;
-  committedRef.current = committed;
-
-  React.useEffect(() => setDraft(committed), [committed]);
-
-  React.useEffect(() => {
-    if (draft === committedRef.current) return;
-    const id = setTimeout(() => commitRef.current(draft), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(id);
-  }, [draft]);
-
-  return { draft, setDraft };
-}

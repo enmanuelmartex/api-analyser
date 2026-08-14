@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { IconActivity, IconArrowLeft, IconBraces, IconExternalLink, IconWorld } from '@tabler/icons-react';
+import { IconActivity, IconArrowLeft, IconBraces, IconCalendarClock, IconExternalLink, IconWorld } from '@tabler/icons-react';
 import { assessmentsApi, issuesApi, projectsApi } from '@/lib/api';
 import type { Assessment, Paginated, Project, SecurityIssue } from '@/types';
 import { PageContainer } from '@/components/layout/page-container';
@@ -16,6 +16,8 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RunAssessmentSheet } from '@/components/projects/run-assessment-sheet';
 import { EndpointsTable } from '@/components/projects/endpoints-table';
+import { ProjectSchedulesCard } from '@/components/projects/project-schedules-card';
+import { ScheduleSheet } from '@/components/scheduled-scans/schedule-sheet';
 import { cn } from '@/lib/utils';
 
 const ASSESSMENTS_PAGE_SIZE = 5;
@@ -69,7 +71,13 @@ export default function ProjectDetailsPage() {
         title={project.name || 'Untitled project'}
         description={project.description || project.baseUrl}
         breadcrumb={<Link href={projectsHref} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><IconArrowLeft className="size-3" />Projects</Link>}
-        actions={<><Button asChild variant="outline"><a href={project.baseUrl} target="_blank" rel="noreferrer"><IconExternalLink />Open API</a></Button><RunAssessmentSheet project={project} /></>}
+        /*
+          Run Assessment stays the primary action; Schedule Scan sits beside it
+          as the secondary. The hierarchy matches what they mean — one scans
+          now, the other arranges for scans later — and keeps the header from
+          growing a third equal-weight button.
+        */
+        actions={<><Button asChild variant="outline"><a href={project.baseUrl} target="_blank" rel="noreferrer"><IconExternalLink />Open API</a></Button><ScheduleSheet project={project} trigger={<Button variant="outline" disabled={project.status !== 'READY'}><IconCalendarClock />Schedule Scan</Button>} /><RunAssessmentSheet project={project} /></>}
       />
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -80,11 +88,22 @@ export default function ProjectDetailsPage() {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><IconBraces className="size-4 text-primary" />Endpoints</CardTitle><CardDescription>The attack surface imported from the current API specification, annotated with the issues found on each operation.</CardDescription></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <IconBraces className="size-4 text-primary" />
+              Endpoints
+              {/* The total stays visible whatever the filters and the collapsed
+                  list are showing, so "how big is this API?" never needs a
+                  scroll to answer. */}
+              <Badge variant="secondary" className="tabular-nums">{endpoints.length}</Badge>
+            </CardTitle>
+            <CardDescription>The attack surface imported from the current API specification, annotated with the issues found on each operation.</CardDescription>
+          </CardHeader>
           {/*
-            Replaces a hardcoded `slice(0, 12)` list of method-and-path chips.
-            With 371 endpoints in a real project, showing twelve with no search
-            and no issue linkage made the model effectively invisible.
+            The table renders a bounded window of the list with an expander in
+            its footer — see COLLAPSED_ROWS. Rendering all of them, as this page
+            did, made a 99-endpoint project scroll for several screens before
+            reaching anything else.
           */}
           <CardContent><EndpointsTable endpoints={endpoints} issues={projectIssues} /></CardContent>
         </Card>
@@ -113,6 +132,10 @@ export default function ProjectDetailsPage() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      <div className="mt-4">
+        <ProjectSchedulesCard project={project} />
       </div>
     </PageContainer>
   );

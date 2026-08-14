@@ -2,14 +2,32 @@ import axios, { AxiosInstance } from 'axios';
 import type {
   AiUsageSummary,
   AssignableUser,
+  AuditLogDetail,
+  AuditLogPage,
   IssueGuidanceResponse,
+  LogCategory,
+  LogSeverity,
+  LogStats,
+  LogStatus,
+  NotificationPage,
+  NotificationPreferences,
+  NotificationSection,
+  NotificationSummary,
   OwaspCoverageSummary,
   Report,
   ReportFormat,
   ReportFormatAvailability,
   ReportStats,
   ReportType,
+  RetentionResult,
+  RuntimeSetting,
+  Paginated,
+  ScheduledScan,
+  ScheduleExecution,
+  SchedulePreview,
   SystemInfo,
+  TimeZoneOption,
+  UpcomingScheduledScan,
 } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
@@ -72,6 +90,17 @@ export const authApi = {
 };
 
 // Projects
+/**
+ * Self-service credential change.
+ *
+ * Separate from `usersApi.resetPassword`, which is an administrator setting
+ * somebody else's password and never asks for the current one.
+ */
+export const accountApi = {
+  changePassword: (data: { currentPassword: string; newPassword: string }) =>
+    api.post('/auth/change-password', data).then((r) => r.data),
+};
+
 export const projectsApi = {
   list: () => api.get('/projects').then((r) => r.data),
   get: (id: string) => api.get(`/projects/${id}`).then((r) => r.data),
@@ -112,6 +141,93 @@ export const assessmentsApi = {
   dashboard: () => api.get('/assessments/dashboard').then((r) => r.data),
   streamProgress: (id: string, token: string) =>
     new EventSource(`${API_URL}/assessments/${id}/progress?token=${token}`),
+};
+
+// ── Scheduled scans ──────────────────────────────────────────────────────────
+
+/** The payload a create or an edit sends. Mirrors the server's DTO exactly. */
+export interface ScheduleInput {
+  name: string;
+  projectId?: string;
+  frequency: string;
+  timezone: string;
+  hour?: number;
+  minute?: number;
+  intervalHours?: number;
+  weekdays?: number[];
+  monthDay?: number;
+  cronExpression?: string;
+  startAt?: string;
+  executionMode?: 'all' | 'profile' | 'manual';
+  scanProfileId?: string;
+  manualPlugins?: string[];
+  enableAiAnalysis?: boolean;
+  skipIfRunning?: boolean;
+}
+
+/**
+ * Automatic scans.
+ *
+ * `runNow` is deliberately a separate call from `update`: running a schedule
+ * now must never move its next automatic run, and folding the two together is
+ * how that guarantee gets lost.
+ */
+export const scheduledScansApi = {
+  list: (filters: {
+    search?: string;
+    status?: string[];
+    frequency?: string[];
+    projectId?: string;
+    page?: number;
+    pageSize?: number;
+  } = {}): Promise<Paginated<ScheduledScan>> =>
+    api
+      .get('/scheduled-scans', { params: filters, paramsSerializer: { indexes: null } })
+      .then((r) => r.data),
+
+  get: (id: string): Promise<ScheduledScan> =>
+    api.get(`/scheduled-scans/${id}`).then((r) => r.data),
+
+  executions: (id: string, page = 1, pageSize = 20): Promise<Paginated<ScheduleExecution>> =>
+    api.get(`/scheduled-scans/${id}/executions`, { params: { page, pageSize } }).then((r) => r.data),
+
+  /** The next few runs across every schedule, for the dashboard strip. */
+  upcoming: (limit = 4): Promise<UpcomingScheduledScan[]> =>
+    api.get('/scheduled-scans/upcoming', { params: { limit } }).then((r) => r.data),
+
+  /** The zones the server will accept, each with its current UTC offset. */
+  timezones: (): Promise<TimeZoneOption[]> =>
+    api.get('/scheduled-scans/timezones').then((r) => r.data),
+
+  /**
+   * Validates and describes a recurrence without saving it.
+   *
+   * The form calls this as the operator edits, so the sentence it shows comes
+   * from the same code that will fire the schedule — a preview reading 02:00
+   * cannot be followed by a run at 22:00.
+   */
+  preview: (input: ScheduleInput): Promise<SchedulePreview> =>
+    api.post('/scheduled-scans/preview', input).then((r) => r.data),
+
+  create: (input: ScheduleInput): Promise<ScheduledScan> =>
+    api.post('/scheduled-scans', input).then((r) => r.data),
+
+  update: (id: string, input: Partial<ScheduleInput>): Promise<ScheduledScan> =>
+    api.patch(`/scheduled-scans/${id}`, input).then((r) => r.data),
+
+  pause: (id: string): Promise<ScheduledScan> =>
+    api.post(`/scheduled-scans/${id}/pause`).then((r) => r.data),
+
+  resume: (id: string): Promise<ScheduledScan> =>
+    api.post(`/scheduled-scans/${id}/resume`).then((r) => r.data),
+
+  /** Runs the schedule's configuration now. Never changes `nextRunAt`. */
+  run: (id: string): Promise<{ assessmentId: string; executionId?: string; nextRunAt: string | null }> =>
+    api.post(`/scheduled-scans/${id}/run`).then((r) => r.data),
+
+  /** Deletes the schedule. The scans it produced are kept. */
+  remove: (id: string): Promise<{ deleted: boolean; assessmentsKept: number }> =>
+    api.delete(`/scheduled-scans/${id}`).then((r) => r.data),
 };
 
 // Findings
@@ -249,15 +365,117 @@ export const usersApi = {
   resetPassword: (id: string, newPassword: string) =>
     api.post(`/users/${id}/password-reset`, { newPassword }).then((r) => r.data),
   remove: (id: string) => api.delete(`/users/${id}`).then((r) => r.data),
-  auditLogs: (params?: { limit?: number; offset?: number; userId?: string; action?: string; resource?: string }) =>
-    api.get('/users/audit-logs', { params }).then((r) => r.data),
-  // Invitation system
-  invite: (data: { email: string; role?: string }) =>
-    api.post('/users/invite', data).then((r) => r.data),
-  verifyInvite: (token: string) =>
-    api.get('/users/verify-invite', { params: { token } }).then((r) => r.data),
-  acceptInvite: (token: string) =>
-    api.post('/users/accept-invite', { token }).then((r) => r.data),
+};
+
+// ── Logs & observability ─────────────────────────────────────────────────────
+
+/** Filters accepted by `GET /audit/logs`. Every one is applied server-side. */
+export interface LogQueryParams {
+  search?: string;
+  severity?: LogSeverity[];
+  category?: LogCategory[];
+  status?: LogStatus[];
+  userId?: string;
+  event?: string;
+  resource?: string;
+  requestId?: string;
+  assessmentId?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+  sortBy?: 'createdAt' | 'severity' | 'category' | 'event';
+  sortDir?: 'asc' | 'desc';
+}
+
+/**
+ * The log explorer's API.
+ *
+ * Every list call is server-filtered, server-sorted and server-paginated: the
+ * table can hold hundreds of thousands of rows, so nothing here ever fetches
+ * more than one page to filter it in the browser.
+ */
+export const logsApi = {
+  list: (params: LogQueryParams = {}): Promise<AuditLogPage> =>
+    api
+      .get('/audit/logs', {
+        params,
+        // Repeated keys rather than `severity[]=`, which is what the DTO's
+        // transform expects on the other side.
+        paramsSerializer: { indexes: null },
+      })
+      .then((r) => r.data),
+
+  get: (id: string): Promise<AuditLogDetail> =>
+    api.get(`/audit/logs/${id}`).then((r) => r.data),
+
+  stats: (): Promise<LogStats> => api.get('/audit/logs/stats').then((r) => r.data),
+
+  /** Distinct event names present in the table, for the event filter. */
+  events: (): Promise<string[]> => api.get('/audit/logs/events').then((r) => r.data),
+
+  cleanup: (): Promise<RetentionResult> =>
+    api.post('/audit/logs/cleanup').then((r) => r.data),
+
+  purge: (body: {
+    scope: 'older-than-7-days' | 'older-than-30-days' | 'all';
+    confirmation?: string;
+  }): Promise<{ deleted: number; scope: string }> =>
+    api.post('/audit/logs/purge', body).then((r) => r.data),
+
+  /**
+   * Live tail.
+   *
+   * `EventSource` cannot set an Authorization header, so the token goes in the
+   * query string — the same mechanism the assessment progress stream already
+   * uses, and the reason `redactUrl` exists on the server.
+   */
+  stream: (token: string, filters: { severity?: string[]; category?: string[] } = {}) => {
+    const params = new URLSearchParams({ token });
+    if (filters.severity?.length) params.set('severity', filters.severity.join(','));
+    if (filters.category?.length) params.set('category', filters.category.join(','));
+    return new EventSource(`${API_URL}/audit/logs/stream?${params.toString()}`);
+  },
+};
+
+// ── Runtime settings ─────────────────────────────────────────────────────────
+
+export const settingsApi = {
+  list: (): Promise<RuntimeSetting[]> => api.get('/settings').then((r) => r.data),
+  update: (
+    settings: Record<string, boolean | number>,
+  ): Promise<{ changed: number; changes: { key: string; from: unknown; to: unknown }[] }> =>
+    api.patch('/settings', { settings }).then((r) => r.data),
+  reset: (key: string) => api.delete(`/settings/${key}`).then((r) => r.data),
+};
+
+// ── Notifications ────────────────────────────────────────────────────────────
+
+export const notificationsApi = {
+  list: (params: { limit?: number; offset?: number; unreadOnly?: boolean } = {}): Promise<NotificationPage> =>
+    api.get('/notifications', { params }).then((r) => r.data),
+  unreadCount: (): Promise<{ total: number; byCategory: Record<string, number> }> =>
+    api.get('/notifications/unread-count').then((r) => r.data),
+  /**
+   * The one read the navigation makes. See `useNotificationSummary` — nothing
+   * else should fetch counts, or the bell and the sidebar will disagree.
+   */
+  summary: (): Promise<NotificationSummary> =>
+    api.get('/notifications/summary').then((r) => r.data),
+  markRead: (id: string) => api.patch(`/notifications/${id}/read`).then((r) => r.data),
+  markAllRead: (): Promise<{ updated: number }> =>
+    api.post('/notifications/read-all').then((r) => r.data),
+  /** Clears one section's badge without touching the others. */
+  markSectionRead: (section: NotificationSection): Promise<{ updated: number }> =>
+    api.post(`/notifications/sections/${section}/read`).then((r) => r.data),
+  remove: (id: string) => api.delete(`/notifications/${id}`).then((r) => r.data),
+  removeAllRead: (): Promise<{ deleted: number }> =>
+    api.delete('/notifications/read').then((r) => r.data),
+  preferences: (): Promise<NotificationPreferences> =>
+    api.get('/notifications/preferences').then((r) => r.data),
+  updatePreferences: (patch: Partial<NotificationPreferences>): Promise<NotificationPreferences> =>
+    api.patch('/notifications/preferences', patch).then((r) => r.data),
+  stream: (token: string) => new EventSource(`${API_URL}/notifications/stream?token=${token}`),
 };
 
 /**

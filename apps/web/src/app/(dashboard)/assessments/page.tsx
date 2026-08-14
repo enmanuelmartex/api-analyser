@@ -10,6 +10,7 @@ import { StatusBadge } from '@/components/security/finding-status-badge';
 import { ScoreCell } from '@/components/security/score-display';
 import { formatRelative, formatDuration } from '@/lib/utils';
 import type { Assessment } from '@/types';
+import { useMarkSectionSeen } from '@/hooks/use-notification-summary';
 import { PageHeader } from '@/components/layout/page-header';
 import { PageContainer } from '@/components/layout/page-container';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,8 @@ export default function AssessmentsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+
+  useMarkSectionSeen('scans');
 
   const { data: assessments, isLoading } = useQuery<Assessment[]>({
     queryKey: ['assessments'],

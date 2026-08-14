@@ -7,7 +7,7 @@
  * missing a toast or an aria-label.
  *
  * SYNC CONTRACT: `apps/api/src/brand/brand.ts` holds the same values for
- * server-rendered artifacts (PDF/HTML reports, invitation emails, Swagger).
+ * server-rendered artifacts (PDF/HTML reports, Swagger).
  * The two apps have no shared workspace package, so the constants are
  * duplicated deliberately; change both together. `brand.spec.ts` in each app
  * pins the canonical spelling so a drift fails a test rather than shipping.

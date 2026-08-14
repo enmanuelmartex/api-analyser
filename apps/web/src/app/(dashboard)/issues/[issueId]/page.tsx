@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDate } from '@/lib/utils';
 
@@ -57,8 +58,9 @@ export default function IssueDetailPage() {
       issuesApi.updateStatus(issueId, payload),
     onSuccess: (issue) => {
       queryClient.setQueryData(['issues', issueId], issue);
+      // `['issues']` is the prefix of the list, the detail and the stats keys,
+      // so triaging an issue refreshes the counts above the list too.
       queryClient.invalidateQueries({ queryKey: ['issues'] });
-      queryClient.invalidateQueries({ queryKey: ['issue-stats'] });
       setPendingStatus(null);
       toast.success('Issue updated');
     },
@@ -254,14 +256,21 @@ export default function IssueDetailPage() {
                 ))}
               </div>
 
-              <div>
-                <p className="mb-1.5 text-xs font-medium text-muted-foreground">Assignee</p>
+              <Field>
+                <FieldLabel
+                  htmlFor="issue-assignee"
+                  className="text-xs font-medium text-muted-foreground"
+                >
+                  Assignee
+                </FieldLabel>
                 <IssueAssigneeSelect
+                  id="issue-assignee"
                   assigneeId={issue.assigneeId}
+                  assignee={issue.assignee}
                   disabled={assignMutation.isPending}
                   onChange={(assigneeId) => assignMutation.mutate(assigneeId)}
                 />
-              </div>
+              </Field>
 
               {issue.acceptedRiskUntil && issue.status === 'ACCEPTED_RISK' && (
                 <p className="text-xs text-muted-foreground">

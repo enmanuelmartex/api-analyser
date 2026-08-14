@@ -2,13 +2,24 @@ import { IconAlertOctagon, IconAlertTriangle, IconAlertCircle, IconInfoCircle, I
 import { cn } from '@/lib/utils';
 import type { Severity } from '@/types';
 
-const SEVERITY_META: Record<Severity, { label: string; className: string; icon: React.ElementType }> = {
-  CRITICAL: { label: 'Critical', className: 'severity-critical', icon: IconShieldExclamation },
-  HIGH: { label: 'High', className: 'severity-high', icon: IconAlertOctagon },
-  MEDIUM: { label: 'Medium', className: 'severity-medium', icon: IconAlertTriangle },
-  LOW: { label: 'Low', className: 'severity-low', icon: IconAlertCircle },
-  INFO: { label: 'Info', className: 'severity-info', icon: IconInfoCircle },
+/**
+ * One source of truth for how a severity is named and coloured. `dot` is the
+ * bare swatch colour, for places that need the hue without the badge chrome —
+ * the Issues severity filter renders it next to the label.
+ */
+export const SEVERITY_META: Record<
+  Severity,
+  { label: string; className: string; dot: string; icon: React.ElementType }
+> = {
+  CRITICAL: { label: 'Critical', className: 'severity-critical', dot: 'bg-severity-critical', icon: IconShieldExclamation },
+  HIGH: { label: 'High', className: 'severity-high', dot: 'bg-severity-high', icon: IconAlertOctagon },
+  MEDIUM: { label: 'Medium', className: 'severity-medium', dot: 'bg-severity-medium', icon: IconAlertTriangle },
+  LOW: { label: 'Low', className: 'severity-low', dot: 'bg-severity-low', icon: IconAlertCircle },
+  INFO: { label: 'Info', className: 'severity-info', dot: 'bg-severity-info', icon: IconInfoCircle },
 };
+
+/** Most-severe first — the order every severity list in the UI is read in. */
+export const SEVERITY_ORDER: Severity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
 
 interface SeverityBadgeProps {
   severity: Severity;

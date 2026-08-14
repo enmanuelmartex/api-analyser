@@ -42,18 +42,16 @@ export class ProjectsController {
 
   @Post()
   @ApiOperation({ summary: 'Create a new project' })
-  async create(@CurrentUser() user: any, @Body() dto: CreateProjectDto) {
-    const project = await this.projectsService.create(user.id, dto);
-    // `baseUrl` is the scan target and is already visible to this user; no
-    // credential from the auth config is recorded here.
-    this.audit.log({
-      userId: user.id,
-      action: AuditAction.CREATE,
-      resource: 'project',
-      resourceId: project?.id,
-      metadata: { name: dto.name, baseUrl: dto.baseUrl },
-    });
-    return project;
+  /*
+   * Project lifecycle events are recorded by ProjectsService, which emits
+   * `project.changed` on the bus. They used to be recorded here as well, so
+   * every create and update wrote two rows — one with a message and one
+   * without. The service is the right side of that pair: it is where the
+   * project's name is known, and it covers callers that do not come through
+   * this controller.
+   */
+  create(@CurrentUser() user: any, @Body() dto: CreateProjectDto) {
+    return this.projectsService.create(user.id, dto);
   }
 
   @Post('drafts')
@@ -76,34 +74,19 @@ export class ProjectsController {
 
   @Put(':id')
   @ApiOperation({ summary: 'Update a project' })
-  async update(
+  update(
     @Param('id') id: string,
     @CurrentUser() user: any,
     @Body() dto: UpdateProjectDto,
   ) {
-    const project = await this.projectsService.update(id, user.id, dto);
-    this.audit.log({
-      userId: user.id,
-      action: AuditAction.UPDATE,
-      resource: 'project',
-      resourceId: id,
-      metadata: { fields: Object.keys(dto ?? {}) },
-    });
-    return project;
+    return this.projectsService.update(id, user.id, dto);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a project' })
-  async remove(@Param('id') id: string, @CurrentUser() user: any) {
-    const result = await this.projectsService.remove(id, user.id);
-    this.audit.log({
-      userId: user.id,
-      action: AuditAction.DELETE,
-      resource: 'project',
-      resourceId: id,
-    });
-    return result;
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.projectsService.remove(id, user.id);
   }
 
   @Post(':id/spec/url')
@@ -113,17 +96,9 @@ export class ProjectsController {
     @CurrentUser() user: any,
     @Body('url') url: string,
   ) {
-    const result = await this.projectsService.importOpenApiFromUrl(id, user.id, url);
-    // The source URL is the point of the record: it is what a reviewer needs
-    // to know when asking where an API surface came from.
-    this.audit.log({
-      userId: user.id,
-      action: AuditAction.IMPORT,
-      resource: 'project.spec',
-      resourceId: id,
-      metadata: { source: 'url', url },
-    });
-    return result;
+    // Recorded by the service as `project.spec.imported`, which carries the
+    // source URL a reviewer needs plus the endpoint count this cannot know.
+    return this.projectsService.importOpenApiFromUrl(id, user.id, url);
   }
 
   @Post(':id/spec/upload')
@@ -133,17 +108,9 @@ export class ProjectsController {
     @CurrentUser() user: any,
     @Body('spec') spec: object,
   ) {
-    const result = await this.projectsService.importOpenApiFromContent(id, user.id, spec);
-    // The document itself is not stored in the audit entry — it can be large
-    // and may embed example credentials.
-    this.audit.log({
-      userId: user.id,
-      action: AuditAction.IMPORT,
-      resource: 'project.spec',
-      resourceId: id,
-      metadata: { source: 'upload' },
-    });
-    return result;
+    // The document itself is never recorded — it can be large and may embed
+    // example credentials. The service records the import and its scope.
+    return this.projectsService.importOpenApiFromContent(id, user.id, spec);
   }
 
   @Post(':id/auth')

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { PrismaClient } from '@prisma/client';
 import { ReportsService } from './reports.service';
 import { ReportGeneratorService } from './report-generator.service';
@@ -116,7 +117,9 @@ beforeAll(async () => {
 
   const generator = new ReportGeneratorService(prisma as any, testPluginRegistry());
   const storage = new ReportStorageService();
-  service = new ReportsService(prisma as any, generator, storage);
+  // A real emitter with no listeners: `report.generated` is announced on it, and
+  // these tests are about the artifact, not about who reacts to the event.
+  service = new ReportsService(prisma as any, generator, storage, new EventEmitter2());
 });
 
 afterAll(async () => {

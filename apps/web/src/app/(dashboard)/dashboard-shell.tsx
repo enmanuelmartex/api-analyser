@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { IconLoader2 } from "@tabler/icons-react";
 import { authApi } from "@/lib/api";
+import { useNotificationStream } from "@/hooks/use-notification-summary";
 
 /**
  * `ssr: false` is safe (not just an optimisation) here: `ready` — the only
@@ -101,6 +102,20 @@ export function DashboardShell({
   if (!ready) {
     return <SessionSpinner />;
   }
+
+  /*
+   * One EventSource for the whole application, opened here because this is the
+   * only component guaranteed to be mounted for the entire session.
+   *
+   * It updates the React Query cache that the sidebar badges and the header bell
+   * both read, so a scan finishing in another tab updates every counter without
+   * a refresh — and without either of them owning a connection of its own.
+   *
+   * Purely an optimisation: every notification is a database row before it is
+   * streamed, so a user who was offline sees exactly the same counts on their
+   * next page load.
+   */
+  useNotificationStream();
 
   return (
     <DashboardChrome user={user} defaultSidebarOpen={defaultSidebarOpen}>

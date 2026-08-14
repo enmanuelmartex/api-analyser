@@ -4,6 +4,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
 import { NAV_MAIN, NAV_COLLAPSIBLE } from '@/components/navigation/nav-data';
+import { NotificationCenter } from '@/components/notifications/notification-center';
 
 function resolveTitle(pathname: string, search: string): string {
   for (const item of NAV_MAIN) {
@@ -39,6 +40,11 @@ export function SiteHeader() {
         <SidebarTrigger className="-ml-1" />
         <Separator orientation="vertical" className="mx-2 h-4" />
         <h1 className="text-sm font-medium text-foreground">{title}</h1>
+        {/* `ml-auto` on a spacer rather than the bell, so anything added to the
+            header later sits beside it instead of pushing it around. */}
+        <div className="ml-auto flex items-center gap-1">
+          <NotificationCenter />
+        </div>
       </div>
     </header>
   );

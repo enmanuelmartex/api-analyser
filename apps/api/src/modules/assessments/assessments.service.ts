@@ -26,6 +26,26 @@ const PROJECT_ASSESSMENTS_PAGE_SIZE = 5;
 /** Upper bound so a caller cannot ask for an unbounded page. */
 const MAX_PAGE_SIZE = 50;
 
+/**
+ * Why this run exists, supplied by whatever asked for it.
+ *
+ * Optional, and absent for every manual run — the "Run Assessment" button knows
+ * nothing about it. When a schedule is behind the run, this is what stops the
+ * audit trail from claiming a person pressed a button at 02:00: the events
+ * carry `initiatedBy: SCHEDULER`, and the audit writer attributes the run to
+ * the scheduler rather than to the project's owner, whose account the scan
+ * legitimately runs under so that their check configuration applies.
+ */
+export interface ScanProvenance {
+  trigger: 'MANUAL' | 'SCHEDULED';
+  scheduleId?: string;
+  scheduleName?: string;
+  /** SCHEDULER for an automatic run; USER for "Run now" on a schedule. */
+  initiatedBy?: 'SCHEDULER' | 'USER';
+  /** The person behind a "Run now", when there is one. */
+  actorId?: string;
+}
+
 @Injectable()
 export class AssessmentsService {
   private readonly logger = new Logger(AssessmentsService.name);
@@ -142,6 +162,10 @@ export class AssessmentsService {
       where: { id, project: { userId } },
       include: {
         project: { select: { id: true, name: true, baseUrl: true, environment: true } },
+        // Named so the scan detail can say "triggered by Weekly Production
+        // Scan" and link back to it. Null for a manual run, and also null once
+        // the schedule has been deleted — the scan outlives its schedule.
+        schedule: { select: { id: true, name: true } },
         config: true,
         summary: true,
         // This scan's detections, each linked to the persistent issue it
@@ -183,10 +207,19 @@ export class AssessmentsService {
     };
   }
 
+  /**
+   * Creates an assessment and queues it. The one entry point into the scanner.
+   *
+   * `provenance` is the only concession to scheduling, and it is metadata: a
+   * scheduled run takes exactly this path, produces an ordinary `Assessment`,
+   * and is picked up by the same worker with the same configuration resolution.
+   * There is no second pipeline to keep in step.
+   */
   async createAndRun(
     projectId: string,
     userId: string,
     config: RunAssessmentDto = {},
+    provenance?: ScanProvenance,
   ) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, userId },
@@ -249,6 +282,8 @@ export class AssessmentsService {
       data: {
         projectId,
         status: 'QUEUED',
+        trigger: provenance?.trigger ?? 'MANUAL',
+        scheduleId: provenance?.scheduleId ?? null,
         config: {
           create: {
             executionMode,
@@ -272,6 +307,12 @@ export class AssessmentsService {
         projectId,
         specId: project.apiSpec.id,
         userId,               // required for per-user plugin enable/disable
+        // Carried through the queue so the worker's own events (`scan.started`,
+        // `scan.completed`, `scan.failed`) can be attributed to the schedule
+        // without the worker having to read the assessment back to find out.
+        trigger: provenance?.trigger ?? 'MANUAL',
+        scheduleId: provenance?.scheduleId,
+        scheduleName: provenance?.scheduleName,
       },
       { jobId: `assessment-${assessment.id}` },
     );
@@ -282,24 +323,74 @@ export class AssessmentsService {
     });
 
     this.logger.log(`Assessment ${assessment.id} queued (job: ${job.id})`);
+
+    // The run is now visible to an operator from the moment it is accepted,
+    // rather than only when the worker reports an outcome minutes later.
+    this.eventEmitter.emit('scan.queued', {
+      assessmentId: assessment.id,
+      projectId,
+      projectName: project.name,
+      userId,
+      endpointCount: project.apiSpec.endpoints.length,
+      pluginCount: resolvedPlugins.length,
+      executionMode,
+      trigger: provenance?.trigger ?? 'MANUAL',
+      scheduleId: provenance?.scheduleId,
+      scheduleName: provenance?.scheduleName,
+    });
+
     return assessment;
   }
 
   async cancel(id: string, userId: string) {
     const assessment = await this.prisma.assessment.findFirst({
       where: { id, project: { userId } },
+      include: { project: { select: { id: true, name: true } } },
     });
     if (!assessment) throw new NotFoundException('Assessment not found');
 
+    /*
+     * Take the job out of the queue if it has not started.
+     *
+     * BullMQ refuses to remove a job another worker holds a lock on, and threw
+     * straight out of this method — so pressing "Cancel scan" on a scan that
+     * was actually running returned a 500 and cancelled nothing, which is the
+     * only moment anyone presses it. An active job cannot be yanked out from
+     * under its worker, so it is discarded instead (no retries) and the worker
+     * stops by itself at its next checkpoint, where it reads the status this
+     * method is about to write.
+     */
     if (assessment.jobId) {
       const job = await this.scannerQueue.getJob(assessment.jobId);
-      await job?.remove();
+      if (job) {
+        try {
+          await job.remove();
+        } catch (err) {
+          this.logger.log(
+            `Assessment ${id} is already running; signalling the worker to stop (${(err as Error).message})`,
+          );
+          // Synchronous in BullMQ: it only sets the flag that stops this job
+          // being retried. The DB status below is what actually stops the run.
+          job.discard();
+        }
+      }
     }
 
-    return this.prisma.assessment.update({
+    const cancelled = await this.prisma.assessment.update({
       where: { id },
       data: { status: 'CANCELLED' },
     });
+
+    this.eventEmitter.emit('scan.cancelled', {
+      assessmentId: id,
+      projectId: assessment.projectId,
+      projectName: assessment.project?.name ?? assessment.projectId,
+      userId,
+      progress: assessment.progress,
+      currentStep: assessment.currentStep,
+    });
+
+    return cancelled;
   }
 
   async streamProgress(assessmentId: string, userId: string): Promise<Observable<MessageEvent>> {

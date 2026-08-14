@@ -5,6 +5,7 @@ import {
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ReportGeneratorService } from './report-generator.service';
 import { ReportStorageService } from './report-storage.service';
@@ -52,6 +53,7 @@ export class ReportsService {
     private prisma: PrismaService,
     private generator: ReportGeneratorService,
     private storage: ReportStorageService,
+    private events: EventEmitter2,
   ) {}
 
   // ── Reads ───────────────────────────────────────────────────────────────────
@@ -267,6 +269,14 @@ export class ReportsService {
           sourceSnapshot: snapshot,
           generatorVersion: GENERATOR_VERSION,
           generatedAt,
+          // A hand-requested export, with no `autoKey`: the unique index treats
+          // NULLs as distinct, so manual exports stay unconstrained while the
+          // one automatic report per scan cannot be duplicated. This path is
+          // synchronous and only returns once bytes exist, so COMPLETED is the
+          // truth by the time anyone can observe the row.
+          kind: 'MANUAL_EXPORT',
+          status: 'COMPLETED',
+          requestedById: userId,
         } as any,
       });
     } catch (error: any) {
@@ -282,7 +292,78 @@ export class ReportsService {
     }
 
     const materialised = await this.materialise(report, projectName, snapshot);
+
+    /*
+     * Emitted only on the `created: true` path.
+     *
+     * The early returns above hand back an existing artifact — a double-clicked
+     * button, a retried request, a concurrent caller. Announcing those as
+     * "report generated" would notify the user several times for one report and
+     * fill the audit trail with events for work that never happened.
+     */
+    this.events.emit('report.generated', {
+      reportId: materialised.id,
+      assessmentId,
+      projectId: (assessment.project as any)?.id,
+      projectName,
+      userId,
+      reportType: type,
+      format,
+      kind: 'MANUAL_EXPORT',
+    });
+
     return { report: this.withArtifactState(materialised), created: true };
+  }
+
+  /**
+   * Renders the artifact for a row that already exists, and returns it.
+   *
+   * The queue's entry point. Unlike `generate` it never inserts, never decides a
+   * version and never emits: the caller owns the row's lifecycle, because only
+   * the caller knows whether this was the last retry. Keeping the event out of
+   * here is what guarantees `report.generated` fires exactly once, after bytes
+   * are on disk — the ordering the "your report is ready" email depends on.
+   *
+   * Ownership is resolved from the report's own assessment rather than passed
+   * in, since the job payload carries no user and must not be trusted for one.
+   *
+   * Renders strictly: a PDF that will not print is an error the caller must see,
+   * not a row quietly recorded as finished.
+   */
+  async renderExisting(reportId: string) {
+    const report = await this.prisma.report.findUnique({
+      where: { id: reportId },
+      include: {
+        assessment: {
+          select: {
+            id: true,
+            project: { select: { id: true, name: true, userId: true } },
+          },
+        },
+      },
+    });
+
+    if (!report) throw new NotFoundException(`Report ${reportId} not found`);
+
+    const ownerId = report.assessment.project.userId;
+    const assessment = await this.generator.getAssessmentData(report.assessmentId, ownerId);
+    const projectName = report.assessment.project.name ?? 'Report';
+
+    const snapshot = this.renderSnapshot(
+      assessment,
+      report.type as ReportType,
+      report.format as ReportFormat,
+      { reportId: report.id, version: report.version },
+    );
+
+    const materialised = await this.materialise(report, projectName, snapshot, { strict: true });
+
+    return {
+      report: materialised,
+      projectId: report.assessment.project.id,
+      projectName,
+      ownerId,
+    };
   }
 
   /**
@@ -341,11 +422,27 @@ export class ReportsService {
   /**
    * Writes the artifact and records its name, size and checksum.
    *
-   * A PDF whose Chromium render fails still keeps its HTML snapshot, so the
-   * report remains downloadable once a browser is available rather than being
-   * lost — the failure is logged, not propagated into a broken row.
+   * Two failure policies, because the two callers need different things from a
+   * Chromium render that does not work:
+   *
+   *   • Lenient (default, the synchronous `generate` path) — the HTML snapshot
+   *     is kept and the PDF is produced on download instead. The user asked for
+   *     a report and gets one; losing it entirely would be worse.
+   *
+   *   • Strict (`strict: true`, the queue path) — the error propagates. The job
+   *     then fails, BullMQ retries it with backoff, and if every attempt is
+   *     exhausted the row is marked FAILED and the user is told. Swallowing the
+   *     failure here is precisely how a report ends up COMPLETED with no bytes
+   *     behind it, which is the state an automatic report must never reach:
+   *     something downstream would email "your report is ready" about a file
+   *     that does not exist.
    */
-  private async materialise(report: any, projectName: string, snapshot: string) {
+  private async materialise(
+    report: any,
+    projectName: string,
+    snapshot: string,
+    options: { strict?: boolean } = {},
+  ) {
     const format = report.format as ReportFormat;
     const fileName = buildFileName({
       projectName,
@@ -366,6 +463,7 @@ export class ReportsService {
         fileSize = bytes.length;
         checksum = ReportStorageService.checksum(bytes);
       } catch (error) {
+        if (options.strict) throw error;
         this.logger.warn(
           `PDF render failed for report ${report.id}; the HTML snapshot was kept and the PDF will be produced on download. ${(error as Error).message}`,
         );

@@ -9,16 +9,21 @@ import {
   IconAlertTriangle,
   IconArrowRight,
   IconChartBar,
+  IconFiles,
+  IconFolder,
   IconShield,
+  IconShieldCheck,
 } from '@tabler/icons-react';
 import { reportsApi } from '@/lib/api';
+import { issuesHref } from '@/lib/issue-list';
 import type { Report, ReportStats } from '@/types';
+import { useMarkSectionSeen } from '@/hooks/use-notification-summary';
 import { PageContainer } from '@/components/layout/page-container';
 import { PageHeader } from '@/components/layout/page-header';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ReportMetricCard } from '@/components/reports/report-metric-card';
+import { MetricCard } from '@/components/shared/metric-card';
 import { VulnerabilityTrendChart } from '@/components/reports/vulnerability-trend-chart';
 import { ReportsTable } from '@/components/reports/reports-table';
 
@@ -42,6 +47,8 @@ function scoreClass(score: number | null) {
 export default function ReportsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  useMarkSectionSeen('reports');
 
   // Filters live in the URL so a filtered view is shareable and survives a
   // reload. Local state would be a second copy of the same thing.
@@ -157,28 +164,36 @@ export default function ReportsPage() {
         once per scan.
       */}
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
-        <ReportMetricCard
-          label="Average assessment score"
-          value={data?.averageAssessmentScore == null ? '—' : String(data.averageAssessmentScore)}
+        {/* The first two describe this page's own contents, so they are not
+            links — the table below is already their detail view. */}
+        <MetricCard
+          title="Average assessment score"
+          value={data?.averageAssessmentScore == null ? '—' : data.averageAssessmentScore}
           suffix={data?.averageAssessmentScore == null ? undefined : '/100'}
+          icon={<IconShieldCheck />}
           valueClassName={scoreClass(data?.averageAssessmentScore ?? null)}
           delta={scoreDelta}
-          context={
+          // One line, like every other card in this row: a description that
+          // wraps sets the height of all five and leaves the short ones with a
+          // band of empty card under the text. "No previous period data" was
+          // also saying what the missing delta badge already says.
+          description={
             !data?.scoredAssessmentsInAverage
               ? 'No reported scan produced a score'
               : data.averageScoreDelta
                 ? `Vs previous ${data.trendWindowDays} days: ${data.averageScoreDelta.previousAverage}/100`
-                : `Across ${data.scoredAssessmentsInAverage} completed scan${data.scoredAssessmentsInAverage === 1 ? '' : 's'} with reports · no previous period data`
+                : `Across ${data.scoredAssessmentsInAverage} scored scan${data.scoredAssessmentsInAverage === 1 ? '' : 's'}`
           }
           loading={stats.isLoading}
         />
         {/* "Artifacts", not "reports": with one row per format, a scan exported
             four ways is four rows. Calling that "4 reports generated" would
             contradict the single row the table shows per format. */}
-        <ReportMetricCard
-          label="Report artifacts"
-          value={`${data?.activeReportArtifacts ?? 0}`}
-          context={
+        <MetricCard
+          title="Report artifacts"
+          value={data?.activeReportArtifacts ?? 0}
+          icon={<IconFiles />}
+          description={
             data
               ? `${data.activeReportArtifacts} active` +
                 (data.supersededReportArtifacts > 0
@@ -189,37 +204,53 @@ export default function ReportsPage() {
           }
           loading={stats.isLoading}
         />
-        <ReportMetricCard
-          label="Projects covered"
-          value={`${data?.distinctProjectsCovered ?? 0}`}
-          context={
+        {/* Reports carry no project ids, only the distinct count, so this links
+            to the full project list rather than pretending to filter it. */}
+        <MetricCard
+          title="Projects covered"
+          value={data?.distinctProjectsCovered ?? 0}
+          icon={<IconFolder />}
+          description={
             data
               ? `Of ${data.totalActiveProjects} active project${data.totalActiveProjects === 1 ? '' : 's'}`
               : undefined
           }
+          href="/projects"
           loading={stats.isLoading}
         />
-        <ReportMetricCard
-          label="Scans with reports"
-          value={`${data?.distinctAssessmentsWithReports ?? 0}`}
-          context={
+        {/* There is no "has a report" filter on the scans list — the payload
+            carries no report data — so the link narrows to the population this
+            metric is measured against: completed scans. */}
+        <MetricCard
+          title="Scans with reports"
+          value={data?.distinctAssessmentsWithReports ?? 0}
+          icon={<IconActivity />}
+          description={
             data
               ? `Of ${data.totalCompletedAssessments} completed scan${data.totalCompletedAssessments === 1 ? '' : 's'}`
               : undefined
           }
+          href="/assessments?status=COMPLETED"
           loading={stats.isLoading}
         />
         {/* Historical findings from reported scans — deliberately not the same
-            population as the Issues page, which counts currently-open issues. */}
-        <ReportMetricCard
-          label="Critical + High included"
-          value={`${data?.criticalHighFindingsIncluded ?? 0}`}
+            population as the Issues page, which counts currently-open issues.
+            The link therefore leads to current critical risk, not to a
+            reconstruction of the historical figure on the card. */}
+        <MetricCard
+          title="Critical + High included"
+          value={data?.criticalHighFindingsIncluded ?? 0}
+          icon={<IconAlertTriangle />}
+          accent="critical"
+          // The icon tint names the severity; the value is only painted when
+          // there is something to paint, so a zero does not read as an alarm.
           valueClassName={data?.criticalHighFindingsIncluded ? 'text-severity-critical' : undefined}
-          context={
+          description={
             data
               ? `${data.criticalFindingsIncluded} critical · ${data.highFindingsIncluded} high · ${data.totalFindingsIncluded} total`
               : undefined
           }
+          href={issuesHref({ severity: 'CRITICAL' })}
           loading={stats.isLoading}
         />
       </div>

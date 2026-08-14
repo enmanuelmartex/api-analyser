@@ -1,13 +1,17 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { IconInbox } from '@tabler/icons-react';
 import { cn } from '@/lib/utils';
-import { Skeleton } from '@/components/ui/skeleton';
 import { issuesApi } from '@/lib/api';
-import type { IssueStats } from '@/types';
+import { issuesHref } from '@/lib/issue-list';
+import type { IssueStats, Severity } from '@/types';
+import { MetricCard, MetricCardSkeleton, type MetricAccent } from '@/components/shared/metric-card';
+import { SEVERITY_META, SEVERITY_ORDER } from '@/components/security/severity-badge';
 
 /**
- * Aggregate counts above the issue list.
+ * Aggregate counts above the issue list, each one a link into the list it
+ * summarises.
  *
  * `GET /issues/stats` was implemented and had no consumer, so the list gave no
  * sense of scale: a user paging through twenty rows could not tell whether they
@@ -15,17 +19,21 @@ import type { IssueStats } from '@/types';
  *
  * Counts are server-side aggregates over the whole result set, not over the
  * current page — which is the reason to call this endpoint rather than counting
- * the rows on screen.
+ * the rows on screen. The per-severity figures count issues that are still
+ * exposed (open, acknowledged or accepted risk); the card that links to a
+ * severity therefore opens a slightly wider view, since the list shows every
+ * status for that severity. Said plainly in each description rather than left
+ * for the reader to discover.
  */
 
-const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'] as const;
+const GRID_CLASS = 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6';
 
-const SEVERITY_CLASS: Record<string, string> = {
-  CRITICAL: 'text-severity-critical',
-  HIGH: 'text-severity-high',
-  MEDIUM: 'text-severity-medium',
-  LOW: 'text-severity-low',
-  INFO: 'text-severity-info',
+const SEVERITY_ACCENT: Record<Severity, MetricAccent> = {
+  CRITICAL: 'critical',
+  HIGH: 'high',
+  MEDIUM: 'medium',
+  LOW: 'low',
+  INFO: 'info',
 };
 
 export function IssueStatsStrip({
@@ -35,17 +43,19 @@ export function IssueStatsStrip({
   projectId?: string;
   className?: string;
 }) {
+  // Same key the Dashboard uses for this endpoint, so the two screens share one
+  // cached response instead of each fetching its own copy.
   const { data, isLoading, isError } = useQuery<IssueStats>({
-    queryKey: ['issue-stats', projectId ?? 'all'],
+    queryKey: ['issues', 'stats', projectId ?? 'all'],
     queryFn: () => issuesApi.stats(projectId),
     staleTime: 30_000,
   });
 
   if (isLoading) {
     return (
-      <div className={cn('grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7', className)}>
-        {Array.from({ length: 7 }).map((_, i) => (
-          <Skeleton key={i} className="h-16 rounded-lg" />
+      <div className={cn(GRID_CLASS, className)}>
+        {Array.from({ length: 6 }).map((_, index) => (
+          <MetricCardSkeleton key={index} />
         ))}
       </div>
     );
@@ -56,52 +66,46 @@ export function IssueStatsStrip({
   if (isError || !data) return null;
 
   const bySeverity = new Map(data.bySeverity.map((row) => [row.severity, row._count._all]));
+  // The strict OPEN count, not `data.open`: the card links to `status=OPEN`, so
+  // it must show the number of rows that link produces. `data.open` — which also
+  // counts acknowledged and accepted-risk issues — stays visible as context.
+  const untriaged = data.byStatus.find((row) => row.status === 'OPEN')?._count._all ?? 0;
 
   return (
-    <div className={cn('grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7', className)}>
-      <StatTile label="Total" value={data.total} />
-      <StatTile label="Open" value={data.open} emphasis={data.open > 0} />
-      {SEVERITY_ORDER.map((severity) => (
-        <StatTile
-          key={severity}
-          label={severity.charAt(0) + severity.slice(1).toLowerCase()}
-          value={bySeverity.get(severity) ?? 0}
-          toneClass={SEVERITY_CLASS[severity]}
-          hint="open"
-        />
-      ))}
-    </div>
-  );
-}
+    <div className={cn(GRID_CLASS, className)}>
+      <MetricCard
+        title="Open"
+        value={untriaged}
+        icon={<IconInbox />}
+        // Short by design: at six to a row these cards are narrow, and a
+        // description that wraps to three lines sets the height of the strip.
+        description={
+          data.total === 0 ? 'No issues tracked yet' : `${data.open} of ${data.total} still exposed`
+        }
+        href={issuesHref({ status: 'OPEN' })}
+      />
 
-function StatTile({
-  label,
-  value,
-  toneClass,
-  emphasis,
-  hint,
-}: {
-  label: string;
-  value: number;
-  toneClass?: string;
-  emphasis?: boolean;
-  hint?: string;
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2">
-      <p className="text-[11px] text-muted-foreground">
-        {label}
-        {hint && <span className="ml-1 text-muted-foreground/60">{hint}</span>}
-      </p>
-      <p
-        className={cn(
-          'mt-0.5 text-xl font-semibold tabular-nums',
-          value === 0 ? 'text-muted-foreground' : (toneClass ?? 'text-foreground'),
-          emphasis && value > 0 && 'text-foreground',
-        )}
-      >
-        {value}
-      </p>
+      {SEVERITY_ORDER.map((severity) => {
+        const meta = SEVERITY_META[severity];
+        const Icon = meta.icon;
+        const value = bySeverity.get(severity) ?? 0;
+
+        return (
+          <MetricCard
+            key={severity}
+            title={meta.label}
+            value={value}
+            icon={<Icon />}
+            accent={SEVERITY_ACCENT[severity]}
+            description={
+              value === 0
+                ? `No open ${meta.label.toLowerCase()} findings`
+                : `Open ${meta.label.toLowerCase()} findings`
+            }
+            href={issuesHref({ severity })}
+          />
+        );
+      })}
     </div>
   );
 }

@@ -33,8 +33,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Slider } from '@/components/ui/slider';
 import { FilterChips } from '@/components/filters/filter-chips';
 import { FILTER_SURFACE_CLASS } from '@/components/filters/filter-popover';
+import { useDebouncedField } from '@/hooks/use-debounced-field';
 
-const SEARCH_DEBOUNCE_MS = 250;
 const STATUS_OPTIONS = Object.keys(ASSESSMENT_STATUS_LABELS) as AssessmentStatus[];
 
 const CONTROL_CLASS = 'h-9 border-border/70 bg-card shadow-none';
@@ -366,25 +366,3 @@ function DateFilter({ value, onChange }: SectionProps) {
   );
 }
 
-/**
- * Keeps the input responsive while committing to the URL on a short delay.
- * Refs keep the effect dependent on the draft alone, so a re-render mid-typing
- * does not restart the timer.
- */
-function useDebouncedField(committed: string, commit: (_next: string) => void) {
-  const [draft, setDraft] = React.useState(committed);
-  const commitRef = React.useRef(commit);
-  const committedRef = React.useRef(committed);
-  commitRef.current = commit;
-  committedRef.current = committed;
-
-  React.useEffect(() => setDraft(committed), [committed]);
-
-  React.useEffect(() => {
-    if (draft === committedRef.current) return;
-    const id = setTimeout(() => commitRef.current(draft), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(id);
-  }, [draft]);
-
-  return { draft, setDraft };
-}

@@ -68,8 +68,8 @@ export function AiUsageTab() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:gap-3">
         <Tile label="Enrichments" value={String(data.totalEnrichments)} />
         <Tile label="Succeeded" value={String(data.succeeded)} tone="text-success" />
         <Tile
@@ -91,9 +91,9 @@ export function AiUsageTab() {
 
       <section>
         <h3 className="mb-2 text-sm font-semibold text-foreground">By provider and model</h3>
-        <div className="overflow-x-auto rounded-md border border-border">
+        <div className="overflow-x-auto rounded-xl border border-border bg-card">
           <table className="w-full text-sm">
-            <thead className="bg-muted/40 text-xs text-muted-foreground">
+            <thead className="bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 text-left font-medium">Provider</th>
                 <th className="px-3 py-2 text-left font-medium">Model</th>
@@ -133,7 +133,7 @@ export function AiUsageTab() {
       {data.failureBreakdown.length > 0 && (
         <section>
           <h3 className="mb-2 text-sm font-semibold text-foreground">Failures</h3>
-          <ul className="divide-y divide-border rounded-md border border-border">
+          <ul className="divide-y divide-border rounded-xl border border-border bg-card">
             {data.failureBreakdown.map((row) => (
               <li key={row.errorCode} className="flex items-center justify-between px-3 py-2">
                 <span className="font-mono text-xs text-muted-foreground">{row.errorCode}</span>

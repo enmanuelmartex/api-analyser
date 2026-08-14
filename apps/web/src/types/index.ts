@@ -19,6 +19,8 @@ export interface ManagedUser {
   email: string;
   name: string;
   role: 'ADMIN' | 'ANALYST' | 'VIEWER';
+  /** Better Auth writes its `image` into this column; null for local accounts. */
+  avatar?: string | null;
   isActive: boolean;
   lastLogin?: string;
   createdAt: string;
@@ -26,18 +28,212 @@ export interface ManagedUser {
   _count?: { projects: number };
 }
 
+// ── Logs & observability ─────────────────────────────────────────────────────
+
+export type LogSeverity = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
+
+export type LogCategory =
+  | 'AUTHENTICATION' | 'USERS' | 'PROJECTS' | 'SCANS' | 'FINDINGS' | 'REPORTS'
+  | 'CONFIGURATION' | 'SECURITY' | 'SYSTEM' | 'API' | 'WORKER' | 'DATABASE'
+  | 'NOTIFICATIONS';
+
+export type LogStatus = 'SUCCESS' | 'FAILED' | 'WARNING';
+
+export const LOG_SEVERITIES: LogSeverity[] = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
+
+export const LOG_CATEGORIES: LogCategory[] = [
+  'AUTHENTICATION', 'USERS', 'PROJECTS', 'SCANS', 'FINDINGS', 'REPORTS',
+  'CONFIGURATION', 'SECURITY', 'SYSTEM', 'API', 'WORKER', 'DATABASE', 'NOTIFICATIONS',
+];
+
+export const LOG_STATUSES: LogStatus[] = ['SUCCESS', 'FAILED', 'WARNING'];
+
+/**
+ * One event as the list endpoint returns it.
+ *
+ * `metadata` and `stackTrace` are absent here on purpose — the list projection
+ * omits them because they can be kilobytes each and the table never renders
+ * them. `AuditLogDetail` below is what a single fetch returns.
+ */
 export interface AuditLog {
   id: string;
-  userId?: string;
-  user?: { id: string; name: string; email: string };
-  action: AuditActionType;
-  resource: string;
-  resourceId?: string;
-  metadata?: Record<string, any>;
-  ipAddress?: string;
-  userAgent?: string;
-  success: boolean;
   createdAt: string;
+  event: string;
+  severity: LogSeverity;
+  category: LogCategory;
+  status: LogStatus;
+  action?: AuditActionType | null;
+  resource: string;
+  resourceId?: string | null;
+  message?: string | null;
+  userId?: string | null;
+  user?: { id: string; name: string; email: string } | null;
+  ipAddress?: string | null;
+  source?: string | null;
+  httpMethod?: string | null;
+  route?: string | null;
+  statusCode?: number | null;
+  requestId?: string | null;
+  durationMs?: number | null;
+  projectId?: string | null;
+  assessmentId?: string | null;
+  reportId?: string | null;
+  errorCode?: string | null;
+}
+
+export interface AuditLogDetail extends AuditLog {
+  userAgent?: string | null;
+  metadata?: Record<string, any> | null;
+  stackTrace?: string | null;
+  success: boolean;
+  user?: { id: string; name: string; email: string; role: string } | null;
+}
+
+export interface AuditLogPage {
+  total: number;
+  items: AuditLog[];
+  limit: number;
+  offset: number;
+}
+
+/** A row pushed down the live SSE stream. A subset of AuditLog. */
+export interface LiveLogEvent {
+  id: string;
+  createdAt: string;
+  event: string;
+  severity: LogSeverity;
+  category: LogCategory;
+  status: LogStatus;
+  message: string | null;
+  resource: string;
+  source: string | null;
+  userId: string | null;
+  userName: string | null;
+  requestId: string | null;
+}
+
+export interface LogStats {
+  total: number;
+  oldestAt: string | null;
+  newestAt: string | null;
+  /** Real on-disk size from pg_total_relation_size, or null when unavailable. */
+  storageBytes: number | null;
+  liveSubscribers: number;
+  bySeverity: Partial<Record<LogSeverity, number>>;
+  byCategory: Partial<Record<LogCategory, number>>;
+  policy: {
+    retentionEnabled: boolean;
+    retentionDays: number;
+    maxRecords: number;
+    cleanupIntervalHours: number;
+    collectionEnabled: boolean;
+    liveStreamEnabled: boolean;
+  };
+}
+
+export interface RetentionResult {
+  deletedByAge: number;
+  deletedByCount: number;
+  deletedNotifications: number;
+  total: number;
+  cutoff: string | null;
+  skipped: boolean;
+  reason?: string;
+  durationMs: number;
+}
+
+// ── Runtime settings ─────────────────────────────────────────────────────────
+
+/** One entry of the settings catalogue, as `GET /settings` returns it. */
+export interface RuntimeSetting {
+  key: string;
+  value: boolean | number;
+  /** Where the effective value came from, so the UI can mark overrides. */
+  source: 'database' | 'environment' | 'default';
+  kind: 'boolean' | 'number';
+  label: string;
+  description: string;
+  group: 'logs' | 'notifications' | 'scanner' | 'reports';
+  env: string;
+  min?: number;
+  max?: number;
+  default: boolean | number;
+}
+
+// ── Notifications ────────────────────────────────────────────────────────────
+
+export type NotificationType =
+  | 'SCAN_COMPLETED' | 'SCAN_FAILED' | 'REPORT_GENERATED' | 'REPORT_FAILED'
+  | 'SECURITY_WARNING' | 'CRITICAL_FINDING' | 'NEW_FINDINGS'
+  | 'SCHEDULED_SCAN_COMPLETED' | 'SCHEDULED_SCAN_FAILED'
+  | 'EMAIL_REPORT_SENT' | 'EMAIL_REPORT_FAILED' | 'SYSTEM_ERROR';
+
+export type NotificationCategory = 'SCANS' | 'REPORTS' | 'ISSUES' | 'SECURITY' | 'SYSTEM';
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  category: NotificationCategory;
+  severity: LogSeverity;
+  title: string;
+  message: string;
+  entityType?: string | null;
+  entityId?: string | null;
+  href?: string | null;
+  read: boolean;
+  readAt?: string | null;
+  createdAt: string;
+}
+
+export interface NotificationPage {
+  total: number;
+  unread: number;
+  items: AppNotification[];
+  limit: number;
+  offset: number;
+}
+
+/**
+ * Unread counts for the whole navigation, from one request.
+ *
+ * The sidebar badges, the header bell and the notification centre all read this
+ * single object — see `useNotificationSummary`. Giving each its own count is how
+ * they end up disagreeing.
+ */
+export interface NotificationSummary {
+  /** Every unread notification, including categories with no sidebar entry. */
+  totalUnread: number;
+  byCategory: Partial<Record<NotificationCategory, number>>;
+  scans: number;
+  issues: number;
+  reports: number;
+}
+
+/** Sections that carry a sidebar badge and can be marked read as a group. */
+export type NotificationSection = 'scans' | 'issues' | 'reports';
+
+export interface NotificationPreferences {
+  // In-app
+  scanCompleted: boolean;
+  scanFailed: boolean;
+  reportGenerated: boolean;
+  reportFailed: boolean;
+  securityWarning: boolean;
+  criticalFinding: boolean;
+  newFindings: boolean;
+  systemError: boolean;
+
+  // Email. Every one of these is subordinate to `emailEnabled`.
+  emailEnabled: boolean;
+  emailScanCompleted: boolean;
+  emailScanFailed: boolean;
+  emailReportGenerated: boolean;
+  emailCriticalFinding: boolean;
+
+  // Experience
+  soundEnabled: boolean;
+  desktopEnabled: boolean;
 }
 
 export interface Project {
@@ -139,7 +335,7 @@ export interface SecurityIssue {
   createdAt: string;
   updatedAt: string;
   project?: { id: string; name: string };
-  assignee?: { id: string; name: string; email: string } | null;
+  assignee?: { id: string; name: string; email: string; avatar?: string | null } | null;
   occurrences?: FindingOccurrence[];
   statusChanges?: IssueStatusChange[];
 }
@@ -209,6 +405,14 @@ export interface Assessment {
   completedAt?: string;
   duration?: number;
   jobId?: string;
+  /**
+   * How the run came to exist. `MANUAL` on everything created before scheduling
+   * existed, which is what those runs were.
+   */
+  trigger?: AssessmentTrigger;
+  scheduleId?: string | null;
+  /** Present on the detail endpoint when a schedule produced the run. */
+  schedule?: { id: string; name: string } | null;
   config?: AssessmentConfig;
   summary?: AssessmentSummary;
   /** Detections this scan produced, each linked to its persistent issue. */
@@ -914,6 +1118,8 @@ export interface AssignableUser {
   name: string | null;
   email: string;
   role: string;
+  /** Better Auth writes its `image` into this column; null for local accounts. */
+  avatar?: string | null;
 }
 
 /** Aggregates from `GET /issues/stats`. Prisma groupBy shape, kept verbatim. */
@@ -1010,4 +1216,142 @@ export interface AiUsageSummary {
   failureBreakdown: { errorCode: string; count: number }[];
   pricingTableVersion: string;
   costIsEstimated: true;
+}
+
+// ── Scheduled scans ──────────────────────────────────────────────────────────
+
+export type ScheduleFrequency = 'ONCE' | 'HOURLY' | 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'CUSTOM';
+
+/** The stored intent of a schedule. See `ScheduleDisplayStatus` for what the UI shows. */
+export type ScheduleStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED';
+
+/**
+ * The status a schedule is presented with.
+ *
+ * Wider than `ScheduleStatus`: RUNNING and FAILED are facts about the latest
+ * execution, derived by the server on read. They are deliberately not stored,
+ * so a crashed worker cannot leave a schedule reading RUNNING forever.
+ */
+export type ScheduleDisplayStatus = ScheduleStatus | 'RUNNING' | 'FAILED';
+
+export type ScheduleExecutionStatus =
+  | 'QUEUED'
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'SKIPPED';
+
+/** How an assessment came to exist. */
+export type AssessmentTrigger = 'MANUAL' | 'SCHEDULED';
+
+export interface ScheduleExecution {
+  id: string;
+  scheduleId: string;
+  assessmentId: string | null;
+  status: ScheduleExecutionStatus;
+  /** The planned occurrence — may be earlier than `startedAt` after an outage. */
+  scheduledFor: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  trigger: AssessmentTrigger;
+  /** Why it was skipped, or why the dispatch failed. */
+  reason: string | null;
+  assessment?: {
+    id: string;
+    status: AssessmentStatus;
+    progress: number;
+    startedAt: string | null;
+    completedAt: string | null;
+    duration: number | null;
+    summary?: {
+      totalFindings: number;
+      criticalCount: number;
+      highCount: number;
+      securityScore: number | null;
+      scoreStatus: ScoreStatusValue;
+    } | null;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduledScan {
+  id: string;
+  name: string;
+  projectId: string;
+  project: { id: string; name: string; baseUrl: string; environment: string };
+  createdById: string | null;
+  createdBy: { id: string; name: string } | null;
+
+  frequency: ScheduleFrequency;
+  /** IANA zone, e.g. `America/Santo_Domingo`. */
+  timezone: string;
+  /** The zone's offset right now, e.g. `UTC-4`. Server-computed. */
+  timezoneOffset: string;
+  hour: number | null;
+  minute: number | null;
+  intervalHours: number | null;
+  /** 0 = Sunday … 6 = Saturday. */
+  weekdays: number[];
+  monthDay: number | null;
+  cronExpression: string | null;
+  startAt: string | null;
+  /**
+   * "Every Monday and Wednesday at 2:00 AM" — rendered by the server so the
+   * list, the detail page and the form cannot describe one rule three ways.
+   */
+  description: string;
+
+  executionMode: 'all' | 'profile' | 'manual';
+  scanProfileId: string | null;
+  scanProfile: { id: string; name: string } | null;
+  manualPlugins: string[];
+  enableAiAnalysis: boolean;
+  maxRequestsPerEndpoint: number;
+  requestDelayMs: number;
+  timeoutMs: number;
+  skipIfRunning: boolean;
+
+  status: ScheduleStatus;
+  displayStatus: ScheduleDisplayStatus;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastExecution: ScheduleExecution | null;
+  totalRuns: number;
+  consecutiveFailures: number;
+
+  /** Only on the detail endpoint: the next few instants this rule produces. */
+  upcomingRuns?: string[];
+
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One row of the timezone picker, with the offset in force right now. */
+export interface TimeZoneOption {
+  id: string;
+  offset: string;
+  label: string;
+}
+
+/** The server's verdict on a proposed recurrence, before it is saved. */
+export interface SchedulePreview {
+  description: string;
+  timezone: string;
+  timezoneOffset: string;
+  nextRuns: string[];
+  nextRunAt: string | null;
+}
+
+/** A row of the dashboard's "Upcoming scheduled scans" strip. */
+export interface UpcomingScheduledScan {
+  id: string;
+  name: string;
+  frequency: ScheduleFrequency;
+  projectId: string;
+  projectName: string;
+  nextRunAt: string;
+  timezone: string;
+  timezoneOffset: string;
 }
