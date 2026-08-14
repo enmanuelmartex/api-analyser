@@ -31,27 +31,45 @@ import { authApi } from '@/lib/api';
  * This is a one-way mirror: browser → account, for the benefit of email only.
  */
 export function ThemeSync() {
-  const { theme } = useTheme();
+  /*
+   * `resolvedTheme`, not `theme`.
+   *
+   * `theme` is the user's literal choice and can be the word `system`, which
+   * is unanswerable on a server: there is no OS at the far end to consult, so
+   * it would fall back to light and mail a light email to somebody whose
+   * screen is black. `resolvedTheme` is what `next-themes` has already worked
+   * out from the media query — always `light` or `dark`, and always what the
+   * user is actually looking at, which is exactly the question the email needs
+   * answered.
+   *
+   * The cost is that the account no longer records "this user chose system".
+   * Nothing needs that: the browser's own storage remains authoritative for
+   * what the browser renders, and this column exists solely so the mail
+   * pipeline can pick a variant. If the OS later flips to light, the next page
+   * load re-syncs it.
+   */
+  const { resolvedTheme } = useTheme();
 
   /**
    * The last value written, so a re-render does not repeat the request.
    *
    * `null` until the first effect runs, which is what makes the initial value
-   * get written once — a user who has never changed their theme still needs
-   * their default recorded, or every email they receive falls back to light.
+   * get written once — a user who has never touched the switcher still needs
+   * their effective theme recorded, or every email they receive falls back to
+   * light while they read the product in the dark.
    */
   const lastSent = useRef<string | null>(null);
   const inFlight = useRef(false);
 
   useEffect(() => {
-    // `theme` is undefined until next-themes has resolved against storage on
-    // the client. Writing then would persist a value the user never chose.
-    if (!theme) return;
-    if (theme !== 'system' && theme !== 'light' && theme !== 'dark') return;
-    if (lastSent.current === theme || inFlight.current) return;
+    // Undefined until next-themes has resolved against storage and the media
+    // query on the client. Writing then would persist a value nobody chose.
+    if (!resolvedTheme) return;
+    if (resolvedTheme !== 'light' && resolvedTheme !== 'dark') return;
+    if (lastSent.current === resolvedTheme || inFlight.current) return;
 
     inFlight.current = true;
-    const sending = theme;
+    const sending = resolvedTheme;
 
     authApi
       .updateMe({ theme: sending })
@@ -73,7 +91,7 @@ export function ThemeSync() {
       .finally(() => {
         inFlight.current = false;
       });
-  }, [theme]);
+  }, [resolvedTheme]);
 
   return null;
 }

@@ -246,7 +246,7 @@ export class EmailProcessor extends WorkerHost {
      * read from disk once above and shared by every send.
      */
     for (const recipient of pending) {
-      const person = await this.recipientProfile(recipient.userId);
+      const person = await this.recipientProfile(recipient, owner?.userId ?? job.userId);
       const scanDate = calendarDateIn(
         assessment.completedAt ?? new Date(),
         person.timeZone,
@@ -389,31 +389,88 @@ export class EmailProcessor extends WorkerHost {
   }
 
   /**
-   * The name, zone and theme to render for one recipient.
+   * The name, zone and theme to render one copy of the message in.
    *
-   * A configured team mailbox has no user id and therefore no preferences: it
-   * gets no greeting name, the system zone, and the light variant. That is the
-   * correct answer rather than a fallback — there is nobody whose preference
-   * could be consulted, and guessing one would be inventing it.
+   * ── Identity and presentation are resolved differently, on purpose ─────────
+   *
+   * This used to hand every recipient without a user id the system timezone and
+   * the light variant, on the reasoning that a team mailbox has nobody behind
+   * it whose preference could be consulted. That reasoning holds for
+   * `security@corp.example`. It is wrong for the far more common self-hosted
+   * shape: one operator, whose account address is something undeliverable like
+   * `admin@apianalyser.local`, who puts their real mailbox in
+   * `notifications.reportRecipients`. Every email they ever receive arrives as
+   * a stranger's — light, unnamed — while the application they are looking at
+   * is dark.
+   *
+   * So the two are now resolved separately:
+   *
+   *   • **Presentation** — timezone and theme — falls back to the project
+   *     owner. It is styling: there is no correctness risk in guessing, the
+   *     owner is the only preference the installation actually holds, and it is
+   *     a far better guess than a hardcoded default. A team mailbox read by
+   *     five people renders in the owner's theme, which is harmless.
+   *
+   *   • **Identity** — the greeting name — does not. A name is a claim about
+   *     who the reader is, and addressing `security@corp.example` as "Hi Ada,"
+   *     is wrong in a way a colour cannot be. It is set only when the address
+   *     resolves to an actual account.
+   *
+   * The address lookup is what makes the middle case work: a configured
+   * recipient who IS a user of the installation — but not the project owner —
+   * gets their own name and their own theme, not the owner's.
    */
-  private async recipientProfile(userId: string | undefined): Promise<{
-    name?: string;
-    timeZone: string;
-    theme: RelayTheme;
-  }> {
+  private async recipientProfile(
+    recipient: PlannedRecipient,
+    ownerId: string | undefined,
+  ): Promise<{ name?: string; timeZone: string; theme: RelayTheme }> {
     const systemZone = this.systemTimeZone();
-    if (!userId) return { timeZone: systemZone, theme: 'light' };
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { name: true, timeZone: true, theme: true },
+    // Attributed to a user already, by `planRecipients`.
+    if (recipient.userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: recipient.userId },
+        select: { name: true, timeZone: true, theme: true },
+      });
+      if (user) {
+        return {
+          name: user.name || undefined,
+          timeZone: user.timeZone || systemZone,
+          theme: resolveEmailTheme(user.theme),
+        };
+      }
+    }
+
+    // A configured address that happens to belong to an account. Their own
+    // preferences win over the owner's — it is their inbox.
+    const byAddress = await this.prisma.user.findUnique({
+      where: { email: recipient.address },
+      select: { name: true, timeZone: true, theme: true, isActive: true },
     });
+    if (byAddress?.isActive) {
+      return {
+        name: byAddress.name || undefined,
+        timeZone: byAddress.timeZone || systemZone,
+        theme: resolveEmailTheme(byAddress.theme),
+      };
+    }
 
-    return {
-      name: user?.name || undefined,
-      timeZone: user?.timeZone || systemZone,
-      theme: resolveEmailTheme(user?.theme),
-    };
+    // Not an account. Style it like the owner sees the product, and greet it
+    // by nobody's name.
+    if (ownerId) {
+      const owner = await this.prisma.user.findUnique({
+        where: { id: ownerId },
+        select: { timeZone: true, theme: true },
+      });
+      if (owner) {
+        return {
+          timeZone: owner.timeZone || systemZone,
+          theme: resolveEmailTheme(owner.theme),
+        };
+      }
+    }
+
+    return { timeZone: systemZone, theme: 'light' };
   }
 
   private systemTimeZone(): string {

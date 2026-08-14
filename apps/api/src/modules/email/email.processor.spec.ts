@@ -28,6 +28,8 @@ interface Options {
   summary?: Record<string, unknown>;
   /** What `WeeklySummaryService.compute` returns. `null` means "no projects". */
   weeklySummary?: any;
+  /** Accounts reachable by address, for the configured-recipient lookup. */
+  usersByEmail?: Record<string, any>;
   reportStatus?: string;
   fileSize?: number;
   maxAttachmentBytes?: number;
@@ -54,12 +56,27 @@ function makeProcessor(options: Options = {}) {
     ...options.preferences,
   };
 
+  const owner =
+    options.user === undefined
+      ? { id: 'user_1', email: 'owner@example.com', isActive: true }
+      : options.user;
+
   const prisma = {
     user: {
-      findUnique: async () =>
-        options.user === undefined
-          ? { id: 'user_1', email: 'owner@example.com', isActive: true }
-          : options.user,
+      /*
+       * Distinguishes the two lookups the processor makes, because they mean
+       * different things: by id is "the account this delivery is attributed
+       * to", by email is "does this configured address happen to belong to
+       * somebody". Answering both with the owner would make the address lookup
+       * appear to succeed for every mailbox, which is the exact bug the
+       * owner-fallback tests are here to pin.
+       */
+      findUnique: async ({ where }: any = { where: {} }) => {
+        if (where?.email !== undefined) {
+          return (options.usersByEmail ?? {})[where.email] ?? null;
+        }
+        return owner;
+      },
     },
     assessment: {
       findUnique: async () => ({
@@ -498,17 +515,151 @@ describe('configured recipients', () => {
     expect(sent[0].theme).toBe('dark');
   });
 
-  it('greets a configured mailbox neutrally and renders it light', async () => {
+  /*
+   * The shape almost every self-hosted install actually has: one operator whose
+   * account address is undeliverable (`admin@…local`), with their real mailbox
+   * in `notifications.reportRecipients`. That address is not a user, so it has
+   * no preferences of its own — and styling it light while the operator reads
+   * the product in the dark is what this exists to prevent.
+   */
+  it('styles a configured mailbox like the project owner sees the product', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['reports@gmail.example'],
+      user: {
+        id: 'user_1',
+        email: 'admin@apianalyser.local',
+        name: 'Administrator',
+        isActive: true,
+        theme: 'dark',
+        timeZone: 'America/Santo_Domingo',
+      },
+      // Owner has email off, so the configured address is the only recipient.
+      // Critical alerts off too: the fixture has a critical finding, and leaving
+      // it on would send the owner a critical-finding email as well, making
+      // `sent[0]` the wrong message to assert against.
+      preferences: {
+        emailScanCompleted: false,
+        emailReportGenerated: false,
+        emailCriticalFinding: false,
+      },
+    });
+
+    await processor.process(READY_JOB);
+
+    expect(sent.map((message) => message.to)).toEqual(['reports@gmail.example']);
+    expect(sent[0].theme).toBe('dark');
+    // The owner's zone too, so the date is the day they ran the scan.
+    expect(sent[0].relay.data.scanDate).toBe('2026-08-13');
+  });
+
+  /*
+   * Identity is not styling. A colour guessed wrong is harmless; addressing a
+   * shared mailbox as "Hi Administrator," is a claim about who is reading.
+   */
+  it('does not put the owner name on a mailbox that is not theirs', async () => {
     const { processor, sent } = makeProcessor({
       configuredRecipients: ['security@corp.example'],
-      // No owner at all, so the only recipient is the configured address.
+      user: {
+        id: 'user_1',
+        email: 'admin@apianalyser.local',
+        name: 'Administrator',
+        isActive: true,
+        theme: 'dark',
+      },
+      // Critical alerts off too: the fixture has a critical finding, and leaving
+      // it on would send the owner a critical-finding email as well, making
+      // `sent[0]` the wrong message to assert against.
+      preferences: {
+        emailScanCompleted: false,
+        emailReportGenerated: false,
+        emailCriticalFinding: false,
+      },
+    });
+
+    await processor.process(READY_JOB);
+
+    expect(sent[0].relay.data.userName).toBeUndefined();
+    // And the owner's name appears nowhere in the locally rendered body either
+    // — the relay greets a nameless recipient with a bare "Hi,", and this
+    // template simply omits the greeting.
+    expect(sent[0].html).not.toContain('Administrator');
+    expect(sent[0].text).not.toContain('Administrator');
+  });
+
+  /*
+   * The middle case, and the reason the address lookup exists: a configured
+   * recipient who is a user of the installation but not this project's owner.
+   * Their own preferences win — it is their inbox, and they have one.
+   */
+  it('prefers a configured recipient own preferences over the owner', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['ada@example.com'],
+      user: {
+        id: 'user_1',
+        email: 'admin@apianalyser.local',
+        name: 'Administrator',
+        isActive: true,
+        theme: 'dark',
+        timeZone: 'America/Santo_Domingo',
+      },
+      usersByEmail: {
+        'ada@example.com': {
+          name: 'Ada',
+          isActive: true,
+          theme: 'light',
+          timeZone: 'Asia/Tokyo',
+        },
+      },
+      // Critical alerts off too: the fixture has a critical finding, and leaving
+      // it on would send the owner a critical-finding email as well, making
+      // `sent[0]` the wrong message to assert against.
+      preferences: {
+        emailScanCompleted: false,
+        emailReportGenerated: false,
+        emailCriticalFinding: false,
+      },
+    });
+
+    await processor.process(READY_JOB);
+
+    expect(sent[0].theme).toBe('light');
+    expect(sent[0].relay.data.userName).toBe('Ada');
+    // Tokyo is ahead of UTC, so their calendar date is the 14th, not the 13th.
+    expect(sent[0].relay.data.scanDate).toBe('2026-08-14');
+  });
+
+  it('ignores a deactivated account behind a configured address', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['ada@example.com'],
+      user: { id: 'user_1', email: 'admin@apianalyser.local', isActive: true, theme: 'dark' },
+      usersByEmail: {
+        'ada@example.com': { name: 'Ada', isActive: false, theme: 'light' },
+      },
+      // Critical alerts off too: the fixture has a critical finding, and leaving
+      // it on would send the owner a critical-finding email as well, making
+      // `sent[0]` the wrong message to assert against.
+      preferences: {
+        emailScanCompleted: false,
+        emailReportGenerated: false,
+        emailCriticalFinding: false,
+      },
+    });
+
+    await processor.process(READY_JOB);
+
+    // Falls through to the owner's styling, and carries no name.
+    expect(sent[0].theme).toBe('dark');
+    expect(sent[0].relay.data.userName).toBeUndefined();
+  });
+
+  it('falls back to light when there is no owner to borrow a theme from', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['security@corp.example'],
       user: null,
     });
 
     await processor.process(READY_JOB);
 
-    // There is no person behind a team mailbox to have a name or a preference,
-    // so the message carries neither rather than borrowing someone else's.
     expect(sent[0].relay.data.userName).toBeUndefined();
     expect(sent[0].theme).toBe('light');
   });
