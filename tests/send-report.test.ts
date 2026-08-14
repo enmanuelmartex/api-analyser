@@ -279,7 +279,7 @@ describe('POST /api/send-report — a valid request', () => {
     const sent = mailer.lastSent!;
     expect(sent.from).toBe(DEFAULT_EMAIL_FROM);
     expect(sent.to).toBe('security@example.com');
-    expect(sent.subject).toBe('Security Report - Production API');
+    expect(sent.subject).toBe('Assessment completed — API Analyzer');
     expect(sent.attachments).toHaveLength(1);
     expect(sent.attachments[0]!.filename).toBe('security-report.pdf');
     expect(Buffer.isBuffer(sent.attachments[0]!.content)).toBe(true);
@@ -300,7 +300,7 @@ describe('POST /api/send-report — a valid request', () => {
     expect(mailer.lastSent!.attachments[0]!.content.toString('base64')).toBe(pdfBase64);
   });
 
-  test('falls back to the generic subject when scanName is absent', async () => {
+  test('uses the same server-owned subject with or without a scanName', async () => {
     const mailer = new FakeMailer();
     await handleSendReport(
       sendReportRequest({
@@ -313,7 +313,7 @@ describe('POST /api/send-report — a valid request', () => {
       testDependencies({ mailer }),
     );
 
-    expect(mailer.lastSent!.subject).toBe('API Security Report');
+    expect(mailer.lastSent!.subject).toBe('Assessment completed — API Analyzer');
   });
 
   test('uses the configured EMAIL_FROM when one is set', async () => {

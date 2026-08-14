@@ -31,6 +31,7 @@ export async function handleSendReport(
     const { subject, html, text } = buildReportEmail({
       scanName: payload.scanName,
       filename,
+      assetBaseUrl: context.deps.config.assetBaseUrl,
     });
 
     return deliver(context, {

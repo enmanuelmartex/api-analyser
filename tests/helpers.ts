@@ -42,11 +42,15 @@ export class AlwaysDenyRateLimiter implements RateLimiter {
 
 export const TEST_SECRET = 'test-relay-secret-value-not-a-real-one';
 
+/** Stands in for the deployment's own origin. Never a caller-supplied value. */
+export const TEST_ASSET_BASE_URL = 'https://mail.example.test';
+
 export function testConfig(overrides: Partial<RelayConfig> = {}): RelayConfig {
   return {
     resendApiKey: 're_not_a_real_key',
     relaySecret: TEST_SECRET,
     emailFrom: DEFAULT_EMAIL_FROM,
+    assetBaseUrl: TEST_ASSET_BASE_URL,
     rateLimit: { max: 20, windowSeconds: 60 },
     ...overrides,
   };

@@ -41,26 +41,71 @@ sending from a verified security domain from being a phishing tool.
 {
   "to": "security@example.com",
   "template": "scan-report",
+  "theme": "dark",
   "data": {
+    "userName": "Ada",
     "projectName": "Production API",
-    "securityScore": 72,
+    "securityScore": 37,
+    "riskLevel": "HIGH",
     "counts": { "critical": 1, "high": 3, "medium": 2, "low": 5, "info": 0 },
     "totalFindings": 11,
+    "endpointsEvaluated": 12,
+    "scanDate": "2026-08-13",
     "reportUrl": "https://analyser.internal/reports/abc123"
   },
   "attachment": { "filename": "security-report.pdf", "contentBase64": "JVBERi0…" }
 }
 ```
 
+And the weekly digest:
+
+```json
+{
+  "to": "ada@example.com",
+  "template": "weekly-summary",
+  "theme": "light",
+  "data": {
+    "userName": "Ada",
+    "dateFrom": "2026-08-07",
+    "dateTo": "2026-08-13",
+    "assessments": { "count": 14, "changePercent": 12 },
+    "findings": { "count": 23, "changePercent": -8 },
+    "critical": { "count": 3, "changePercent": 0 },
+    "activeProjects": 3,
+    "dashboardUrl": "https://analyser.internal/dashboard"
+  }
+}
+```
+
 | Template | `data` fields | Attachment |
 | -------- | ------------- | ---------- |
-| `scan-report` | `projectName` (req), `securityScore`, `counts`, `totalFindings`, `reportUrl` | optional PDF |
-| `scan-failed` | `projectName` (req), `reason` (req), `scanUrl`, `scheduleName` | rejected |
-| `critical-finding` | `projectName` (req), `criticalCount` (req), `issuesUrl` | rejected |
+| `scan-report` | `projectName` (req), `userName`, `securityScore`, `riskLevel`, `counts`, `totalFindings`, `endpointsEvaluated`, `scanDate`, `reportUrl` | optional PDF |
+| `scan-failed` | `projectName` (req), `reason` (req), `userName`, `scanUrl`, `scheduleName` | rejected |
+| `critical-finding` | `projectName` (req), `criticalCount` (req), `userName`, `issuesUrl` | rejected |
+| `weekly-summary` | `dateFrom` (req), `dateTo` (req), `assessments` (req), `findings` (req), `critical` (req), `activeProjects` (req), `userName`, `dashboardUrl` | rejected |
 
 URLs must be `http`/`https`; anything else is a `400`. Every link is rendered
 with its destination printed in visible text underneath, because a recipient on
 a phone cannot hover a button to see where it goes.
+
+**`theme`** is `light` or `dark`, optional, defaulting to `light`. `system` is
+rejected: "follow the OS" is a question only a browser can answer, and there is
+no browser here — the calling API resolves it against the user's stored
+preference before it calls. The variant is baked into inline styles rather than
+selected by a `prefers-color-scheme` media query, because Gmail strips media
+queries entirely.
+
+**Dates are calendar dates** (`YYYY-MM-DD`), never timestamps, and a value
+carrying a time or an offset is a `400`. A scan finishing at 21:40 on 13 August
+in Santo Domingo is 14 August in UTC, and the reader who ran it means the 13th —
+so the caller, which knows the user's timezone, resolves the date and this
+service formats what it is given. No timezone crosses the boundary, so there is
+nothing here to get wrong.
+
+**`changePercent` is nullable, not optional.** `null` means the previous week
+had no activity to compare against, which renders as no comparison line at all.
+Omitting the key is a `400` — the distinction between "no baseline" and "I
+forgot the field" is what keeps `Infinity%` and `NaN%` out of an inbox.
 
 Responses are identical to `/api/send-report` below.
 
@@ -344,11 +389,16 @@ them apart.
 ```
 app/api/
   health/route.ts            liveness, two constant strings
-  send-report/route.ts       runtime config; delegates immediately
+  send/route.ts              runtime config; delegates immediately
+  send-report/route.ts       the minimal legacy form, same renderer
+
+public/brand/                the logo, both variants, deployed with the templates
 
 lib/
   relay/
-    send-report-handler.ts   the endpoint's actual logic, dependency-injected
+    send-handler.ts          the endpoint's actual logic, dependency-injected
+    send-report-handler.ts   the minimal endpoint, over the same renderer
+    pipeline.ts              auth → size → rate limit → parse, in that order
     dependencies.ts          builds the real ones once per warm instance
   auth/
     authenticator.ts         the interface everything else depends on
@@ -356,12 +406,23 @@ lib/
     bearer.ts                header parsing, constant-time compare
     index.ts                 the factory — and how to grow past one secret
   validation/
+    send.schema.ts           Zod discriminated union, strict — the security model
     send-report.schema.ts    Zod, strict: unknown fields are rejected
     pdf.ts                   base64 → Buffer, with the checks that matter
     filename.ts              allow-list sanitiser
   email/
-    report-email.ts          the server-owned template (HTML + text)
+    templates.ts             the closed registry — add a template in 3 places
+    templates/
+      scan-report.ts         "Assessment completed" + the summary card
+      scan-failed.ts
+      critical-finding.ts
+      weekly-summary.ts      the Monday digest and its four metric tiles
+    components.ts            header, footer, button, cards — email-safe HTML
+    theme.ts                 the light and dark palettes, from the product's own
+    format.ts                dates, counts, percentages — no timezone anywhere
+    report-email.ts          the /api/send-report adapter over scan-report
     escape.ts
+    types.ts
   resend/
     mailer.ts                the provider boundary — the tests' seam
     resend-mailer.ts         the only file that imports the Resend SDK
@@ -371,7 +432,7 @@ lib/
   config/env.ts             the only reader of process.env
   limits.ts                 every size ceiling, in one place
 
-tests/                      192 tests; Resend is a fake, never the real client
+tests/                      269 tests; Resend is a fake, never the real client
 examples/                   client code to copy into API Analyser
 docs/INTEGRATION.md         how the local app will call this
 ```

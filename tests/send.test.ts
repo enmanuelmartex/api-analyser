@@ -83,7 +83,7 @@ describe('POST /api/send — scan-report', () => {
     });
 
     const sent = mailer.lastSent!;
-    expect(sent.subject).toBe('Security Report - Production API');
+    expect(sent.subject).toBe('Assessment completed — API Analyzer');
     expect(sent.attachments).toHaveLength(1);
     expect(sent.attachments[0]!.filename).toBe('security-report.pdf');
     expect(sent.attachments[0]!.content.subarray(0, 5).toString()).toBe('%PDF-');
@@ -97,7 +97,7 @@ describe('POST /api/send — scan-report', () => {
     expect(html).toContain('72 / 100');
     expect(html).toContain('Critical');
     expect(html).toContain('https://app.example.com/reports/abc123');
-    expect(text).toContain('Security score: 72/100');
+    expect(text).toContain('Score:    72 / 100');
     expect(text).toContain('Critical');
   });
 
@@ -124,7 +124,7 @@ describe('POST /api/send — scan-report', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mailer.lastSent!.subject).toBe('Security Report - X');
+    expect(mailer.lastSent!.subject).toBe('Assessment completed — API Analyzer');
   });
 
   test('sanitises the attachment filename', async () => {
@@ -148,7 +148,7 @@ describe('POST /api/send — scan-failed', () => {
 
     expect(response.status).toBe(200);
     const sent = mailer.lastSent!;
-    expect(sent.subject).toBe('Security Scan Failed - Production API');
+    expect(sent.subject).toBe('Assessment failed — API Analyzer');
     expect(sent.html).toContain('refused the connection');
     expect(sent.html).toContain('Weekly Production Scan');
     expect(sent.text).toContain('refused the connection');
@@ -169,16 +169,27 @@ describe('POST /api/send — scan-failed', () => {
 });
 
 describe('POST /api/send — critical-finding', () => {
-  test('sends, and agrees with itself about plurals', async () => {
+  /*
+   * The subject is a constant now and carries neither the count nor the project
+   * name — a subject assembled from request data is a subject the caller
+   * steers, and this is the message most worth spoofing. The plural logic still
+   * exists; it moved into the body, which is where this asserts it.
+   */
+  test('keeps the count out of the subject and gets the plural right in the body', async () => {
     const mailer = new FakeMailer();
     await handleSend(sendRequest(criticalFinding), testDependencies({ mailer }));
-    expect(mailer.lastSent!.subject).toBe('Critical: 2 vulnerabilities in Production API');
+
+    expect(mailer.lastSent!.subject).toBe('Critical findings detected — API Analyzer');
+    expect(mailer.lastSent!.subject).not.toContain('Production API');
+    expect(mailer.lastSent!.html).toContain('2 critical vulnerabilities');
 
     await handleSend(
       sendRequest({ ...criticalFinding, data: { ...criticalFinding.data, criticalCount: 1 } }),
       testDependencies({ mailer }),
     );
-    expect(mailer.lastSent!.subject).toBe('Critical: 1 vulnerability in Production API');
+
+    expect(mailer.lastSent!.subject).toBe('Critical findings detected — API Analyzer');
+    expect(mailer.lastSent!.html).toContain('1 critical vulnerability');
   });
 });
 

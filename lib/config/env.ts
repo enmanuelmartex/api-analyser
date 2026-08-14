@@ -9,6 +9,21 @@
 /** Verified sender used when `EMAIL_FROM` is unset. */
 export const DEFAULT_EMAIL_FROM = 'API Analyzer <reports@notifications.apianalyser.com>';
 
+/**
+ * Where the logo in an email is fetched from.
+ *
+ * This deployment's own public origin, because the images live in this
+ * project's `public/brand/` and are therefore versioned and deployed with the
+ * templates that reference them. Pointing it at the marketing site instead
+ * would make every email in every install depend on a separate deployment's
+ * asset paths.
+ *
+ * It must be an absolute `https://` origin. A mail client will not resolve a
+ * relative path — there is no page for it to be relative to — and most refuse
+ * to load `http://` at all, so a `localhost` value renders as a broken image.
+ */
+export const DEFAULT_ASSET_BASE_URL = 'https://mail.apianalyser.com';
+
 /** Defaults for the abuse limiter. Overridable, but sane for a single install. */
 export const DEFAULT_RATE_LIMIT_MAX = 20;
 export const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60;
@@ -20,6 +35,8 @@ export interface RelayConfig {
   readonly relaySecret: string;
   /** RFC 5322 sender, e.g. `API Analyzer <reports@…>`. */
   readonly emailFrom: string;
+  /** Absolute origin the email logo is loaded from. No trailing slash. */
+  readonly assetBaseUrl: string;
   readonly rateLimit: {
     readonly max: number;
     readonly windowSeconds: number;
@@ -79,6 +96,9 @@ export function loadConfig(env: Env = process.env): RelayConfig {
     resendApiKey: resendApiKey as string,
     relaySecret: relaySecret as string,
     emailFrom: read(env, 'EMAIL_FROM') ?? DEFAULT_EMAIL_FROM,
+    // Trailing slashes stripped here so every caller can concatenate a path
+    // beginning with `/` without producing a `//` that some proxies 301.
+    assetBaseUrl: (read(env, 'EMAIL_ASSET_BASE_URL') ?? DEFAULT_ASSET_BASE_URL).replace(/\/+$/, ''),
     rateLimit: {
       max: readPositiveInt(env, 'RATE_LIMIT_MAX', DEFAULT_RATE_LIMIT_MAX),
       windowSeconds: readPositiveInt(

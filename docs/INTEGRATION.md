@@ -60,7 +60,17 @@ Two constraints the relay imposes, and how they are handled:
   `relay: { template, data }` payload alongside the HTML the app rendered for
   the direct path — see `RelayPayload`. A message without one is reported as a
   non-retryable failure naming the problem, rather than being dropped or
-  arriving wrong. All three of the app's emails carry one.
+  arriving wrong. All four of the app's emails carry one.
+- **The relay renders light and dark, and cannot work out which.** A browser's
+  `localStorage` is unreachable from a Vercel function, and an email cannot ask.
+  So the app resolves the recipient's stored `User.theme` — mirrored from
+  `next-themes` by `ThemeSync` on the web side — and sends `theme: "light" |
+  "dark"` with the request. `system` is resolved before sending, because the
+  relay rejects it: there is no OS at the far end to consult.
+- **Dates cross the boundary as calendar dates, never instants.** The app
+  resolves `YYYY-MM-DD` in the recipient's own timezone and the relay formats
+  what it is given, so no timezone conversion happens at the far end and the
+  usual UTC off-by-one cannot occur.
 - **The relay caps attachments at 3 MB.** `RelayTransport` checks the size
   locally and fails with a clear reason before spending the upload. The app's
   own `EMAIL_MAX_ATTACHMENT_BYTES` (8 MB by default) is the earlier gate: a

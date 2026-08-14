@@ -32,10 +32,23 @@ export async function handleSend(
       ];
     }
 
+    // The theme is a rendering option, not template data: it applies to every
+    // template and no template's `data` should have to carry it. `assetBaseUrl`
+    // comes from configuration and never from the request — a caller-supplied
+    // logo origin would be an open redirect for image loads and a tracking
+    // beacon pointed at whatever host they chose.
+    const options = {
+      theme: payload.theme,
+      assetBaseUrl: context.deps.config.assetBaseUrl,
+    };
+
     const rendered =
       payload.template === 'scan-report'
-        ? renderTemplate({ template: 'scan-report', data: payload.data, attachedFilename })
-        : renderTemplate(payload);
+        ? renderTemplate(
+            { template: 'scan-report', data: payload.data, attachedFilename },
+            options,
+          )
+        : renderTemplate(payload, options);
 
     return deliver(context, {
       to: payload.to,
