@@ -72,7 +72,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="grid-bg flex min-h-screen items-center justify-center bg-background px-4">
+    <main className="grid-bg flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-3">
@@ -122,7 +122,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                  className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <IconEyeOff className="h-4 w-4" /> : <IconEye className="h-4 w-4" />}
@@ -137,7 +137,7 @@ export default function LoginPage() {
 
           <p className="text-center text-sm text-muted-foreground mt-5">
             No account yet?{' '}
-            <Link href="/register" className="text-primary hover:underline">
+            <Link href="/register" className="text-primary underline underline-offset-2 hover:text-primary/80">
               Create one
             </Link>
           </p>
@@ -147,6 +147,6 @@ export default function LoginPage() {
           Use only on authorized APIs and approved testing environments
         </p>
       </div>
-    </div>
+    </main>
   );
 }

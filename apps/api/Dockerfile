@@ -26,8 +26,9 @@ COPY . .
 # Pre-generate Prisma client (regenerated at runtime via entrypoint)
 RUN bunx prisma generate
 
+COPY docker-entrypoint-secrets.sh /usr/local/bin/docker-entrypoint-secrets.sh
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint-secrets.sh /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 4000
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
@@ -57,7 +58,7 @@ FROM node:22-alpine AS production
 
 WORKDIR /app
 
-RUN apk add --no-cache openssl dumb-init
+RUN apk add --no-cache openssl dumb-init su-exec
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs && \
@@ -68,15 +69,25 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/prisma ./prisma
 
-# Reports directory
-RUN mkdir -p /app/reports && chown nestjs:nodejs /app/reports
+COPY docker-entrypoint-secrets.sh /usr/local/bin/docker-entrypoint-secrets.sh
+COPY docker-entrypoint.prod.sh /usr/local/bin/docker-entrypoint.prod.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint-secrets.sh /usr/local/bin/docker-entrypoint.prod.sh
 
-USER nestjs
+# Reports and generated-secrets directories are named volumes at runtime.
+RUN mkdir -p /app/reports /app/.secrets && chown -R nestjs:nodejs /app/reports /app/.secrets
 
+# Deliberately no `USER nestjs` here. The entrypoint below needs to run as
+# root: an operator switching this same api_secrets volume back and forth
+# between `docker-compose.dev.yml` (whose stage has no USER, so it writes as
+# root) and this stage otherwise leaves generated.env owned by a UID this
+# container can't read, and the container never boots again. Root can always
+# read it and fix ownership; the entrypoint's last act is to drop to nestjs
+# via su-exec for the actual server process, so the running Node process is
+# still unprivileged.
 EXPOSE 4000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD wget -qO- http://localhost:4000/api/v1/health || exit 1
 
-ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/main.js"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.prod.sh"]
+CMD ["dumb-init", "--", "node", "dist/main.js"]

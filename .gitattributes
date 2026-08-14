@@ -1,0 +1,14 @@
+# Force LF regardless of the checking-out machine's core.autocrlf. Without
+# this, a Windows clone with the common `core.autocrlf=true` setting rewrites
+# LF to CRLF on checkout. docker-entrypoint.sh is bind-mounted straight into
+# the Linux container (see docker-compose.yml), so a CRLF checkout breaks its
+# `#!/bin/sh` shebang — the kernel looks for an interpreter literally named
+# `/bin/sh\r`, which doesn't exist, and the container fails with a misleading
+# "exec ...docker-entrypoint.sh: no such file or directory".
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.png -text
+*.jpg -text
+*.jpeg -text
+*.ico -text

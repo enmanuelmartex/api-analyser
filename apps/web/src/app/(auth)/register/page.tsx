@@ -124,7 +124,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="grid-bg flex min-h-screen items-center justify-center bg-background px-4">
+    <main className="grid-bg flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center gap-3">
           <BrandLogo type="horizontal" size={48} />
@@ -192,7 +192,7 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                  className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <IconEyeOff className="h-4 w-4" /> : <IconEye className="h-4 w-4" />}
@@ -232,12 +232,12 @@ export default function RegisterPage() {
 
           <p className="text-center text-sm text-muted-foreground mt-5">
             Already have an account?{' '}
-            <Link href="/login" className="text-primary hover:underline">
+            <Link href="/login" className="text-primary underline underline-offset-2 hover:text-primary/80">
               Sign in
             </Link>
           </p>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

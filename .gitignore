@@ -66,9 +66,6 @@ desktop.ini
 coverage/
 .nyc_output/
 
-# Docker
-.dockerignore
-
 # Temporary files
 tmp/
 temp/
