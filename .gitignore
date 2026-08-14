@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.bun/
+
+# Next
+.next/
+out/
+build/
+next-env.d.ts
+
+# Vercel
+.vercel
+
+# Environment — the relay's entire threat model rests on these never being
+# committed. `.env.example` is the only env file that belongs in Git.
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+!.env.example
+
+# Secrets of any shape
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+
+# Never commit a report, sample or otherwise
+*.pdf
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+bun-debug.log*
+
+# Testing
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+*.swp
