@@ -80,7 +80,7 @@ Hay un `ValidationPipe` global con `whitelist`, `forbidNonWhitelisted` y `transf
 
 ### Bloques
 
-**Usuarios y organización** — `User`, `ApiKey`, `Session`, `Account`, `Verification`, `Invitation`
+**Usuarios y organización** — `User`, `ApiKey`, `Session`, `Account`, `Verification`
 `Session`/`Account`/`Verification` pertenecen a Better Auth. `ApiKey` existe pero **ningún servicio la lee** (0 filas, sin controlador).
 
 **Proyectos y superficie de API** — `Project`, `ApiSpec`, `AuthConfig`, `Endpoint`
@@ -144,11 +144,13 @@ Snapshots de score: 3 en `score-v2` (rango 1–72) y **1 huérfano en `score-v1`
 
 La estrategia JWT acepta el token también por query string (`?token=`), específicamente porque `EventSource` no puede enviar headers. Esto habilita el SSE de progreso.
 
-### 5.2 `users` — 12 endpoints ✅ Funcional, admin-only
+### 5.2 `users` — ✅ Funcional, admin-only
 
-Listado, CRUD, cambio de rol, activación/desactivación, reseteo de contraseña, logs de auditoría, y un sistema completo de invitaciones (`invite` / `verify-invite` / `accept-invite`) con tokens de 32 bytes y expiración.
+Listado, CRUD, cambio de rol, activación/desactivación, reseteo de contraseña y logs de auditoría.
 
-**Actualizado (2026-08-11):** ya no hay envío de correo. Resend se eliminó — el producto es autoalojado y exigir una API key de un tercero para crear el segundo usuario metía una dependencia hospedada en medio de una instalación local. `POST /users/invite` devuelve el enlace al admin que lo creó y lo escribe también en el log; el diálogo de Settings lo muestra para copiar. El token sigue quedando en el log, ahora deliberadamente y documentado en la UI.
+**Actualizado (2026-08-14):** el sistema de invitaciones se eliminó por completo — endpoints, modelo `Invitation` y la pantalla `/accept-invite`. Nunca llegó a enviar correo: el paso intermedio de 2026-08-11 hacía que `POST /users/invite` devolviera el enlace al administrador para entregarlo a mano, lo cual es estrictamente más trabajo que crear la cuenta directamente y además dejaba una cuenta a medio configurar en la base de datos hasta que el invitado la reclamara. Los administradores crean cuentas desde Settings → Users.
+
+Que ahora exista transporte de correo (relay o Resend) no lo resucita: el correo transaccional de este producto son informes y resúmenes, no alta de usuarios.
 
 Es el único módulo (junto con `auth`) que escribe en `AuditLog`.
 
@@ -334,7 +336,7 @@ ScannerProcessor.process()
 | Ruta | Líneas | Estado |
 |---|---|---|
 | `/` | 5 | ✅ redirect → `/dashboard` |
-| `/login` `/register` `/accept-invite` | 197 / 289 / 279 | ✅ funcionales |
+| `/login` `/register` | 197 / 289 | ✅ funcionales |
 | `/auth/callback` | 89 | ✅ canje de sesión → JWT |
 | `/dashboard` | 58 | ✅ 4 métricas, 3 gráficos, tabla reciente |
 | `/projects` | 259 | ✅ listado + drawer de creación |

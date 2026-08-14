@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils';
  *     to substitute the compact artwork below 64 px because the six-node network
  *     degrades into noise at small sizes. It used to do exactly that, which meant
  *     every logo in the product except the one on the Settings screen was the
- *     simplified mark: the sidebar, the login form and the invite screen all
+ *     simplified mark: the sidebar, the login form and the register screen all
  *     drew a cousin of the artwork on the brand sheet rather than the artwork
  *     itself. The product owner asked for the primary mark everywhere, so the
  *     substitution is gone and `compact` is now an explicit opt-in nobody takes.

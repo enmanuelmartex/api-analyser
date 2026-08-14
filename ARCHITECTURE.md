@@ -229,7 +229,7 @@ El enum `PluginCategory` declara doce categorías — `AUTHENTICATION`, `AUTHORI
 
 **Ruta:** `/settings?tab=…` (una sola ruta, nueve pestañas por query string)
 **API:** `GET /auth/me` · `/users/*` · `/ai/config/*`
-**Modelos:** `User` · `ApiKey` · `Invitation` · `AiProviderConfig` · `AuditLog`
+**Modelos:** `User` · `ApiKey` · `AiProviderConfig` · `AuditLog`
 
 | Pestaña | Contenido |
 |---|---|
@@ -253,9 +253,16 @@ Soporta varios proveedores con uno activo a la vez. Al arrancar se inicializan O
 
 ## Autenticación y roles
 
-**Rutas:** `/login` · `/register` · `/accept-invite` · `/auth/callback`
-**API:** `POST /auth/register` · `POST /auth/login` · `POST /auth/exchange-session` · `GET /auth/me` · `GET /users/verify-invite` · `POST /users/accept-invite`
-**Modelos:** `User` · `Session` · `Account` · `Verification` · `Invitation` · `ApiKey`
+**Rutas:** `/login` · `/register` · `/auth/callback`
+**API:** `POST /auth/register` · `POST /auth/login` · `POST /auth/exchange-session` · `GET /auth/me`
+**Modelos:** `User` · `Session` · `Account` · `Verification` · `ApiKey`
+
+> El flujo de invitación por correo se eliminó por completo: endpoints, modelo
+> `Invitation` y pantalla `/accept-invite`. Nunca llegó a enviar correo, así que
+> sólo producía un enlace que el administrador tenía que entregar a mano —
+> estrictamente más trabajo que crear la cuenta directamente, y dejaba una
+> cuenta a medio configurar en la base de datos hasta que el invitado la
+> reclamara. Los administradores crean cuentas desde Settings → Users.
 
 Las páginas de autenticación viven fuera del layout del dashboard, en su propio grupo de rutas, y son las únicas que conservan el fondo con retícula y resplandor de marca.
 
@@ -271,7 +278,7 @@ Veintitrés modelos en Prisma. Agrupados por su papel en el pipeline se leen muc
 
 | Grupo | Modelos | Papel |
 |---|---|---|
-| Identidad | `User` `Session` `Account` `Verification` `Invitation` `ApiKey` | Quién entra y con qué permisos |
+| Identidad | `User` `Session` `Account` `Verification` `ApiKey` | Quién entra y con qué permisos |
 | Objetivo | `Project` `ProjectSecret` `ApiSpec` `AuthConfig` `Endpoint` | Qué API se analiza y cómo se accede |
 | Ejecución | `Assessment` `AssessmentConfig` `AssessmentSummary` `AssessmentLog` | Una corrida del escáner y su traza |
 | Resultado | `Finding` `Report` | Lo encontrado y su entrega |
