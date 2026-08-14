@@ -86,7 +86,17 @@ function layout(options: { heading: string; body: string; preheader: string }): 
 </html>`;
 }
 
+/**
+ * A call-to-action button, or nothing at all.
+ *
+ * An install that has not set `APP_URL`/`FRONTEND_URL` has no address to send
+ * anyone to, and a button linking to the empty string is worse than no button:
+ * it looks like the message is broken rather than like the link is simply not
+ * offered. The plain-text half omits the line for the same reason.
+ */
 function button(href: string, label: string): string {
+  if (!href) return '';
+
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0 0;">
     <tr><td style="background:${COLORS.accent};border-radius:8px;">
       <a href="${escapeHtml(href)}" style="display:inline-block;padding:11px 22px;font:600 14px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#ffffff;text-decoration:none;">${escapeHtml(label)}</a>
@@ -219,7 +229,7 @@ export function renderScanCompletedEmail(input: ScanCompletedEmailInput): Render
         ? 'Your PDF security report is attached to this email.'
         : `Your PDF security report is ready${input.attachmentSkippedReason ? ` (${input.attachmentSkippedReason})` : ''}.`,
       '',
-      `View the report: ${input.reportUrl}`,
+      input.reportUrl ? `View the report: ${input.reportUrl}` : '',
     ]
       .filter((line) => line !== '')
       .join('\n'),
@@ -270,7 +280,7 @@ export function renderScanFailedEmail(input: ScanFailedEmailInput): RenderedEmai
       '',
       'No report was generated for this run.',
       '',
-      `View the scan: ${input.scanUrl}`,
+      input.scanUrl ? `View the scan: ${input.scanUrl}` : '',
     ]
       .filter((line) => line !== '')
       .join('\n'),
@@ -311,7 +321,9 @@ export function renderCriticalFindingEmail(input: CriticalFindingEmailInput): Re
       '',
       `Project:\n  ${input.projectName}`,
       '',
-      `Review the issues: ${input.issuesUrl}`,
-    ].join('\n'),
+      input.issuesUrl ? `Review the issues: ${input.issuesUrl}` : '',
+    ]
+      .filter((line) => line !== '')
+      .join('\n'),
   };
 }

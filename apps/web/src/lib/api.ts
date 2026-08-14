@@ -21,6 +21,7 @@ import type {
   ReportType,
   RetentionResult,
   RuntimeSetting,
+  SettingValue,
   Paginated,
   ScheduledScan,
   ScheduleExecution,
@@ -443,7 +444,7 @@ export const logsApi = {
 export const settingsApi = {
   list: (): Promise<RuntimeSetting[]> => api.get('/settings').then((r) => r.data),
   update: (
-    settings: Record<string, boolean | number>,
+    settings: Record<string, SettingValue>,
   ): Promise<{ changed: number; changes: { key: string; from: unknown; to: unknown }[] }> =>
     api.patch('/settings', { settings }).then((r) => r.data),
   reset: (key: string) => api.delete(`/settings/${key}`).then((r) => r.data),

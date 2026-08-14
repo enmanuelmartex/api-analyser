@@ -6,8 +6,10 @@ import {
   SETTING_DEFINITIONS,
   type SettingDefinition,
   type SettingKey,
+  type SettingValue,
   getSettingDefinition,
 } from './settings.registry';
+import { InvalidRecipientError, parseEmailList } from './email-list';
 
 /**
  * Resolves runtime settings as DB row → environment variable → fallback.
@@ -24,7 +26,7 @@ const CACHE_TTL_MS = 30_000;
 
 export interface ResolvedSetting {
   key: string;
-  value: boolean | number;
+  value: SettingValue;
   /** Where the effective value came from, so the UI can show "default" vs "overridden". */
   source: 'database' | 'environment' | 'default';
   definition: SettingDefinition;
@@ -33,7 +35,7 @@ export interface ResolvedSetting {
 @Injectable()
 export class SettingsService implements OnModuleInit {
   private readonly logger = new Logger(SettingsService.name);
-  private cache = new Map<string, boolean | number>();
+  private cache = new Map<string, SettingValue>();
   private cacheLoadedAt = 0;
 
   constructor(
@@ -63,7 +65,19 @@ export class SettingsService implements OnModuleInit {
     return (await this.get(key)) as number;
   }
 
-  async get(key: SettingKey): Promise<boolean | number> {
+  /**
+   * Effective list value, always a fresh array.
+   *
+   * Copied rather than returned by reference: the cache holds the same array
+   * for every caller, and one consumer sorting or splicing it in place would
+   * change what every other consumer sees until the next refresh.
+   */
+  async getList(key: SettingKey): Promise<string[]> {
+    const value = await this.get(key);
+    return Array.isArray(value) ? [...value] : [];
+  }
+
+  async get(key: SettingKey): Promise<SettingValue> {
     await this.ensureFresh();
     const cached = this.cache.get(key);
     if (cached !== undefined) return cached;
@@ -75,7 +89,7 @@ export class SettingsService implements OnModuleInit {
    * audit interceptor is a plausible future one. Returns the cached value or
    * the environment default; never hits the database.
    */
-  getCached(key: SettingKey): boolean | number {
+  getCached(key: SettingKey): SettingValue {
     const cached = this.cache.get(key);
     return cached !== undefined ? cached : this.resolveWithoutDb(key).value;
   }
@@ -114,9 +128,9 @@ export class SettingsService implements OnModuleInit {
   async update(
     patch: Record<string, unknown>,
     actorId?: string,
-  ): Promise<{ key: string; from: boolean | number; to: boolean | number }[]> {
+  ): Promise<{ key: string; from: SettingValue; to: SettingValue }[]> {
     const current = new Map((await this.getAll()).map((setting) => [setting.key, setting.value]));
-    const changes: { key: string; from: boolean | number; to: boolean | number }[] = [];
+    const changes: { key: string; from: SettingValue; to: SettingValue }[] = [];
 
     for (const [key, raw] of Object.entries(patch)) {
       const definition = getSettingDefinition(key);
@@ -126,14 +140,14 @@ export class SettingsService implements OnModuleInit {
 
       const value = this.coerce(definition, raw);
       if (value === undefined) {
-        throw new BadRequestException(
-          `Invalid value for ${key}: expected ${definition.kind}` +
-            (definition.kind === 'number' ? ` between ${definition.min} and ${definition.max}` : ''),
-        );
+        throw new BadRequestException(this.rejectionMessage(definition, raw));
       }
 
       const from = current.get(key)!;
-      if (from === value) continue;
+      // Structural, not referential: an `email-list` is a new array on every
+      // read, so `===` would report a change every time the form is submitted
+      // and write an audit event claiming one.
+      if (isSameValue(from, value)) continue;
 
       await this.prisma.systemSetting.upsert({
         where: { key },
@@ -176,7 +190,7 @@ export class SettingsService implements OnModuleInit {
 
   async refresh() {
     const rows = await this.prisma.systemSetting.findMany();
-    const next = new Map<string, boolean | number>();
+    const next = new Map<string, SettingValue>();
 
     for (const definition of SETTING_DEFINITIONS) {
       const row = rows.find((candidate) => candidate.key === definition.key);
@@ -206,7 +220,9 @@ export class SettingsService implements OnModuleInit {
   }
 
   /** Parses and range-checks. `undefined` means "not acceptable for this key". */
-  private coerce(definition: SettingDefinition, raw: unknown): boolean | number | undefined {
+  private coerce(definition: SettingDefinition, raw: unknown): SettingValue | undefined {
+    // An empty list is a meaningful value — "email nobody" — so it must not be
+    // conflated with "no value supplied" the way null and undefined are.
     if (raw === undefined || raw === null) return undefined;
 
     if (definition.kind === 'boolean') {
@@ -217,6 +233,18 @@ export class SettingsService implements OnModuleInit {
       return undefined;
     }
 
+    if (definition.kind === 'email-list') {
+      try {
+        const addresses = parseEmailList(raw);
+        if (definition.maxItems !== undefined && addresses.length > definition.maxItems) {
+          return undefined;
+        }
+        return addresses;
+      } catch {
+        return undefined;
+      }
+    }
+
     const parsed = typeof raw === 'number' ? raw : Number(String(raw).trim());
     if (!Number.isFinite(parsed)) return undefined;
     const rounded = Math.trunc(parsed);
@@ -224,4 +252,38 @@ export class SettingsService implements OnModuleInit {
     if (definition.max !== undefined && rounded > definition.max) return undefined;
     return rounded;
   }
+
+  /**
+   * Why a value was refused, in terms the operator can act on.
+   *
+   * For a list this names the offending address, which is the difference
+   * between "Invalid value for notifications.reportRecipients" and knowing
+   * which of the eight addresses in the box has the typo.
+   */
+  private rejectionMessage(definition: SettingDefinition, raw: unknown): string {
+    if (definition.kind === 'email-list') {
+      try {
+        parseEmailList(raw);
+        return `Too many recipients for ${definition.key}: at most ${definition.maxItems}.`;
+      } catch (error) {
+        if (error instanceof InvalidRecipientError) {
+          return `Invalid value for ${definition.key}: ${error.message}.`;
+        }
+        return `Invalid value for ${definition.key}: expected a list of email addresses.`;
+      }
+    }
+
+    return (
+      `Invalid value for ${definition.key}: expected ${definition.kind}` +
+      (definition.kind === 'number' ? ` between ${definition.min} and ${definition.max}` : '')
+    );
+  }
+}
+
+/** Structural equality across every setting kind. */
+function isSameValue(a: SettingValue | undefined, b: SettingValue): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((entry, index) => entry === b[index]);
+  }
+  return a === b;
 }

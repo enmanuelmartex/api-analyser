@@ -120,7 +120,13 @@ export function LogManagement({ isAdmin }: { isAdmin: boolean }) {
       }),
   });
 
-  const value = (key: string): boolean | number | undefined => logSettings.get(key)?.value;
+  // Every log setting is a scalar; the list kind belongs to notifications.
+  // Narrowed here rather than widened at the call sites, which all want a
+  // number or a boolean and would otherwise each need the same guard.
+  const value = (key: string): boolean | number | undefined => {
+    const current = logSettings.get(key)?.value;
+    return Array.isArray(current) ? undefined : current;
+  };
   const setting = (key: string): RuntimeSetting | undefined => logSettings.get(key);
 
   const loading = settings.isLoading || stats.isLoading;

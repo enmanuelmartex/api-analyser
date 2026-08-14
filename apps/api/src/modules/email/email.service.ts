@@ -1,8 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Resend } from 'resend';
 import { PrismaService } from '../../prisma/prisma.service';
+import { isTransportFailure } from './transports/mail-transport';
+import type { MailTransport, RelayPayload } from './transports/mail-transport';
+import { RelayTransport } from './transports/relay.transport';
+import { ResendTransport } from './transports/resend.transport';
+
+export type { RelayPayload } from './transports/mail-transport';
 
 /** Prisma's unique-constraint violation. */
 const UNIQUE_VIOLATION = 'P2002';
@@ -29,6 +34,15 @@ export interface SendEmailInput {
   attachments?: { filename: string; content: Buffer }[];
   /** Carried onto the emitted event so a notification can name the project. */
   projectName?: string;
+  /**
+   * The same message expressed as values rather than markup.
+   *
+   * Required for anything that must be able to travel through the hosted
+   * relay, which renders its own templates and refuses HTML. A message without
+   * one still sends fine through a local Resend key; through the relay it is
+   * recorded as FAILED with a reason saying so, rather than arriving wrong.
+   */
+  relay?: RelayPayload;
 }
 
 export type SendResult =
@@ -37,57 +51,94 @@ export type SendResult =
   | { status: 'FAILED'; reason: string; deliveryId?: string };
 
 /**
- * The only place in the application that knows Resend exists.
+ * The only place in the application that knows how mail leaves it.
  *
  * Callers ask for a message to be sent and get a result back. They do not
- * import the SDK, do not see the API key, and do not decide what happens on
- * failure — which is what keeps provider-specific handling out of the report,
- * scan and issue services, and makes swapping providers a change to this file.
+ * import a provider SDK, do not see a credential, and do not decide what
+ * happens on failure — which is what keeps provider-specific handling out of
+ * the report, scan and issue services, and makes changing how mail is delivered
+ * a change to this file and the transports beside it.
  *
  * Two invariants it owns:
  *
  *   1. **Idempotency.** Every send is recorded in `email_deliveries` under a
- *      unique key BEFORE the provider is called. A retried job finds the key
+ *      unique key BEFORE the transport is called. A retried job finds the key
  *      taken and returns without sending, so "Report ready" cannot arrive three
  *      times because a queue redelivered its job.
  *
- *   2. **Secrecy.** The API key is never logged, never included in an error
- *      message, and never stored on a delivery row. `redact` below is applied to
- *      every provider message before it goes anywhere.
+ *   2. **Secrecy.** No credential is logged, included in an error message, or
+ *      stored on a delivery row. Each transport redacts its own before
+ *      returning, because it is the only code that knows what its credential
+ *      looks like.
  */
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly client: Resend | null;
-  private readonly apiKey: string;
-  private readonly fromEmail: string;
-  private readonly fromName: string;
+
+  /** The chosen transport, or null when this install cannot send mail at all. */
+  private readonly transport: MailTransport | null;
 
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
     private events: EventEmitter2,
   ) {
-    this.apiKey = this.config.get<string>('email.apiKey') ?? '';
-    this.fromEmail = this.config.get<string>('email.fromEmail') ?? '';
-    this.fromName = this.config.get<string>('email.fromName') ?? 'API Analyzer';
-
-    // Constructed once. A missing key leaves the client null rather than
-    // throwing at boot: email is optional, and an install that never configures
-    // it must still start and run scans.
-    this.client = this.apiKey ? new Resend(this.apiKey) : null;
-
-    if (!this.client) {
-      this.logger.log(
-        '[Email] RESEND_API_KEY is not set — outbound email is disabled. ' +
-          'In-app notifications are unaffected.',
-      );
-    }
+    this.transport = this.selectTransport();
   }
 
-  /** Whether a provider is configured at all. */
+  /**
+   * Picks how mail leaves this installation. Once, at construction.
+   *
+   * `RESEND_API_KEY` wins when it is set, because setting it is an explicit
+   * choice to own the sending domain and the delivery path — an operator who
+   * has done that work should not silently be routed through someone else's
+   * service. The relay is the fallback, and for most self-hosted installs it is
+   * the only one configured: it is what lets them send branded mail from a
+   * verified domain without obtaining a Resend account at all.
+   *
+   * Neither configured is a normal state, not an error. Email is an addition to
+   * this product, not a dependency of it: scans run, reports generate and in-app
+   * notifications work regardless, and every send is recorded as SKIPPED with a
+   * reason so "why did I never get an email" has an answer.
+   */
+  private selectTransport(): MailTransport | null {
+    const apiKey = this.config.get<string>('email.apiKey') ?? '';
+    const fromEmail = this.config.get<string>('email.fromEmail') ?? '';
+    const fromName = this.config.get<string>('email.fromName') ?? 'API Analyzer';
+
+    const resend = new ResendTransport(apiKey, `${fromName} <${fromEmail}>`);
+    if (resend.isConfigured()) {
+      this.logger.log(`[Email] Sending directly through Resend as ${fromEmail}.`);
+      return resend;
+    }
+
+    const relay = new RelayTransport(
+      this.config.get<string>('email.relayUrl') ?? '',
+      this.config.get<string>('email.relayToken') ?? '',
+    );
+    if (relay.isConfigured()) {
+      this.logger.log(
+        `[Email] Sending through the API Analyser mail relay at ` +
+          `${this.config.get<string>('email.relayUrl')}.`,
+      );
+      return relay;
+    }
+
+    this.logger.log(
+      '[Email] Neither RESEND_API_KEY nor MAIL_RELAY_URL/MAIL_RELAY_TOKEN is set — ' +
+        'outbound email is disabled. In-app notifications are unaffected.',
+    );
+    return null;
+  }
+
+  /** Whether a transport is configured at all. */
   isConfigured(): boolean {
-    return this.client !== null;
+    return this.transport !== null;
+  }
+
+  /** Which one, for the settings UI and for logs. */
+  transportName(): string | null {
+    return this.transport?.name ?? null;
   }
 
   /**
@@ -99,7 +150,8 @@ export class EmailService {
    * the report itself untouched and downloadable.
    */
   async send(input: SendEmailInput): Promise<SendResult> {
-    if (!this.client) {
+    const transport = this.transport;
+    if (!transport) {
       return this.recordSkipped(input, 'No email provider is configured.');
     }
 
@@ -138,29 +190,24 @@ export class EmailService {
       throw error;
     }
 
-    this.logger.log(`[Email] Sending ${input.template} to ${maskEmail(input.to)}`);
+    this.logger.log(
+      `[Email] Sending ${input.template} to ${maskEmail(input.to)} via ${transport.name}`,
+    );
 
     try {
-      const response = await this.client.emails.send({
-        from: `${this.fromName} <${this.fromEmail}>`,
+      const result = await transport.send({
         to: input.to,
         subject: input.subject,
         html: input.html,
         text: input.text,
-        attachments: input.attachments?.map((attachment) => ({
-          filename: attachment.filename,
-          content: attachment.content,
-        })),
+        attachments: input.attachments,
+        relay: input.relay,
       });
 
-      // The SDK reports provider-side rejections in `error` rather than by
-      // throwing, so a response that looks successful must still be checked.
-      if (response.error) {
-        return this.recordFailure(
-          deliveryId,
-          input,
-          this.redact(response.error.message ?? 'The provider rejected the message.'),
-        );
+      // A transport never throws — a rejection is a returned value, already
+      // redacted of whatever credential that transport holds.
+      if (isTransportFailure(result)) {
+        return this.recordFailure(deliveryId, input, result.reason);
       }
 
       await this.prisma.emailDelivery.update({
@@ -168,12 +215,12 @@ export class EmailService {
         data: {
           status: 'SENT',
           sentAt: new Date(),
-          providerMessageId: response.data?.id ?? null,
+          providerMessageId: result.providerMessageId ?? null,
           failureReason: null,
         },
       });
 
-      this.logger.log(`[Email] Successfully sent via Resend (delivery ${deliveryId})`);
+      this.logger.log(`[Email] Successfully sent via ${transport.name} (delivery ${deliveryId})`);
 
       this.events.emit('email.sent', {
         deliveryId,
@@ -181,13 +228,16 @@ export class EmailService {
         template: input.template,
         entityType: input.entityType,
         entityId: input.entityId,
-        providerMessageId: response.data?.id,
+        providerMessageId: result.providerMessageId,
         projectName: input.projectName,
       });
 
-      return { status: 'SENT', deliveryId, providerMessageId: response.data?.id };
+      return { status: 'SENT', deliveryId, providerMessageId: result.providerMessageId };
     } catch (error) {
-      return this.recordFailure(deliveryId, input, this.redact((error as Error).message));
+      // Only reachable if a transport breaks its own contract. Recorded rather
+      // than propagated: the caller is a queue worker whose job must not fail
+      // because a mail server was briefly unreachable.
+      return this.recordFailure(deliveryId, input, (error as Error).message);
     }
   }
 
@@ -255,18 +305,6 @@ export class EmailService {
     });
 
     return { status: 'FAILED', reason, deliveryId };
-  }
-
-  /**
-   * Strips the API key from provider output.
-   *
-   * Belt and braces — Resend does not echo the key back — but this text is
-   * written to a database column, returned to a caller and logged, and the cost
-   * of being wrong once is a credential in a log aggregator forever.
-   */
-  private redact(message: string): string {
-    if (!this.apiKey) return message;
-    return message.split(this.apiKey).join('[redacted]');
   }
 }
 

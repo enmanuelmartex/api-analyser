@@ -12,13 +12,21 @@ export interface ScanReportReadyJob {
   type: 'scan-report-ready';
   reportId: string;
   assessmentId: string;
-  userId: string;
+  /**
+   * The project owner, when there is one.
+   *
+   * Optional because the recipients configured for the installation do not
+   * depend on a user existing: a team mailbox should still receive the report
+   * for a project whose owner was deactivated. It governs only whether the
+   * owner's own copy is considered.
+   */
+  userId?: string;
 }
 
 export interface ScanFailedJob {
   type: 'scan-failed';
   assessmentId: string;
-  userId: string;
+  userId?: string;
   reason: string;
   scheduleName?: string;
 }

@@ -12,12 +12,13 @@ import {
   IconRotate,
 } from '@tabler/icons-react';
 import { settingsApi } from '@/lib/api';
-import type { RuntimeSetting } from '@/types';
+import type { RuntimeSetting, SettingValue } from '@/types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { RecipientsField } from './_components/recipients-field';
 import {
   OverriddenBadge,
   SettingRow,
@@ -73,7 +74,7 @@ export function ConfigurationTab() {
   });
 
   const save = useMutation({
-    mutationFn: (patch: Record<string, boolean | number>) => settingsApi.update(patch),
+    mutationFn: (patch: Record<string, SettingValue>) => settingsApi.update(patch),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
       if (result.changed > 0) {
@@ -217,12 +218,62 @@ function ConfigRow({
 }: {
   setting: RuntimeSetting;
   // eslint-disable-next-line no-unused-vars
-  onChange: (value: boolean | number) => void;
+  onChange: (value: SettingValue) => void;
   onReset: () => void;
   saving: boolean;
   resetting: boolean;
 }) {
   const overridden = setting.source === 'database';
+
+  /*
+   * A list is too tall to sit in the control column beside its label, so it
+   * gets the full width of the row below the description instead. Rendering it
+   * through the same `ConfigRow` as everything else keeps the reset button, the
+   * override badge and the environment hint working without a special case.
+   */
+  if (setting.kind === 'email-list') {
+    const addresses = Array.isArray(setting.value) ? setting.value : [];
+
+    return (
+      <div className="space-y-3 py-3">
+        <SettingRow
+          htmlFor={`setting-${setting.key}`}
+          label={setting.label}
+          description={setting.description}
+          hint={`Environment default: ${setting.env}`}
+          control={
+            <>
+              {overridden && <OverriddenBadge envVar={setting.env} />}
+              {overridden && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground"
+                      onClick={onReset}
+                      disabled={resetting}
+                      aria-label={`Reset ${setting.label} to the environment default`}
+                    >
+                      <IconRotate className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Reset to the environment default</TooltipContent>
+                </Tooltip>
+              )}
+            </>
+          }
+        />
+        <RecipientsField
+          value={addresses}
+          max={setting.maxItems}
+          disabled={saving}
+          inputId={`setting-${setting.key}`}
+          onChange={onChange}
+        />
+      </div>
+    );
+  }
 
   const control =
     setting.kind === 'boolean' ? (

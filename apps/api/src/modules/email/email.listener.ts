@@ -35,8 +35,12 @@ export class EmailListener {
     // Only the automatic report mails anybody. A hand-requested SARIF export is
     // something the user is already looking at; mailing it would be a surprise.
     if (payload.kind !== 'AUTOMATIC_SCAN_REPORT') return;
-    if (!payload.userId) return;
 
+    // No owner check. The addresses configured for the installation are the
+    // point of this pipeline and do not depend on a user existing — a report
+    // for a project whose owner was deactivated should still reach the team
+    // mailbox. Who actually receives it is decided by the processor, against
+    // state that may change while the job waits.
     await this.enqueue(
       {
         type: 'scan-report-ready',
@@ -50,8 +54,6 @@ export class EmailListener {
 
   @OnEvent('scan.failed')
   async onScanFailed(payload: ScanFailedEvent) {
-    if (!payload.userId) return;
-
     await this.enqueue(
       {
         type: 'scan-failed',

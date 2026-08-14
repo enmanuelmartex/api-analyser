@@ -153,5 +153,22 @@ export default () => ({
      * larger is linked to instead of attached, which the email says plainly.
      */
     maxAttachmentBytes: parseInt(process.env.EMAIL_MAX_ATTACHMENT_BYTES, 10) || 8 * 1024 * 1024,
+    /**
+     * The hosted API Analyser mail relay, used when this install has no Resend
+     * key of its own.
+     *
+     * It exists so a self-hosted install can send branded mail from a verified
+     * domain without its operator creating a Resend account, verifying a domain
+     * they do not own, or keeping an API key inside an image that gets cloned
+     * around. The token can only cause one of three known messages to be sent —
+     * the relay renders its own templates and refuses HTML — so it is a far
+     * smaller thing to hold than a provider credential.
+     *
+     * Both must be set for the relay to be used. `RESEND_API_KEY` takes
+     * precedence when present; see EmailService.selectTransport.
+     */
+    relayUrl: process.env.MAIL_RELAY_URL || '',
+    /** Never logged. Each transport redacts its own credential before returning. */
+    relayToken: process.env.MAIL_RELAY_TOKEN || '',
   },
 });

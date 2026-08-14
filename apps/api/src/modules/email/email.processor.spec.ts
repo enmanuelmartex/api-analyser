@@ -18,6 +18,12 @@ interface Options {
   maxAttachmentBytes?: number;
   artifactThrows?: boolean;
   alreadySent?: boolean;
+  /** `notifications.reportRecipients` — the install-wide address list. */
+  configuredRecipients?: string[];
+  /** The install-level switches those addresses are subject to. */
+  emailOnScanCompleted?: boolean;
+  emailOnScanFailed?: boolean;
+  appUrl?: string;
 }
 
 function makeProcessor(options: Options = {}) {
@@ -96,10 +102,20 @@ function makeProcessor(options: Options = {}) {
     alreadySent: async () => options.alreadySent ?? false,
   };
 
+  const settings = {
+    getList: async (key: string) =>
+      key === 'notifications.reportRecipients' ? (options.configuredRecipients ?? []) : [],
+    getBoolean: async (key: string) =>
+      ({
+        'notifications.emailOnScanCompleted': options.emailOnScanCompleted ?? true,
+        'notifications.emailOnScanFailed': options.emailOnScanFailed ?? true,
+      })[key] ?? true,
+  };
+
   const config = {
     get: (key: string) =>
       ({
-        'email.appUrl': 'https://scan.example.com',
+        'email.appUrl': options.appUrl ?? 'https://scan.example.com',
         'email.maxAttachmentBytes': options.maxAttachmentBytes ?? 8 * 1024 * 1024,
       })[key],
   };
@@ -108,6 +124,7 @@ function makeProcessor(options: Options = {}) {
     prisma as any,
     reports as any,
     preferencesService as any,
+    settings as any,
     email as any,
     config as any,
   );
@@ -142,23 +159,24 @@ describe('report-ready email', () => {
     expect(sent[0].html).toContain('https://scan.example.com/reports/report_456');
   });
 
-  it('keys the delivery on the report and the recipient', async () => {
+  it('keys the delivery on the report and the address', async () => {
     const { processor, sent } = makeProcessor();
 
     await processor.process(READY_JOB);
 
     // Stable across retries of the same logical send, distinct for a different
-    // report or a different user.
-    expect(sent[0].idempotencyKey).toBe('report-ready:report_456:user_1');
+    // report or a different recipient. Keyed on the address rather than a user
+    // id because most recipients are configured mailboxes with no user at all.
+    expect(sent[0].idempotencyKey).toBe('report-ready:report_456:owner@example.com');
   });
 
-  it('sends nothing when the user has email switched off', async () => {
+  it('sends nothing when the owner has email off and nothing is configured', async () => {
     const { processor, sent } = makeProcessor({ preferences: { emailEnabled: false } });
 
     const result = await processor.process(READY_JOB);
 
     expect(sent).toHaveLength(0);
-    expect(result).toEqual({ skipped: 'preferences' });
+    expect(result).toEqual({ skipped: 'no-recipients' });
   });
 
   it('sends nothing to a deactivated user', async () => {
@@ -178,7 +196,7 @@ describe('report-ready email', () => {
 
     const result = await processor.process(READY_JOB);
 
-    expect(result).toEqual({ skipped: 'already-sent' });
+    expect(result).toMatchObject({ skipped: 'already-sent' });
     expect(resolveCalls).toHaveLength(0);
     expect(sent).toHaveLength(0);
   });
@@ -243,7 +261,7 @@ describe('report-ready email', () => {
 
     expect(sent).toHaveLength(1);
     expect(sent[0].template).toBe('critical-finding');
-    expect(sent[0].idempotencyKey).toBe('critical-finding:scan_123:user_1');
+    expect(sent[0].idempotencyKey).toBe('critical-finding:scan_123:owner@example.com');
   });
 
   it('does not also send the critical email when the completion email goes out', async () => {
@@ -253,6 +271,144 @@ describe('report-ready email', () => {
 
     expect(sent).toHaveLength(1);
     expect(sent[0].template).toBe('report-ready');
+  });
+});
+
+/**
+ * The configured recipient list.
+ *
+ * An installation-wide setting, and the reason this pipeline exists at all: the
+ * addresses a security report should reach are usually a team mailbox and a
+ * ticketing inbox, not the account of whoever happens to own the project.
+ */
+describe('configured recipients', () => {
+  it('sends to every configured address as well as the owner', async () => {
+    const { processor, sent, resolveCalls } = makeProcessor({
+      configuredRecipients: ['security@corp.example', 'tickets@corp.example'],
+    });
+
+    await processor.process(READY_JOB);
+
+    expect(sent.map((message) => message.to)).toEqual([
+      'security@corp.example',
+      'tickets@corp.example',
+      'owner@example.com',
+    ]);
+
+    // The PDF is read once and shared, not re-read per recipient.
+    expect(resolveCalls).toEqual(['report_456']);
+    for (const message of sent) {
+      expect(message.attachments).toHaveLength(1);
+    }
+  });
+
+  it('gives each address its own idempotency key', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['security@corp.example'],
+    });
+
+    await processor.process(READY_JOB);
+
+    // Distinct, so a partial failure retries only the addresses that missed it.
+    expect(sent.map((message) => message.idempotencyKey)).toEqual([
+      'report-ready:report_456:security@corp.example',
+      'report-ready:report_456:owner@example.com',
+    ]);
+  });
+
+  it('sends to configured addresses even when the owner wants no email', async () => {
+    const { processor, sent } = makeProcessor({
+      preferences: { emailEnabled: false },
+      configuredRecipients: ['security@corp.example'],
+    });
+
+    await processor.process(READY_JOB);
+
+    // The two audiences are independent: an administrator's recipient list is
+    // not overridden by one user's preferences.
+    expect(sent.map((message) => message.to)).toEqual(['security@corp.example']);
+  });
+
+  it('sends to configured addresses even when the owner is deactivated', async () => {
+    const { processor, sent } = makeProcessor({
+      user: { id: 'u', email: 'gone@example.com', isActive: false },
+      configuredRecipients: ['security@corp.example'],
+    });
+
+    await processor.process(READY_JOB);
+
+    expect(sent.map((message) => message.to)).toEqual(['security@corp.example']);
+  });
+
+  it('does not send the same report twice to an owner who is also on the list', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['security@corp.example', 'OWNER@example.com'],
+    });
+
+    await processor.process(READY_JOB);
+
+    expect(sent).toHaveLength(2);
+    // The surviving copy is attributed to the user account, which is the more
+    // useful delivery row of the two.
+    const ownerMessage = sent.find((message) => message.to.toLowerCase() === 'owner@example.com');
+    expect(ownerMessage.userId).toBe('user_1');
+  });
+
+  it('leaves a configured address with no user id on its delivery row', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['security@corp.example'],
+    });
+
+    await processor.process(READY_JOB);
+
+    expect(sent[0].userId).toBeUndefined();
+  });
+
+  it('stops mailing the list when the install switch is off', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['security@corp.example'],
+      emailOnScanCompleted: false,
+    });
+
+    await processor.process(READY_JOB);
+
+    // The owner still gets theirs — the switch governs the configured list.
+    expect(sent.map((message) => message.to)).toEqual(['owner@example.com']);
+  });
+
+  it('carries a relay payload the hosted relay can render', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['security@corp.example'],
+    });
+
+    await processor.process(READY_JOB);
+
+    // Without this the message cannot travel through the relay at all — it
+    // renders its own templates and refuses HTML.
+    expect(sent[0].relay).toEqual({
+      template: 'scan-report',
+      data: {
+        projectName: 'Production API',
+        securityScore: 74,
+        counts: { critical: 1, high: 3, medium: 5, low: 2, info: 0 },
+        totalFindings: 11,
+        reportUrl: 'https://scan.example.com/reports/report_456',
+      },
+    });
+  });
+
+  it('omits the link entirely when the install has no app URL', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['security@corp.example'],
+      appUrl: '',
+    });
+
+    await processor.process(READY_JOB);
+
+    // The relay rejects a relative URL, and a button pointing at "" helps
+    // nobody. Both halves simply omit it.
+    expect(sent[0].relay.data.reportUrl).toBeUndefined();
+    expect(sent[0].html).not.toContain('View Report');
   });
 });
 
@@ -281,6 +437,33 @@ describe('scan-failed email', () => {
 
   it('respects the scan-failed preference', async () => {
     const { processor, sent } = makeProcessor({ preferences: { emailScanFailed: false } });
+
+    await processor.process(FAILED_JOB);
+
+    expect(sent).toHaveLength(0);
+  });
+
+  it('tells the configured addresses too', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['security@corp.example'],
+    });
+
+    await processor.process(FAILED_JOB);
+
+    // A failed scheduled scan is easy to miss otherwise.
+    expect(sent.map((message) => message.to)).toEqual([
+      'security@corp.example',
+      'owner@example.com',
+    ]);
+    expect(sent[0].relay.template).toBe('scan-failed');
+  });
+
+  it('honours its own install switch, separate from the completed one', async () => {
+    const { processor, sent } = makeProcessor({
+      configuredRecipients: ['security@corp.example'],
+      preferences: { emailScanFailed: false },
+      emailOnScanFailed: false,
+    });
 
     await processor.process(FAILED_JOB);
 

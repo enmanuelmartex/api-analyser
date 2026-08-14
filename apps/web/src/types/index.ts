@@ -145,19 +145,24 @@ export interface RetentionResult {
 // ── Runtime settings ─────────────────────────────────────────────────────────
 
 /** One entry of the settings catalogue, as `GET /settings` returns it. */
+/** `email-list` is the one kind whose value is not a scalar. */
+export type SettingValue = boolean | number | string[];
+
 export interface RuntimeSetting {
   key: string;
-  value: boolean | number;
+  value: SettingValue;
   /** Where the effective value came from, so the UI can mark overrides. */
   source: 'database' | 'environment' | 'default';
-  kind: 'boolean' | 'number';
+  kind: 'boolean' | 'number' | 'email-list';
   label: string;
   description: string;
   group: 'logs' | 'notifications' | 'scanner' | 'reports';
   env: string;
   min?: number;
   max?: number;
-  default: boolean | number;
+  /** Ceiling on the number of entries, for `kind: 'email-list'`. */
+  maxItems?: number;
+  default: SettingValue;
 }
 
 // ── Notifications ────────────────────────────────────────────────────────────

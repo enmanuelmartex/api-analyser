@@ -1,34 +1,42 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import { EmailService, maskEmail } from './email.service';
+import type { OutboundMessage, TransportResult } from './transports/mail-transport';
 
 /**
- * Delivery idempotency, and the rules about what must never leave this service.
+ * Delivery idempotency, transport selection, and the rules about what must
+ * never leave this service.
  *
  * The important one is the duplicate guard: jobs retry, events are redelivered,
  * and "Report ready" arriving three times for one report is the failure mode the
  * unique `idempotencyKey` exists to prevent.
+ *
+ * Note what these tests do NOT do: reach a provider. `EmailService` talks to a
+ * `MailTransport` and nothing else, so a fake one is the whole mock — there is
+ * no SDK to intercept and no network call to forget to stub. The transports
+ * themselves are tested beside their own files.
  */
 
 const UNIQUE_VIOLATION = 'P2002';
 const API_KEY = 're_test_secretkey123';
+const RELAY_TOKEN = 'relay_test_token_value';
 
 interface Options {
-  configured?: boolean;
+  /** Which credentials the environment appears to hold. */
+  resendKey?: string;
+  relayUrl?: string;
+  relayToken?: string;
   /** Simulates the key already being claimed, as a concurrent send would. */
   keyTaken?: boolean;
-  /** Resend returning a rejection in `error` rather than throwing. */
-  providerError?: string;
-  /** The SDK throwing outright — a network failure. */
-  throws?: string;
+  /** What the transport reports back. */
+  transportResult?: TransportResult;
   existingDelivery?: { status: string } | null;
 }
 
 function makeService(options: Options = {}) {
-  const configured = options.configured !== false;
   const rows: any[] = [];
   const updates: { id: string; data: any }[] = [];
   const emitted: { event: string; payload: any }[] = [];
-  const sends: any[] = [];
+  const sends: OutboundMessage[] = [];
 
   const prisma = {
     emailDelivery: {
@@ -52,9 +60,11 @@ function makeService(options: Options = {}) {
   const config = {
     get: (key: string) =>
       ({
-        'email.apiKey': configured ? API_KEY : '',
+        'email.apiKey': options.resendKey ?? API_KEY,
         'email.fromEmail': 'security@example.com',
         'email.fromName': 'API Analyzer',
+        'email.relayUrl': options.relayUrl ?? '',
+        'email.relayToken': options.relayToken ?? '',
       })[key],
   };
 
@@ -67,17 +77,16 @@ function makeService(options: Options = {}) {
 
   const service = new EmailService(prisma as any, config as any, events as any);
 
-  // The Resend client is constructed in the constructor; replace its send with
-  // a fake rather than reaching the network.
-  if (configured) {
-    (service as any).client = {
-      emails: {
-        send: async (payload: any) => {
-          sends.push(payload);
-          if (options.throws) throw new Error(options.throws);
-          if (options.providerError) return { error: { message: options.providerError }, data: null };
-          return { error: null, data: { id: 'resend_msg_1' } };
-        },
+  // Replace whichever transport was selected with one that records. The
+  // selection itself is asserted separately, through `transportName()`.
+  const selected = (service as any).transport;
+  if (selected) {
+    (service as any).transport = {
+      name: selected.name,
+      isConfigured: () => true,
+      send: async (message: OutboundMessage): Promise<TransportResult> => {
+        sends.push(message);
+        return options.transportResult ?? { ok: true, providerMessageId: 'provider_msg_1' };
       },
     };
   }
@@ -86,7 +95,7 @@ function makeService(options: Options = {}) {
 }
 
 const INPUT = {
-  idempotencyKey: 'report-ready:report_1:user_1',
+  idempotencyKey: 'report-ready:report_1:owner@example.com',
   userId: 'user_1',
   to: 'owner@example.com',
   subject: 'Scan complete — Production API',
@@ -95,7 +104,53 @@ const INPUT = {
   template: 'report-ready',
   entityType: 'report',
   entityId: 'report_1',
+  relay: {
+    template: 'scan-report' as const,
+    data: { projectName: 'Production API' },
+  },
 };
+
+describe('EmailService transport selection', () => {
+  it('prefers a local Resend key when one is set', () => {
+    // Setting a provider key is an explicit choice to own the delivery path; an
+    // operator who has done that work should not be routed elsewhere.
+    const { service } = makeService({
+      resendKey: API_KEY,
+      relayUrl: 'https://mail.apianalyser.com',
+      relayToken: RELAY_TOKEN,
+    });
+
+    expect(service.transportName()).toBe('resend');
+    expect(service.isConfigured()).toBe(true);
+  });
+
+  it('falls back to the relay when there is no Resend key', () => {
+    const { service } = makeService({
+      resendKey: '',
+      relayUrl: 'https://mail.apianalyser.com',
+      relayToken: RELAY_TOKEN,
+    });
+
+    expect(service.transportName()).toBe('relay');
+    expect(service.isConfigured()).toBe(true);
+  });
+
+  it('needs both halves of the relay configuration', () => {
+    const { service } = makeService({ resendKey: '', relayUrl: 'https://mail.apianalyser.com' });
+
+    // A URL with no token would produce a 401 on every send. Better to report
+    // email as disabled and record the reason.
+    expect(service.isConfigured()).toBe(false);
+    expect(service.transportName()).toBeNull();
+  });
+
+  it('reports email as disabled when nothing is configured', () => {
+    const { service } = makeService({ resendKey: '' });
+
+    expect(service.isConfigured()).toBe(false);
+    expect(service.transportName()).toBeNull();
+  });
+});
 
 describe('EmailService.send', () => {
   it('sends the message and records the delivery as SENT', async () => {
@@ -105,23 +160,31 @@ describe('EmailService.send', () => {
 
     expect(result.status).toBe('SENT');
     expect(sends).toHaveLength(1);
-    expect(sends[0].from).toBe('API Analyzer <security@example.com>');
+    expect(sends[0].to).toBe('owner@example.com');
 
-    // The row is claimed BEFORE the provider is called, which is what makes a
+    // The row is claimed BEFORE the transport is called, which is what makes a
     // concurrent second send lose the race rather than duplicate the message.
     expect(rows[0].status).toBe('PENDING');
     expect(rows[0].idempotencyKey).toBe(INPUT.idempotencyKey);
 
     expect(updates[0].data.status).toBe('SENT');
-    expect(updates[0].data.providerMessageId).toBe('resend_msg_1');
+    expect(updates[0].data.providerMessageId).toBe('provider_msg_1');
     expect(emitted[0].event).toBe('email.sent');
+  });
+
+  it('passes the relay payload through, so the relay can render it', async () => {
+    const { service, sends } = makeService();
+
+    await service.send(INPUT);
+
+    expect(sends[0].relay).toEqual(INPUT.relay);
   });
 
   /**
    * The duplicate-email test.
    *
    * A retried job presents the same idempotency key. The insert loses, and the
-   * provider must not be called at all.
+   * transport must not be called at all.
    */
   it('does not send twice for the same idempotency key', async () => {
     const { service, sends, emitted } = makeService({ keyTaken: true });
@@ -133,8 +196,8 @@ describe('EmailService.send', () => {
     expect(emitted).toHaveLength(0);
   });
 
-  it('skips, rather than fails, when no provider is configured', async () => {
-    const { service, rows, sends } = makeService({ configured: false });
+  it('skips, rather than fails, when no transport is configured', async () => {
+    const { service, rows, sends } = makeService({ resendKey: '' });
 
     const result = await service.send(INPUT);
 
@@ -154,8 +217,10 @@ describe('EmailService.send', () => {
     expect(sends).toHaveLength(0);
   });
 
-  it('records a provider rejection as FAILED and never throws', async () => {
-    const { service, updates, emitted } = makeService({ providerError: 'Domain not verified' });
+  it('records a transport rejection as FAILED and never throws', async () => {
+    const { service, updates, emitted } = makeService({
+      transportResult: { ok: false, reason: 'Domain not verified', retryable: false },
+    });
 
     const result = await service.send(INPUT);
 
@@ -165,29 +230,14 @@ describe('EmailService.send', () => {
     expect(emitted[0].event).toBe('email.failed');
   });
 
-  it('records a transport error as FAILED and never throws', async () => {
-    const { service, updates } = makeService({ throws: 'socket hang up' });
-
-    const result = await service.send(INPUT);
-
-    expect(result.status).toBe('FAILED');
-    expect(updates[0].data.failureReason).toBe('socket hang up');
-  });
-
-  /**
-   * The API key must not survive a round trip through an error message into the
-   * database, the logs, or the caller.
-   */
-  it('redacts the API key from a provider error', async () => {
+  it('truncates a long failure reason rather than overflowing the column', async () => {
     const { service, updates } = makeService({
-      providerError: `Request failed with key ${API_KEY}`,
+      transportResult: { ok: false, reason: 'x'.repeat(900), retryable: true },
     });
 
-    const result = await service.send(INPUT);
+    await service.send(INPUT);
 
-    expect(result.status).toBe('FAILED');
-    expect(updates[0].data.failureReason).not.toContain(API_KEY);
-    expect(updates[0].data.failureReason).toContain('[redacted]');
+    expect(updates[0].data.failureReason.length).toBeLessThanOrEqual(500);
   });
 });
 
