@@ -127,6 +127,17 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-onboarding@resend.dev}
       RESEND_FROM_NAME: ${RESEND_FROM_NAME:-API Analyzer}
+      # The hosted relay, used when this install has no Resend key of its own.
+      # The URL is the same for every install — it is the address of a service,
+      # not a secret — so it defaults here and only the token needs supplying.
+      # Without a token the relay stays inactive and mail is simply disabled.
+      MAIL_RELAY_URL: ${MAIL_RELAY_URL:-https://mail.apianalyser.com}
+      MAIL_RELAY_TOKEN: ${MAIL_RELAY_TOKEN:-}
+      # Install-level report recipients. Overridable at runtime in
+      # Settings → Notifications, and the override wins over what is set here.
+      REPORT_EMAIL_RECIPIENTS: ${REPORT_EMAIL_RECIPIENTS:-}
+      EMAIL_ON_SCAN_COMPLETED: ${EMAIL_ON_SCAN_COMPLETED:-true}
+      EMAIL_ON_SCAN_FAILED: ${EMAIL_ON_SCAN_FAILED:-true}
       # Links inside emails. Falls back to FRONTEND_URL, which is already set
       # above, so this only needs setting when the two differ.
       APP_URL: ${APP_URL:-}
@@ -134,8 +145,10 @@ services:
       DOCKER_ENV: "true"
       # Required for the localhost → host.docker.internal rewrite to be usable:
       # host-gateway resolves to a private IP, so the SSRF check rejects it
-      # unless private targets are allowed. Set false for hosted deployments.
-      ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
+      # unless private targets are allowed. Set false for hosted deployments —
+      # or turn it off at runtime in Settings → Configuration → Scanner, which
+      # overrides this without a redeploy.
+      ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-true}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:4000}
       # The administrator created on the very first boot, when the user table is
