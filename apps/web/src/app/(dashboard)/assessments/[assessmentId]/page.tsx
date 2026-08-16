@@ -4,10 +4,11 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { IconArrowLeft, IconBug, IconCalendarClock, IconChartBar, IconDownload, IconFileReport, IconPlayerStop, IconSparkles, IconTerminal2 } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowLeft, IconBug, IconCalendarClock, IconChartBar, IconDownload, IconFileReport, IconPlayerStop, IconSparkles, IconTerminal2 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { assessmentsApi, reportsApi, scoringApi } from '@/lib/api';
-import type { Assessment, AssessmentScore, ScanProgress } from '@/types';
+import type { AiAnalysisMeta, Assessment, AssessmentScore, ScanProgress } from '@/types';
+import { AI_SETTINGS_HREF, useAiStatus } from '@/hooks/use-ai-status';
 import { PageContainer } from '@/components/layout/page-container';
 import { PageHeader } from '@/components/layout/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -277,7 +278,7 @@ export default function AssessmentDetailPage() {
           <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconTerminal2 className="size-4 text-primary" />Execution</CardTitle></CardHeader><CardContent><dl className="space-y-2 text-xs"><Row label="Mode" value={assessment.config?.executionMode ?? '—'} /><Row label="Plugins" value={String(assessment.config?.resolvedPlugins?.length ?? 0)} /><Row label="AI analysis" value={assessment.config?.enableAiAnalysis ? 'Enabled' : 'Disabled'} /><Row label="Risk" value={summary?.riskLevel ?? '—'} /></dl></CardContent></Card>
           <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconFileReport className="size-4 text-primary" />Reports</CardTitle></CardHeader><CardContent className="space-y-2">{assessment.reports?.length ? assessment.reports.map((report) => <Button key={report.id} asChild variant="outline" className="w-full justify-between"><Link href={`/reports/${report.id}`}><span className="truncate">{report.title}</span><Badge variant="secondary" className="shrink-0">{report.format}</Badge></Link></Button>) : <p className="text-sm text-muted-foreground">{running ? 'Generated after completion.' : 'No report artifact is available.'}</p>}</CardContent></Card>
           <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconDownload className="size-4 text-primary" />Export</CardTitle><CardDescription>PDF is the primary report; machine-readable formats are also available.</CardDescription></CardHeader><CardContent className="grid grid-cols-2 gap-2">{(['PDF', 'HTML', 'JSON', 'SARIF', 'MARKDOWN'] as const).map((format) => <Button key={format} variant={format === 'PDF' ? 'default' : 'outline'} size="sm" disabled={running || Boolean(exporting)} onClick={() => exportReport(format)}>{exporting === format ? 'Preparing…' : format}</Button>)}</CardContent></Card>
-          <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconSparkles className="size-4 text-ai" />AI enrichment</CardTitle><CardDescription>{assessment.config?.enableAiAnalysis ? 'Requested for this execution.' : 'Disabled for this execution.'}</CardDescription></CardHeader><CardContent className="text-xs">{ai ? <dl className="space-y-2"><Row label="Status" value={ai.status ?? (ai.available ? 'completed' : 'skipped')} /><Row label="Provider" value={ai.provider || '—'} /><Row label="Model" value={ai.model || '—'} /><Row label="Findings enriched" value={String(ai.analyzed)} /><Row label="Tokens" value={ai.tokensUsed.toLocaleString()} />{(ai.reason || ai.errorMessage) && <Row label="Details" value={ai.reason || ai.errorMessage || '—'} />}</dl> : <p className="text-muted-foreground">{running ? 'AI runs after plugin analysis.' : 'No AI execution metadata was recorded.'}</p>}</CardContent></Card>
+          <AiEnrichmentCard ai={ai} requested={Boolean(assessment.config?.enableAiAnalysis)} running={running} />
         </div>
       </div>
     </PageContainer>
@@ -285,6 +286,101 @@ export default function AssessmentDetailPage() {
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) { return <Card><CardHeader><CardDescription>{label}</CardDescription><CardTitle>{value}</CardTitle></CardHeader></Card>; }
+
+/**
+ * What AI enrichment did on this scan — and, when it did nothing, why.
+ *
+ * The metadata rows alone were technically complete and practically useless:
+ * "Status: skipped / Details: No API key configured for openai" is a
+ * configuration problem stated in the vocabulary of the process that hit it,
+ * on the screen furthest from the setting that fixes it. A run requested with
+ * enrichment that produced none now says so as a notice, names the cause, and
+ * links an admin straight to the provider settings.
+ *
+ * The scan's own result is never in question here, so the notice says that
+ * outright — enrichment is advisory, and its absence changes no finding.
+ */
+function AiEnrichmentCard({
+  ai,
+  requested,
+  running,
+}: {
+  ai?: AiAnalysisMeta;
+  requested: boolean;
+  running: boolean;
+}) {
+  const status = ai?.status ?? (ai?.available ? 'completed' : 'skipped');
+  const noProvider = Boolean(ai) && requested && status === 'skipped' && !ai?.available;
+  const failed = status === 'failed';
+
+  // Only fetched when there is something to act on, so an ordinary scan page
+  // does not call `/ai/status` for a card nobody needs to read.
+  const aiStatus = useAiStatus(noProvider || failed);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <IconSparkles className="size-4 text-ai" />
+          AI enrichment
+        </CardTitle>
+        <CardDescription>
+          {requested ? 'Requested for this execution.' : 'Not requested for this execution.'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3 text-xs">
+        {(noProvider || failed) && (
+          <div className="flex gap-2.5 rounded-md border border-severity-medium/20 bg-severity-medium/5 p-3">
+            <IconAlertTriangle className="mt-0.5 size-4 flex-shrink-0 text-severity-medium" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="font-medium text-foreground">
+                {noProvider ? 'No AI provider was available for this scan' : 'The AI provider returned an error'}
+              </p>
+              <p className="mt-1 leading-5 text-muted-foreground">
+                Every security check still ran and every finding below was recorded by the scanner —
+                only the AI commentary is missing.
+                {(ai?.reason || ai?.errorMessage) && (
+                  <span className="mt-1 block break-words">
+                    Reported reason: {ai?.reason || ai?.errorMessage}
+                  </span>
+                )}
+              </p>
+              {aiStatus.canConfigure ? (
+                <Link
+                  href={AI_SETTINGS_HREF}
+                  className="mt-2 inline-block font-medium text-primary hover:underline"
+                >
+                  {noProvider ? 'Connect an AI provider →' : 'Check the provider connection →'}
+                </Link>
+              ) : (
+                <p className="mt-2 text-muted-foreground">
+                  Ask an administrator to review the provider in Settings → AI.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {ai ? (
+          <dl className="space-y-2">
+            <Row label="Status" value={status} />
+            <Row label="Provider" value={ai.provider || '—'} />
+            <Row label="Model" value={ai.model || '—'} />
+            <Row label="Findings enriched" value={String(ai.analyzed)} />
+            <Row label="Tokens" value={ai.tokensUsed.toLocaleString()} />
+            {(ai.reason || ai.errorMessage) && !noProvider && !failed && (
+              <Row label="Details" value={ai.reason || ai.errorMessage || '—'} />
+            )}
+          </dl>
+        ) : (
+          <p className="text-muted-foreground">
+            {running ? 'AI runs after plugin analysis.' : 'No AI execution metadata was recorded.'}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 /**
  * A label/value pair.
  *

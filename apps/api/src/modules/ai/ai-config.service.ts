@@ -272,6 +272,40 @@ export class AiConfigService {
   }
 
   /**
+   * Providers that hold a usable credential, whether or not one is active.
+   *
+   * Exists for `GET /ai/status`, so the scan UI can tell two very different
+   * situations apart: nobody ever set AI up, versus a key was saved and nobody
+   * pressed "Set as active". Both leave the effective provider at `none` and
+   * both used to produce the same shrug of a message, which is how an operator
+   * ends up staring at a configured provider wondering why every scan skips
+   * enrichment.
+   *
+   * Names only — never keys, never masked keys — because this feeds an endpoint
+   * every authenticated user can call.
+   */
+  async listConfiguredProviders(): Promise<string[]> {
+    const rows = await this.prisma.aiProviderConfig.findMany({
+      select: { provider: true, apiKey: true },
+    });
+
+    // Ollama authenticates with nothing at all, so a saved row is itself the
+    // credential. Every other provider needs a stored key to count.
+    const fromDb = rows
+      .filter((row) => Boolean(row.apiKey) || row.provider === 'ollama')
+      .map((row) => row.provider);
+
+    // Env keys count too: an instance configured entirely through env vars has
+    // no rows at all, and telling that operator "nothing is configured" would
+    // be false.
+    const fromEnv = ['openai', 'grok', 'claude', 'gemini'].filter((provider) =>
+      Boolean(this.configService.get<string>(`ai.${provider}.apiKey`)),
+    );
+
+    return [...new Set([...fromDb, ...fromEnv])];
+  }
+
+  /**
    * Resolves effective config for the scanner (DB active row → env → defaults).
    * Returns plaintext API key.
    */

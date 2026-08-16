@@ -222,6 +222,27 @@ export const SETTING_DEFINITIONS = [
     description: 'Pause between probes, to stay within the target API rate limits.',
     group: 'scanner',
   },
+  // On by default because the overwhelming majority of installs are somebody
+  // running this against their own API on their own network — a tool that
+  // refuses to import a spec from `localhost:8080` out of the box is broken for
+  // its main use. It stays a setting, not a constant, because the same build is
+  // deployed to shared hosts, where a URL one user supplies must not be able to
+  // reach the internal network the API itself sits on.
+  //
+  // Scope note: this governs the URLs the API fetches for the user, which today
+  // means OpenAPI specification imports. The scanner reaching the project's own
+  // base URL is not filtered by it — scanning a private API is the entire point
+  // of pointing the scanner at one.
+  {
+    key: 'scanner.allowPrivateTargets',
+    kind: 'boolean',
+    env: 'ALLOW_PRIVATE_TARGETS',
+    fallback: true,
+    label: 'Allow private network targets',
+    description:
+      'Let an imported specification URL resolve to a private, loopback or link-local address. Needed to import a spec from an API on your own network. Turn it off on a shared or internet-facing deployment, where it also blocks requests to internal services and cloud metadata endpoints.',
+    group: 'scanner',
+  },
 ] as const satisfies readonly SettingDefinition[];
 
 export type SettingKey = (typeof SETTING_DEFINITIONS)[number]['key'];

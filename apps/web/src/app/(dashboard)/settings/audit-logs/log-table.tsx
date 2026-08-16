@@ -15,7 +15,8 @@ import {
   IconClipboardList,
   IconAlertTriangle,
 } from '@tabler/icons-react';
-import { cn } from '@/lib/utils';
+import { cn, formatDay, formatTimeOfDay } from '@/lib/utils';
+import { isSameZonedDay } from '@/lib/user-preferences';
 import type { AuditLog } from '@/types';
 import {
   Table,
@@ -532,17 +533,18 @@ function PageNumbers({
   );
 }
 
-/** Compact but unambiguous: same-day events show time only, older ones the date. */
+/**
+ * Compact but unambiguous: same-day events show time only, older ones the date.
+ *
+ * "Same day" is decided in the account's timezone, not the browser's. The
+ * previous version compared `getDate()`/`getMonth()`/`getFullYear()` against
+ * `new Date()`, which asks the question in whatever zone the laptop is set to —
+ * so an operator whose profile is pinned to another region would see this
+ * morning's events stamped with yesterday's date while every other timestamp on
+ * the screen said today.
+ */
 function formatTimestamp(iso: string): string {
-  const date = new Date(iso);
-  const today = new Date();
-  const sameDay =
-    date.getDate() === today.getDate() &&
-    date.getMonth() === today.getMonth() &&
-    date.getFullYear() === today.getFullYear();
-
-  const time = date.toLocaleTimeString(undefined, { hour12: false });
-  if (sameDay) return time;
-
-  return `${date.toLocaleDateString(undefined, { month: 'short', day: '2-digit' })} ${time}`;
+  const time = formatTimeOfDay(iso, undefined, { seconds: true });
+  if (isSameZonedDay(iso, Date.now())) return time;
+  return `${formatDay(iso)} ${time}`;
 }

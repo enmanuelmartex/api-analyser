@@ -138,7 +138,13 @@ export class AutoReportService {
         // `jobId` makes the enqueue itself idempotent too. The row insert above
         // already prevents duplicates, but a crash between insert and enqueue
         // followed by a manual retry must not stack two jobs on one report.
-        jobId: `report:${reportId}`,
+        //
+        // Hyphen, not colon: BullMQ uses `:` to separate the segments of its own
+        // Redis keys and rejects a custom id containing one — "Custom Id cannot
+        // contain :". It throws at `add`, so a colon here does not produce a
+        // slow queue, it produces a report that is claimed in the database and
+        // never rendered, and therefore an email that is never sent.
+        jobId: `report-${reportId}`,
         attempts: MAX_GENERATION_ATTEMPTS,
         backoff: { type: 'exponential', delay: 5_000 },
         removeOnComplete: { count: 100 },

@@ -16,7 +16,7 @@ import { NavSecondary } from "@/components/navigation/nav-secondary";
 import { NavUser } from "@/components/navigation/nav-user";
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
-  user?: { name: string; email: string; role: string } | null;
+  user?: { name: string; email: string; role: string; avatarColor?: string | null } | null;
 }
 
 export function AppSidebar({ user, ...props }: AppSidebarProps) {

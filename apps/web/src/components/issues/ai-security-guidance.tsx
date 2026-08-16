@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
   IconAlertTriangle,
@@ -11,6 +12,7 @@ import {
 } from '@tabler/icons-react';
 import { cn, formatDate } from '@/lib/utils';
 import { issuesApi } from '@/lib/api';
+import { AI_SETTINGS_HREF, useAiStatus } from '@/hooks/use-ai-status';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -97,6 +99,13 @@ export function AiSecurityGuidance({ issueId }: { issueId: string }) {
                   : 'No AI guidance yet'
             }
             detail={data?.reason ?? 'No guidance has been generated for this issue.'}
+            /*
+              A permanently empty advisory card is the most common way this
+              product looks broken to someone who simply never connected a
+              provider. When that is the actual cause, the notice says so and
+              offers the fix instead of repeating "no guidance" forever.
+            */
+            offerSetup
           />
         ) : (
           <GuidanceBody guidance={data.guidance} metadata={data.metadata} />
@@ -106,7 +115,19 @@ export function AiSecurityGuidance({ issueId }: { issueId: string }) {
   );
 }
 
-function UnavailableNotice({ title, detail }: { title: string; detail: string }) {
+function UnavailableNotice({
+  title,
+  detail,
+  offerSetup = false,
+}: {
+  title: string;
+  detail: string;
+  /** Checks whether the real cause is an unconfigured provider, and if so, links to it. */
+  offerSetup?: boolean;
+}) {
+  const ai = useAiStatus(offerSetup);
+  const needsSetup = offerSetup && ai.isBlocked;
+
   return (
     <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2.5">
       <IconInfoCircle
@@ -114,8 +135,28 @@ function UnavailableNotice({ title, detail }: { title: string; detail: string })
         aria-hidden="true"
       />
       <div>
-        <p className="text-sm text-foreground">{title}</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{detail}</p>
+        <p className="text-sm text-foreground">
+          {needsSetup ? 'AI guidance is not set up on this instance' : title}
+        </p>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+          {needsSetup
+            ? 'No AI provider is connected, so no guidance can be generated. Scanner evidence above is unaffected.'
+            : detail}
+        </p>
+        {needsSetup && (
+          ai.canConfigure ? (
+            <Link
+              href={AI_SETTINGS_HREF}
+              className="mt-1.5 inline-block text-xs font-medium text-primary hover:underline"
+            >
+              Connect an AI provider →
+            </Link>
+          ) : (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Ask an administrator to set one up in Settings → AI.
+            </p>
+          )
+        )}
       </div>
     </div>
   );

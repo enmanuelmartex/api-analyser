@@ -106,8 +106,11 @@ describe('AutoReportService.claimAndQueue', () => {
     expect(queued[0].opts.attempts).toBe(MAX_GENERATION_ATTEMPTS);
     expect(queued[0].opts.backoff).toEqual({ type: 'exponential', delay: 5_000 });
     // A deterministic job id, so a crash between the insert and the enqueue
-    // cannot leave two jobs racing on one report.
-    expect(queued[0].opts.jobId).toBe('report:report_1');
+    // cannot leave two jobs racing on one report. Hyphen-separated, not
+    // colon-separated: BullMQ reserves `:` for its own Redis key segments and
+    // throws "Custom Id cannot contain :" at `add`, which would claim the
+    // report in the database and then never render it.
+    expect(queued[0].opts.jobId).toBe('report-report_1');
   });
 
   /**

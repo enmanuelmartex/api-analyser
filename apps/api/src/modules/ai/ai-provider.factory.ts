@@ -78,10 +78,22 @@ export class AiProviderFactory {
     }
   }
 
-  /** Returns a quick status without making network calls. */
+  /**
+   * A quick status, without making network calls.
+   *
+   * `configuredProviders` is the part the scan UI needs and the provider itself
+   * cannot answer: whether a credential exists *somewhere* even though nothing
+   * is active. Without it, "no provider is configured" and "you saved a key but
+   * never activated it" are the same sentence, and only one of them is fixed by
+   * entering another key.
+   */
   async getProviderStatus() {
     try {
-      const config = await this.aiConfigService.getEffectiveConfig();
+      const [config, configuredProviders] = await Promise.all([
+        this.aiConfigService.getEffectiveConfig(),
+        this.aiConfigService.listConfiguredProviders().catch(() => [] as string[]),
+      ]);
+
       const hasCredential = Boolean(config.apiKey) || config.provider === 'ollama';
       return {
         provider:  config.provider,
@@ -92,9 +104,10 @@ export class AiProviderFactory {
           : !hasCredential
             ? `No API key configured for ${config.provider}`
             : undefined,
+        configuredProviders,
       };
     } catch {
-      return this.getEnvProvider().getStatus();
+      return { ...this.getEnvProvider().getStatus(), configuredProviders: [] as string[] };
     }
   }
 

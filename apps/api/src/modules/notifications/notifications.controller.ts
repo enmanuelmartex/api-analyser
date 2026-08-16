@@ -30,6 +30,23 @@ function isNotificationSection(value: string): value is NotificationSection {
 }
 
 /**
+ * `?since=` as an instant.
+ *
+ * A value that is not a date is a 400 rather than an ignored filter: silently
+ * dropping it would answer "the last 7 days" with the whole history, which is
+ * the one failure the caller cannot see in the response.
+ */
+function parseSince(value?: string): Date | undefined {
+  if (value === undefined || value === '') return undefined;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new BadRequestException(`'since' must be an ISO 8601 date. Received '${value}'.`);
+  }
+  return parsed;
+}
+
+/**
  * Notifications, scoped to the caller.
  *
  * No `RolesGuard`: every authenticated user has notifications and preferences
@@ -122,8 +139,14 @@ export class NotificationsController {
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
     @Query('unreadOnly', new DefaultValuePipe(false), ParseBoolPipe) unreadOnly: boolean,
+    @Query('since') since?: string,
   ) {
-    return this.notifications.findAll(user.id, { limit, offset, unreadOnly });
+    return this.notifications.findAll(user.id, {
+      limit,
+      offset,
+      unreadOnly,
+      since: parseSince(since),
+    });
   }
 
   // ── Dynamic :id routes ────────────────────────────────────────────────────

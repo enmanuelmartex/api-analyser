@@ -146,10 +146,19 @@ export class WeeklySummaryScheduler implements OnModuleInit, OnModuleDestroy {
 
     try {
       const candidates = await this.prisma.user.findMany({
-        // An inactive account, or one with no address, has nowhere to receive a
-        // digest. Filtered in the query rather than in the loop so a large
-        // install of deactivated users costs nothing.
-        where: { isActive: true, email: { not: null } },
+        /*
+         * An inactive account has nowhere to receive a digest, and filtering it
+         * in the query rather than in the loop keeps a large install of
+         * deactivated users free.
+         *
+         * There is deliberately no `email: { not: null }` beside it. `email` is
+         * `String @unique` — required — and Prisma rejects a null comparison on
+         * a non-nullable column outright: "Argument `not` must not be null".
+         * That threw on every tick, so the digest never went out at all. A row
+         * with no address cannot exist; the empty-string guard in the loop
+         * below is what covers the only degenerate value the column allows.
+         */
+        where: { isActive: true },
         select: { id: true, email: true, timeZone: true },
         take: MAX_USERS_PER_TICK,
         orderBy: { createdAt: 'asc' },

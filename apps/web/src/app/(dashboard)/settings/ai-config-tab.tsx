@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { IconCircleCheck, IconCircleX, IconAlertTriangle, IconEye, IconEyeOff, IconBolt, IconTrash, IconWifi, IconCircleDot, IconChevronDown } from '@tabler/icons-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { cn, formatTimeOfDay } from '@/lib/utils';
 import { aiApi } from '@/lib/api';
 import type { AiProviderConfig, AiProfile, AiTestConnectionResult } from '@/types';
 import { Badge } from '@/components/ui/badge';
@@ -293,7 +293,13 @@ export function AiConfigTab() {
           providerId={selectedProvider}
           config={providerConfig ?? null}
           configs={configs}
-          onSaved={() => qc.invalidateQueries({ queryKey: ['ai', 'configs'] })}
+          /*
+            The whole `['ai']` tree, not just `['ai','configs']`: `['ai','status']`
+            is what the Run assessment sheet gates its enrichment toggle on, and
+            an admin who has just added a key expects that toggle to come alive
+            without reloading the app.
+          */
+          onSaved={() => qc.invalidateQueries({ queryKey: ['ai'] })}
         />
       </div>
     </div>
@@ -336,7 +342,7 @@ function DisableAiButton({ configs, qc }: { configs: AiProviderConfig[]; qc: Ret
   const deactivateMut = useMutation({
     mutationFn: aiApi.deactivateAll,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['ai', 'configs'] });
+      qc.invalidateQueries({ queryKey: ['ai'] });
       toast.success('AI analysis disabled.');
     },
     onError: () => toast.error('Failed to disable AI.'),
@@ -497,7 +503,7 @@ function ProviderPanel({
             ) : (
               <IconCircleX className="h-3 w-3" />
             )}
-            Tested {new Date(config.lastTestedAt).toLocaleTimeString()}
+            Tested {formatTimeOfDay(config.lastTestedAt)}
           </span>
         )}
       </div>

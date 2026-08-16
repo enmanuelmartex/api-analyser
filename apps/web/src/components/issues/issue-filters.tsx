@@ -1,36 +1,27 @@
 'use client';
 
-import * as React from 'react';
 import { cn } from '@/lib/utils';
 import type { IssueStatus } from '@/types';
 import { ANY, ISSUE_STATUS_LABELS, type IssueFilterState } from '@/lib/issue-list';
 import { useDebouncedField } from '@/hooks/use-debounced-field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  FilterField,
+  FilterSelect,
+  FILTER_CONTROL_CLASS,
+  type FilterSelectOption,
+} from '@/components/filters/filter-select';
 import { SEVERITY_META, SEVERITY_ORDER } from '@/components/security/severity-badge';
 import { STATUS_META } from '@/components/security/finding-status-badge';
-
-/** Same control metrics as the Scans filter row, so the two pages line up. */
-const CONTROL_CLASS = 'h-9 border-border/70 bg-card shadow-none';
-const LABEL_CLASS = 'text-xs font-medium text-muted-foreground';
 
 /*
  * The filter state itself lives in `@/lib/issue-list`, next to the URL
  * parse/serialize helpers, so the summary cards can build a link to a filtered
- * view without importing this component.
+ * view without importing this component. The controls come from
+ * `@/components/filters/filter-select`, shared with Security Checks.
  */
 
-type FilterOption = { value: string; label: string; dot: string };
-
-const SEVERITY_OPTIONS: FilterOption[] = [
+const SEVERITY_OPTIONS: FilterSelectOption[] = [
   { value: ANY, label: 'All severities', dot: 'bg-muted-foreground' },
   ...SEVERITY_ORDER.map((severity) => ({
     value: severity,
@@ -39,7 +30,7 @@ const SEVERITY_OPTIONS: FilterOption[] = [
   })),
 ];
 
-const STATUS_OPTIONS: FilterOption[] = [
+const STATUS_OPTIONS: FilterSelectOption[] = [
   { value: ANY, label: 'All statuses', dot: 'bg-muted-foreground' },
   ...(Object.keys(ISSUE_STATUS_LABELS) as IssueStatus[]).map((status) => ({
     value: status,
@@ -77,11 +68,11 @@ export function IssueFilters({ value, onChange, className }: IssueFiltersProps) 
           value={search.draft}
           onChange={(event) => search.setDraft(event.target.value)}
           placeholder="Search issues…"
-          className={CONTROL_CLASS}
+          className={FILTER_CONTROL_CLASS}
         />
       </FilterField>
 
-      <SelectFilter
+      <FilterSelect
         label="Severity"
         id="issue-filter-severity"
         options={SEVERITY_OPTIONS}
@@ -89,7 +80,7 @@ export function IssueFilters({ value, onChange, className }: IssueFiltersProps) 
         onChange={(next) => onChange({ ...value, severity: next })}
       />
 
-      <SelectFilter
+      <FilterSelect
         label="Status"
         id="issue-filter-status"
         options={STATUS_OPTIONS}
@@ -99,61 +90,3 @@ export function IssueFilters({ value, onChange, className }: IssueFiltersProps) 
     </div>
   );
 }
-
-function FilterField({
-  label,
-  htmlFor,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={htmlFor} className={LABEL_CLASS}>
-        {label}
-      </Label>
-      {children}
-    </div>
-  );
-}
-
-function SelectFilter({
-  label,
-  id,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  id: string;
-  options: FilterOption[];
-  value: string;
-  onChange: (_next: string) => void;
-}) {
-  return (
-    <FilterField label={label} htmlFor={id}>
-      <Select value={value} onValueChange={onChange}>
-        {/* The trigger mirrors the selected item's content, so the dot it shows
-            comes from the option below rather than a second lookup here. */}
-        <SelectTrigger id={id} className={CONTROL_CLASS} aria-label={label}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="start">
-          <SelectGroup>
-            {options.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                <span className="flex items-center gap-2">
-                  <span className={cn('size-1.5 shrink-0 rounded-full', option.dot)} />
-                  <span>{option.label}</span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-    </FilterField>
-  );
-}
-

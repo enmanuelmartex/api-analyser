@@ -11,7 +11,7 @@ import {
   IconAlertTriangle,
 } from '@tabler/icons-react';
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
+import { cn, formatDay, formatTimeOfDay } from '@/lib/utils';
 import { logsApi } from '@/lib/api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -472,12 +472,14 @@ function DetailSkeleton() {
   );
 }
 
-/** e.g. "Aug 13, 2026 · 12:44:08.291" — seconds matter when correlating events. */
+/**
+ * e.g. "Aug 13, 2026 · 12:44:08.291" — seconds matter when correlating events,
+ * and the milliseconds are appended by hand because no clock format has an
+ * opinion about them (they are also the one component a timezone cannot change).
+ */
 function formatFull(iso: string): string {
   const date = new Date(iso);
-  return `${date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })} · ${date.toLocaleTimeString(undefined, { hour12: false })}.${String(date.getMilliseconds()).padStart(3, '0')}`;
+  if (Number.isNaN(date.getTime())) return '—';
+  const millis = String(date.getMilliseconds()).padStart(3, '0');
+  return `${formatDay(iso)} · ${formatTimeOfDay(iso, undefined, { seconds: true })}.${millis}`;
 }

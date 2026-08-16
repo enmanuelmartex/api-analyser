@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { UserAvatar, userInitials } from '@/components/shared/user-avatar';
 import {
   Select,
   SelectContent,
@@ -16,12 +16,14 @@ import { cn } from '@/lib/utils';
 /**
  * One row of the picker, already flattened out of whatever user shape the
  * caller holds — `ManagedUser`, `AssignableUser` or the assignee embedded in an
- * issue. `avatar` is optional; `initials` render in its place.
+ * issue. `avatar` is optional; `initials` render in its place, tinted with
+ * `avatarColor`.
  */
 export interface UserOption {
   value: string;
   label: string;
   avatar?: string | null;
+  avatarColor?: string | null;
   initials?: string;
   /** Optional second line — the email, so two "J. Smith"s stay distinguishable. */
   description?: string | null;
@@ -36,13 +38,12 @@ export interface UserOption {
  */
 const NO_USER = '__no_user__';
 
-/** `Michael Rodriguez` → `MR`, `Alex Johnson` → `AJ`, `alex` → `AL`. */
-export function userInitials(name: string | null | undefined): string {
-  const words = (name ?? '').trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return '?';
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
-}
+/*
+ * `userInitials` now lives with the avatar it draws
+ * (`components/shared/user-avatar.tsx`), beside the palette. Re-exported here
+ * because this is where callers have always imported it from.
+ */
+export { userInitials };
 
 /** Maps any user record the API returns onto the shape the picker renders. */
 export function toUserOption(user: {
@@ -50,6 +51,7 @@ export function toUserOption(user: {
   name?: string | null;
   email?: string | null;
   avatar?: string | null;
+  avatarColor?: string | null;
 }): UserOption {
   // An account created through Better Auth can have a blank name, and a row
   // with an avatar and no label beside it is unreadable.
@@ -57,21 +59,22 @@ export function toUserOption(user: {
   return {
     value: user.id,
     label,
-    // Normalised to null: an empty `src` makes the browser re-request the page
-    // itself, and the fallback is what should render anyway.
-    avatar: user.avatar?.trim() || null,
+    avatar: user.avatar ?? null,
+    avatarColor: user.avatarColor ?? null,
     initials: userInitials(label),
   };
 }
 
-function UserAvatar({ option, className }: { option: UserOption; className?: string }) {
+function OptionAvatar({ option, className }: { option: UserOption; className?: string }) {
   return (
-    <Avatar className={className}>
-      {option.avatar ? <AvatarImage src={option.avatar} alt="" /> : null}
-      <AvatarFallback className="text-[10px]">
-        {option.initials ?? userInitials(option.label)}
-      </AvatarFallback>
-    </Avatar>
+    <UserAvatar
+      name={option.label}
+      color={option.avatarColor}
+      src={option.avatar}
+      initials={option.initials ?? userInitials(option.label)}
+      className={className}
+      fallbackClassName="text-[10px]"
+    />
   );
 }
 
@@ -165,7 +168,7 @@ export function UserSelect({
         <SelectValue placeholder={placeholder}>
           {selected ? (
             <span className="flex min-w-0 items-center gap-2">
-              <UserAvatar option={selected} className="size-5" />
+              <OptionAvatar option={selected} className="size-5" />
               <span className="truncate">{selected.label}</span>
             </span>
           ) : (
@@ -187,7 +190,7 @@ export function UserSelect({
             {options.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 <span className="flex min-w-0 items-center gap-2">
-                  <UserAvatar option={option} className="size-6" />
+                  <OptionAvatar option={option} className="size-6" />
                   <span className="min-w-0">
                     <span className="block truncate">{option.label}</span>
                     {option.description && (

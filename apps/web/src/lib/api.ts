@@ -472,8 +472,10 @@ export const settingsApi = {
 // ── Notifications ────────────────────────────────────────────────────────────
 
 export const notificationsApi = {
-  list: (params: { limit?: number; offset?: number; unreadOnly?: boolean } = {}): Promise<NotificationPage> =>
-    api.get('/notifications', { params }).then((r) => r.data),
+  /** `since` is an ISO instant — the floor the notifications screen filters a period with. */
+  list: (
+    params: { limit?: number; offset?: number; unreadOnly?: boolean; since?: string } = {},
+  ): Promise<NotificationPage> => api.get('/notifications', { params }).then((r) => r.data),
   unreadCount: (): Promise<{ total: number; byCategory: Record<string, number> }> =>
     api.get('/notifications/unread-count').then((r) => r.data),
   /**

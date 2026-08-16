@@ -10,10 +10,10 @@ import {
   IconCalendarClock,
   IconLayersLinked,
   IconPlug,
-  IconSparkles,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { pluginsApi, profilesApi, projectsApi, scheduledScansApi, type ScheduleInput } from '@/lib/api';
+import { groupScanProfiles } from '@/lib/scan-profiles';
 import type { Plugin, Project, ScanProfile, ScheduleFrequency, ScheduledScan, SchedulePreview } from '@/types';
 import {
   FREQUENCY_LABELS,
@@ -32,7 +32,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -46,6 +48,8 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
+import { useAiStatus } from '@/hooks/use-ai-status';
+import { AiEnrichmentField } from '@/components/ai/ai-enrichment-field';
 import { cn } from '@/lib/utils';
 import { TimezoneSelect, detectTimeZone } from './timezone-select';
 
@@ -143,13 +147,17 @@ function tomorrowInZone(timeZone: string): string {
  * sent as the local wall time plus the zone, and the server converts — so the
  * browser's own offset never enters into it.
  */
-function toInput(state: FormState, includeProject: boolean): ScheduleInput {
+function toInput(state: FormState, includeProject: boolean, aiBlocked = false): ScheduleInput {
   const base: ScheduleInput = {
     name: state.name.trim(),
     frequency: state.frequency,
     timezone: state.timezone,
     executionMode: state.executionMode,
-    enableAiAnalysis: state.enableAiAnalysis,
+    // With no usable provider the switch reads off, so what is stored has to
+    // read off too — a schedule persisting `enableAiAnalysis: true` against a
+    // provider that cannot answer just skips enrichment on every run while its
+    // own configuration claims otherwise.
+    enableAiAnalysis: state.enableAiAnalysis && !aiBlocked,
     skipIfRunning: state.skipIfRunning,
     ...(includeProject ? { projectId: state.projectId } : {}),
     ...(state.executionMode === 'profile' ? { scanProfileId: state.scanProfileId } : {}),
@@ -296,12 +304,28 @@ export function ScheduleSheet({
     queryFn: profilesApi.list,
     enabled: open,
   });
+  /*
+   * The same gate the run sheet uses. `isBlocked` is true only for the states
+   * the server has confirmed cannot enrich — a provider without a key, or AI
+   * switched off for the instance — so a failed `/ai/status` never strips
+   * enrichment from a schedule that would have worked.
+   */
+  const ai = useAiStatus(open);
 
   const enabledPlugins = React.useMemo(
     () => (pluginsQuery.data ?? []).filter((plugin) => plugin.isEnabled),
     [pluginsQuery.data],
   );
-  const profiles = profilesQuery.data ?? [];
+  // System and custom profiles are both offered; `state.scanProfileId` keeps a
+  // hidden built-in visible when an existing schedule already points at it.
+  const {
+    system: systemProfiles,
+    custom: customProfiles,
+    selectable: profiles,
+  } = React.useMemo(
+    () => groupScanProfiles(profilesQuery.data, state.scanProfileId),
+    [profilesQuery.data, state.scanProfileId],
+  );
   // Only projects that can actually be scanned. Offering a draft here would
   // produce a schedule the server refuses at the moment of saving.
   const scannableProjects = (projectsQuery.data ?? []).filter(
@@ -345,8 +369,8 @@ export function ScheduleSheet({
   const mutation = useMutation({
     mutationFn: () =>
       isEdit
-        ? scheduledScansApi.update(schedule!.id, toInput(state, false))
-        : scheduledScansApi.create(toInput(state, true)),
+        ? scheduledScansApi.update(schedule!.id, toInput(state, false, ai.isBlocked))
+        : scheduledScansApi.create(toInput(state, true, ai.isBlocked)),
     onMutate: () => setSubmitError(''),
     onSuccess: (saved) => {
       queryClient.invalidateQueries({ queryKey: ['scheduled-scans'] });
@@ -738,7 +762,7 @@ export function ScheduleSheet({
                   {
                     value: 'profile',
                     title: 'Scan profile',
-                    description: 'A saved selection, such as Full Scan or Quick Scan.',
+                    description: 'A saved selection, such as Quick Scan or one of your own profiles.',
                     icon: IconLayersLinked,
                   },
                   {
@@ -783,11 +807,26 @@ export function ScheduleSheet({
                     <SelectValue placeholder="Select a profile" />
                   </SelectTrigger>
                   <SelectContent>
-                    {profiles.map((profile) => (
-                      <SelectItem key={profile.id} value={profile.id}>
-                        {profile.name}
-                      </SelectItem>
-                    ))}
+                    {systemProfiles.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>Built-in profiles</SelectLabel>
+                        {systemProfiles.map((profile) => (
+                          <SelectItem key={profile.id} value={profile.id}>
+                            {profile.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                    {customProfiles.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>Your profiles</SelectLabel>
+                        {customProfiles.map((profile) => (
+                          <SelectItem key={profile.id} value={profile.id}>
+                            {profile.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
                   </SelectContent>
                 </Select>
                 {selectedProfile && (
@@ -840,25 +879,21 @@ export function ScheduleSheet({
             )}
 
             {/* ── Options ──────────────────────────────────────────────── */}
+            {/*
+              Gated exactly like the run sheet: with no usable provider the
+              switch is off and cannot be turned on. `deferred` only changes the
+              notice's wording, which says the schedule keeps running every
+              check and where to come back once a provider is active.
+            */}
+            <AiEnrichmentField
+              timing="deferred"
+              checked={state.enableAiAnalysis}
+              onCheckedChange={(checked) => patch({ enableAiAnalysis: checked })}
+              enabled={open}
+            />
+
             <div className="space-y-3 rounded-lg border p-4">
               <div className="flex items-start justify-between gap-4">
-                <div className="flex gap-3">
-                  <IconSparkles className="mt-0.5 size-5 text-ai" />
-                  <div>
-                    <p className="text-sm font-medium">AI security enrichment</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Adds root cause, impact and remediation guidance to eligible findings.
-                    </p>
-                  </div>
-                </div>
-                <Switch
-                  checked={state.enableAiAnalysis}
-                  onCheckedChange={(checked) => patch({ enableAiAnalysis: checked })}
-                  aria-label="Enable AI security enrichment"
-                />
-              </div>
-
-              <div className="flex items-start justify-between gap-4 border-t pt-3">
                 <div>
                   <p className="text-sm font-medium">Skip if a scan is still running</p>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">

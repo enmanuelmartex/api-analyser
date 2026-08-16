@@ -23,6 +23,13 @@ export interface AiProviderStatus {
   available: boolean;
   /** Human-readable reason when available === false */
   reason?: string;
+  /**
+   * Providers holding a credential, active or not — names only, no secrets.
+   *
+   * Only the instance-level status (`GET /ai/status`) fills this in; a single
+   * provider cannot know what its siblings have configured.
+   */
+  configuredProviders?: string[];
 }
 
 export interface AiAnalysisConfig {

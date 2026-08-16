@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { IconDownload, IconFilePlus, IconLoader2, IconAlertTriangle } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { reportsApi } from '@/lib/api';
-import { formatBytes } from '@/lib/utils';
+import { formatBytes, formatDay } from '@/lib/utils';
 import type { ReportFormat, ReportFormatAvailability, ReportType } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -116,9 +116,7 @@ export function ReportFormatActions({
                       {exists
                         ? [
                             entry.fileSize ? formatBytes(entry.fileSize) : null,
-                            entry.generatedAt
-                              ? `generated ${new Date(entry.generatedAt).toLocaleDateString()}`
-                              : null,
+                            entry.generatedAt ? `generated ${formatDay(entry.generatedAt)}` : null,
                             entry.version && entry.version > 1 ? `v${entry.version}` : null,
                           ]
                             .filter(Boolean)

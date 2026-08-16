@@ -20,6 +20,7 @@ const SELECT_PUBLIC = {
   name: true,
   role: true,
   avatar: true,
+  avatarColor: true,
   isActive: true,
   lastLogin: true,
   createdAt: true,
@@ -58,14 +59,17 @@ export class UsersService {
    *
    * A narrower projection than `SELECT_PUBLIC` on purpose: this is reachable by
    * any authenticated user, so it returns only what a picker renders — which
-   * now includes `avatar`, the image the picker shows beside each name.
+   * now includes `avatar` and `avatarColor`, which are what the picker draws
+   * beside each name. The colour is as much a part of recognising a row at a
+   * glance as the initials are, and omitting it would render every account in
+   * the picker identically while they are distinguishable everywhere else.
    * Inactive accounts are excluded — assigning work to a disabled account
    * silently parks the issue with nobody.
    */
   async findAssignable() {
     return this.prisma.user.findMany({
       where: { isActive: true },
-      select: { id: true, name: true, email: true, role: true, avatar: true },
+      select: { id: true, name: true, email: true, role: true, avatar: true, avatarColor: true },
       orderBy: { name: 'asc' },
     });
   }

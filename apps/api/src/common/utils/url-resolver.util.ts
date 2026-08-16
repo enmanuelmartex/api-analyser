@@ -15,8 +15,20 @@ export function resolveTargetUrl(url: string): string {
   return url.replace(LOCALHOST_PATTERN, '$1host.docker.internal$3');
 }
 
-/** Validates user-controlled outbound URLs before any request is made. */
-export async function assertSafeRemoteUrl(value: string): Promise<string> {
+/**
+ * Validates user-controlled outbound URLs before any request is made.
+ *
+ * `allowPrivate` is passed in rather than read here, because the effective
+ * policy is the `scanner.allowPrivateTargets` setting — an administrator can
+ * change it at runtime, and a module-level read of `process.env` would keep
+ * enforcing whatever was true when the process booted. Callers that have no
+ * settings access omit it and get the environment default; the only thing that
+ * must never happen is defaulting to permissive when nothing said so.
+ */
+export async function assertSafeRemoteUrl(
+  value: string,
+  allowPrivate = process.env.ALLOW_PRIVATE_TARGETS === 'true',
+): Promise<string> {
   let url: URL;
   try {
     url = new URL(value);
@@ -26,7 +38,7 @@ export async function assertSafeRemoteUrl(value: string): Promise<string> {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
     throw new BadRequestException('Only credential-free HTTP and HTTPS URLs are allowed.');
   }
-  if (process.env.ALLOW_PRIVATE_TARGETS === 'true') return url.toString();
+  if (allowPrivate) return url.toString();
 
   let addresses: Array<{ address: string }>;
   try {

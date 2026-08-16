@@ -113,13 +113,28 @@ export class NotificationsService implements NotificationsRetentionPort {
 
   // ── Reading ────────────────────────────────────────────────────────────────
 
+  /**
+   * One page of the caller's notifications, newest first.
+   *
+   * `since` is what the notifications screen filters a period with — "the last
+   * 7 days" is a `createdAt` floor, not a page size, so narrowing the period
+   * narrows `total` too and the pager stops offering pages that are outside it.
+   *
+   * `unread`, by contrast, is deliberately NOT filtered: it is the number the
+   * bell shows, and a count that shrank because the reader chose a shorter
+   * period would disagree with the badge sitting next to it.
+   */
   async findAll(
     userId: string,
-    options: { limit?: number; offset?: number; unreadOnly?: boolean } = {},
+    options: { limit?: number; offset?: number; unreadOnly?: boolean; since?: Date } = {},
   ) {
     const take = Math.min(Math.max(options.limit ?? 20, 1), MAX_PAGE_SIZE);
     const skip = Math.max(options.offset ?? 0, 0);
-    const where = { userId, ...(options.unreadOnly ? { read: false } : {}) };
+    const where = {
+      userId,
+      ...(options.unreadOnly ? { read: false } : {}),
+      ...(options.since ? { createdAt: { gte: options.since } } : {}),
+    };
 
     const [total, unread, items] = await Promise.all([
       this.prisma.notification.count({ where }),

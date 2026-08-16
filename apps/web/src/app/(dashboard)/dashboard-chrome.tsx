@@ -9,6 +9,8 @@ interface DashboardUser {
   name: string;
   email: string;
   role: string;
+  /** Palette key for the initials in the sidebar footer. See `user-avatar.tsx`. */
+  avatarColor?: string | null;
 }
 
 /**

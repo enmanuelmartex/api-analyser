@@ -1,6 +1,10 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import type { Severity } from '@/types';
+import {
+  formatDateTime,
+  formatRelative as formatRelativeInterval,
+} from './user-preferences';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -26,26 +30,28 @@ export function severityToBg(severity: Severity) {
   return styles[severity];
 }
 
+/*
+ * Both of these used to hold a hardcoded `en-US` formatter and the browser's
+ * own timezone, which is what made Settings → General describe the region as a
+ * fact rather than offer it as a choice. They are now thin wrappers over
+ * `lib/user-preferences`, so the fifteen-odd call sites that already say
+ * `formatDate(row.createdAt)` honour the account's timezone and format without
+ * any of them changing.
+ *
+ * Re-exported from here rather than moved because that is where every caller
+ * already imports them from. A component that needs to re-render the *instant*
+ * a preference changes — the Settings pickers and their live sample — should
+ * use `useDateFormat()` instead; everything else picks the change up on its
+ * next render, which for this app means its next fetch or navigation.
+ */
+export { formatDay, formatRelativeDay, formatTimeOfDay } from './user-preferences';
+
 export function formatDate(date: string | Date) {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(date));
+  return formatDateTime(date);
 }
 
 export function formatRelative(date: string | Date) {
-  const now = new Date();
-  const then = new Date(date);
-  const seconds = Math.floor((now.getTime() - then.getTime()) / 1000);
-
-  if (seconds < 60) return 'just now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
-  return formatDate(date);
+  return formatRelativeInterval(date);
 }
 
 export function formatDuration(seconds: number) {

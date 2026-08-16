@@ -13,7 +13,7 @@ import {
   IconPlugConnectedX,
   IconLoader2,
 } from '@tabler/icons-react';
-import { cn } from '@/lib/utils';
+import { cn, formatTimeOfDay } from '@/lib/utils';
 import { logsApi } from '@/lib/api';
 import type { LiveLogEvent, LogCategory, LogSeverity } from '@/types';
 import { LOG_CATEGORIES, LOG_SEVERITIES } from '@/types';
@@ -465,7 +465,7 @@ export function LiveEvents({
                   name whatever the timestamp renders as.
                 */}
                 <span className="flex-shrink-0 tabular-nums text-muted-foreground">
-                  {new Date(event.createdAt).toLocaleTimeString(undefined, { hour12: false })}
+                  {formatTimeOfDay(event.createdAt, undefined, { seconds: true })}
                 </span>
                 <span
                   className={cn(

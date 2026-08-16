@@ -12,6 +12,14 @@ import {
   IconTrash,
 } from '@tabler/icons-react';
 import { logsApi, settingsApi } from '@/lib/api';
+/*
+ * Local `formatDate`/`formatRelative` used to be defined at the bottom of this
+ * file, shadowing the shared ones by the same names and rendering in the
+ * browser's timezone. The retention panel sits two clicks from the log table;
+ * the two disagreeing about when the oldest event was is exactly the kind of
+ * thing that gets read as data loss.
+ */
+import { formatDay as formatDate, formatRelative } from '@/lib/utils';
 import type { RuntimeSetting } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -700,22 +708,6 @@ function formatBytes(bytes: number): string {
     unit += 1;
   }
   return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unit]}`;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
-function formatRelative(iso: string): string {
-  const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
-  if (seconds < 60) return 'Just now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  return formatDate(iso);
 }
 
 function formatInterval(hours: number): string {

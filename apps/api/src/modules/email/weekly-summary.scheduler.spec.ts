@@ -8,6 +8,30 @@ import { WeeklySummaryScheduler } from './weekly-summary.scheduler';
  * two questions: is this user due, and has this week already gone out.
  */
 
+/**
+ * The one refusal the real client makes that a hand-written mock does not.
+ *
+ * `User.email` is `String @unique` — required — and Prisma rejects a null
+ * comparison against a non-nullable column with "Argument `not` must not be
+ * null". A mock that returns rows for any query at all is how this scheduler
+ * shipped with `email: { not: null }` in its `where`: every test passed, and
+ * every tick in production threw before it looked at a single user, so no
+ * digest was ever sent. Reproducing that one rule here is what makes the mock
+ * able to fail.
+ */
+function rejectLikePrisma(where: any) {
+  for (const [column, condition] of Object.entries(where ?? {})) {
+    if (condition && typeof condition === 'object' && 'not' in condition) {
+      if ((condition as { not: unknown }).not === null && REQUIRED_COLUMNS.has(column)) {
+        throw new Error(`Argument \`not\` must not be null (on required column '${column}')`);
+      }
+    }
+  }
+}
+
+/** Columns the schema declares non-nullable on `User`. */
+const REQUIRED_COLUMNS = new Set(['email', 'name', 'role', 'isActive', 'emailVerified']);
+
 interface Options {
   users?: any[];
   preferences?: Record<string, boolean>;
@@ -25,8 +49,16 @@ function makeScheduler(options: Options = {}) {
     { id: 'user_1', email: 'ada@example.com', timeZone: 'America/Santo_Domingo' },
   ];
 
+  const findManyArgs: any[] = [];
+
   const prisma = {
-    user: { findMany: async () => users },
+    user: {
+      findMany: async (args: any) => {
+        findManyArgs.push(args);
+        rejectLikePrisma(args?.where);
+        return users;
+      },
+    },
   };
 
   const config = {
@@ -65,13 +97,24 @@ function makeScheduler(options: Options = {}) {
     queue as any,
   );
 
-  return { scheduler, queued, sentKeys };
+  return { scheduler, queued, sentKeys, findManyArgs };
 }
 
 /** Monday 14 September 2026, 13:00 UTC — 09:00 in Santo Domingo. */
 const MONDAY_MORNING = new Date('2026-09-14T13:00:00Z');
 
 describe('WeeklySummaryScheduler.tick', () => {
+  it('asks for candidates with a query the database will accept', async () => {
+    const { scheduler, findManyArgs } = makeScheduler();
+
+    // Would throw in `rejectLikePrisma` before reaching this assertion if the
+    // null-check on `email` came back.
+    await scheduler.tick(MONDAY_MORNING);
+
+    expect(findManyArgs[0].where.isActive).toBe(true);
+    expect(findManyArgs[0].where.email).toBeUndefined();
+  });
+
   it('queues a digest once the local Monday has reached the send hour', async () => {
     const { scheduler, queued } = makeScheduler();
 

@@ -6,7 +6,8 @@ import {
   IconLogout,
   IconUserCircle,
 } from "@tabler/icons-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/shared/user-avatar";
+import { NavUserAvatar } from "@/components/navigation/nav-user-avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,15 +23,34 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { ThemeSwitcher } from "@/components/layout/theme-switcher";
+import { useNotificationSummary } from "@/hooks/use-notification-summary";
 import { authClient } from "@/lib/auth-client";
+import { cn } from "@/lib/utils";
+import { clearStoredPreferences } from "@/lib/user-preferences";
 
 interface NavUserProps {
-  user?: { name: string; email: string; role: string } | null;
+  user?: {
+    name: string;
+    email: string;
+    role: string;
+    avatarColor?: string | null;
+  } | null;
 }
 
 export function NavUser({ user }: NavUserProps) {
   const { isMobile, state } = useSidebar();
-  const initial = user?.name?.charAt(0)?.toUpperCase() || "U";
+
+  /*
+   * The same cache entry the header bell and the sidebar badges read — React
+   * Query dedupes by key, so this hook costs no extra request and cannot
+   * disagree with them. `totalUnread` counts every category, including the
+   * SECURITY and SYSTEM ones that have no sidebar row of their own.
+   *
+   * `isReady` gates it so a page load does not paint a badge reading zero
+   * before the first response lands.
+   */
+  const summary = useNotificationSummary();
+  const unreadCount = summary.isReady ? summary.totalUnread : 0;
 
   /**
    * Two auth surfaces, two things to tear down (see `apps/api/src/lib/auth.ts`):
@@ -47,6 +67,10 @@ export function NavUser({ user }: NavUserProps) {
     }
     localStorage.removeItem("api_analyser_token");
     localStorage.removeItem("api_analyser_user");
+    // Cached timezone and date format belong to the account signing out, not to
+    // the machine — without this the next person to sign in here reads their
+    // timestamps through a stranger's clock until `/auth/me` lands.
+    clearStoredPreferences();
     window.location.href = "/login";
   }
 
@@ -57,19 +81,39 @@ export function NavUser({ user }: NavUserProps) {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
-              aria-label="Open user menu"
+              // The badge is `aria-hidden`, so the count has to reach a screen
+              // reader through the trigger's own name or not at all.
+              aria-label={
+                unreadCount > 0
+                  ? `Open user menu, ${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}`
+                  : "Open user menu"
+              }
               title={
                 state === "collapsed" && !isMobile
                   ? user?.name || "User menu"
                   : undefined
               }
-              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              className={cn(
+                "data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground",
+                /*
+                 * The one layout concession this feature needs.
+                 *
+                 * Every sidebar row is `overflow-hidden`, which is right for a
+                 * row whose only job is to clip a long label — but here it also
+                 * clips the avatar's ring and shears the badge against the
+                 * button's rounded corner in the collapsed rail, where the
+                 * button is exactly the size of the halo. Nothing else in this
+                 * row relies on it: the two labels below clip themselves with
+                 * `truncate`, and this row has no active rail to contain.
+                 */
+                "overflow-visible",
+              )}
             >
-              <Avatar className="h-8 w-8 rounded-lg border border-sidebar-border">
-                <AvatarFallback className="rounded-lg">
-                  {initial}
-                </AvatarFallback>
-              </Avatar>
+              <NavUserAvatar
+                name={user?.name}
+                color={user?.avatarColor}
+                unreadCount={unreadCount}
+              />
               {(state === "expanded" || isMobile) && (
                 <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">
@@ -93,11 +137,18 @@ export function NavUser({ user }: NavUserProps) {
           >
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarFallback className="rounded-lg">
-                    {initial}
-                  </AvatarFallback>
-                </Avatar>
+                {/*
+                  Circular, like the trigger it opens from — and like every
+                  other avatar in the product, all of which take the base
+                  component's default. This row was the last squared one, and
+                  drawing the same person as a circle in the footer and a
+                  squircle two centimetres above it reads as a bug.
+                */}
+                <UserAvatar
+                  name={user?.name}
+                  color={user?.avatarColor}
+                  className="size-8"
+                />
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">
                     {user?.name || "User"}

@@ -22,6 +22,8 @@ function makeService(
   const created: any[] = [];
   const published: { userId: string }[] = [];
   const deleteArgs: any[] = [];
+  const findArgs: any[] = [];
+  const countArgs: any[] = [];
 
   const prisma = {
     notification: {
@@ -33,6 +35,14 @@ function makeService(
       deleteMany: async (args: any) => {
         deleteArgs.push(args);
         return { count: options.deleteCount ?? 7 };
+      },
+      count: async (args: any) => {
+        countArgs.push(args);
+        return countArgs.length;
+      },
+      findMany: async (args: any) => {
+        findArgs.push(args);
+        return [];
       },
     },
     user: { findMany: async () => options.admins ?? [] },
@@ -66,7 +76,7 @@ function makeService(
     stream as any,
   );
 
-  return { service, created, published, deleteArgs };
+  return { service, created, published, deleteArgs, findArgs, countArgs };
 }
 
 const INPUT = {
@@ -156,6 +166,58 @@ describe('ownership', () => {
     const { service } = makeService({ deleteCount: 0 });
 
     await expect(service.remove('n-1', 'user-2')).rejects.toThrow(/not found/i);
+  });
+});
+
+/**
+ * The period filter behind the notifications screen.
+ *
+ * What matters is which counts move with it: `total` has to, or the pager keeps
+ * offering pages outside the chosen period, and the unread count must not, or
+ * it contradicts the bell it sits beside.
+ */
+describe('findAll', () => {
+  it('floors the query at `since` when a period is given', async () => {
+    const { service, findArgs, countArgs } = makeService();
+
+    const since = new Date('2026-08-08T00:00:00Z');
+    await service.findAll('user-1', { since, limit: 20 });
+
+    expect(findArgs[0].where.createdAt.gte).toEqual(since);
+    // The page count is filtered with the rows…
+    expect(countArgs[0].where.createdAt.gte).toEqual(since);
+    // …and the unread total is not: that number belongs to the bell.
+    expect(countArgs[1].where).toEqual({ userId: 'user-1', read: false });
+  });
+
+  it('reads the whole history when no period is given', async () => {
+    const { service, findArgs } = makeService();
+
+    await service.findAll('user-1', {});
+
+    expect(findArgs[0].where).toEqual({ userId: 'user-1' });
+  });
+
+  it('combines the period with the unread-only filter', async () => {
+    const { service, findArgs } = makeService();
+
+    const since = new Date('2026-08-14T00:00:00Z');
+    await service.findAll('user-1', { since, unreadOnly: true });
+
+    expect(findArgs[0].where).toEqual({
+      userId: 'user-1',
+      read: false,
+      createdAt: { gte: since },
+    });
+  });
+
+  it('caps an oversized page rather than trusting the caller', async () => {
+    const { service, findArgs } = makeService();
+
+    await service.findAll('user-1', { limit: 5000, offset: -3 });
+
+    expect(findArgs[0].take).toBe(100);
+    expect(findArgs[0].skip).toBe(0);
   });
 });
 

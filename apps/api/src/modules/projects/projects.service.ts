@@ -18,6 +18,7 @@ import {
   isOpenApi31Document,
   SAFE_PARSER_OPTIONS,
 } from '../../common/utils/openapi-safety.util';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class ProjectsService {
@@ -27,6 +28,7 @@ export class ProjectsService {
     private prisma: PrismaService,
     private crypto: CryptoService,
     private events: EventEmitter2,
+    private settings: SettingsService,
   ) {}
 
   /**
@@ -242,7 +244,8 @@ export class ProjectsService {
   async importOpenApiFromUrl(projectId: string, userId: string, url: string) {
     await this.assertOwner(projectId, userId);
 
-    const validatedUrl = await assertSafeRemoteUrl(url);
+    const allowPrivate = await this.settings.getBoolean('scanner.allowPrivateTargets');
+    const validatedUrl = await assertSafeRemoteUrl(url, allowPrivate);
     const resolvedUrl = resolveTargetUrl(validatedUrl);
     this.logger.log(`Importing OpenAPI spec from ${new URL(validatedUrl).hostname}`);
 

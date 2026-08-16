@@ -18,7 +18,7 @@ import { RunAssessmentSheet } from '@/components/projects/run-assessment-sheet';
 import { EndpointsTable } from '@/components/projects/endpoints-table';
 import { ProjectSchedulesCard } from '@/components/projects/project-schedules-card';
 import { ScheduleSheet } from '@/components/scheduled-scans/schedule-sheet';
-import { cn } from '@/lib/utils';
+import { cn, formatDay } from '@/lib/utils';
 
 const ASSESSMENTS_PAGE_SIZE = 5;
 
@@ -116,7 +116,7 @@ export default function ProjectDetailsPage() {
               <EmptyState icon={IconActivity} title="Could not load assessments" description="Try again in a moment." compact />
             ) : recentAssessments.length ? (
               <div className={cn('space-y-2 transition-opacity', assessmentsQuery.isFetching && 'opacity-60')}>
-                {recentAssessments.map((assessment) => <Link key={assessment.id} href={`/assessments/${assessment.id}`} className="flex items-center justify-between rounded-md border p-3 transition-colors hover:bg-accent"><span className="text-sm">{new Date(assessment.createdAt).toLocaleDateString()}</span><Badge variant="outline">{assessment.status}</Badge></Link>)}
+                {recentAssessments.map((assessment) => <Link key={assessment.id} href={`/assessments/${assessment.id}`} className="flex items-center justify-between rounded-md border p-3 transition-colors hover:bg-accent"><span className="text-sm">{formatDay(assessment.createdAt)}</span><Badge variant="outline">{assessment.status}</Badge></Link>)}
               </div>
             ) : (
               <EmptyState icon={IconActivity} title="No assessments yet" compact />

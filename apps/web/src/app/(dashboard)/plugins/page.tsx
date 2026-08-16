@@ -7,7 +7,6 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   IconPuzzle,
   IconShieldLock,
-  IconSearch,
   IconToggleLeft,
   IconToggleRight,
   IconChevronRight,
@@ -28,27 +27,23 @@ import { pluginsApi } from '@/lib/api';
 import type { Plugin } from '@/types';
 import { cn } from '@/lib/utils';
 import {
-  ALL_CATEGORIES,
   EMPTY_PLUGIN_FILTERS,
   filterPlugins,
   getPluginCategories,
   hasActivePluginFilters,
   parsePluginFilters,
-  PLUGIN_STATE_LABELS,
-  PLUGIN_STATE_VALUES,
   pluginsHref,
   serializePluginFilters,
   type PluginFilterState,
 } from '@/lib/plugin-list';
-import { useDebouncedField } from '@/hooks/use-debounced-field';
 import { toast } from 'sonner';
 import { PageContainer } from '@/components/layout/page-container';
 import { PageHeader } from '@/components/layout/page-header';
 import { SecurityChecksTabs } from '@/components/navigation/security-checks-tabs';
+import { PluginFilters } from '@/components/plugins/plugin-filters';
 import { MetricCard, MetricCardSkeleton } from '@/components/shared/metric-card';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 
@@ -110,18 +105,11 @@ export default function PluginsPage() {
     [pathname, router],
   );
 
-  // Typing commits on a delay: every commit is a navigation now that the filter
-  // lives in the URL.
-  const search = useDebouncedField(filters.search, (next) =>
-    applyFilters({ ...filters, search: next }),
-  );
-
-  const categories = useMemo(() => [ALL_CATEGORIES, ...getPluginCategories(plugins)], [plugins]);
+  const categories = useMemo(() => getPluginCategories(plugins), [plugins]);
   const filtered = useMemo(() => filterPlugins(plugins, filters), [plugins, filters]);
   const filtersActive = hasActivePluginFilters(filters);
 
   const enabledCount = plugins.filter((p) => p.isEnabled).length;
-  const categoryCount = categories.length - 1;
 
   return (
     <PageContainer>
@@ -139,9 +127,9 @@ export default function PluginsPage() {
 
       {/*
         Clicking a card filters the list below to what it counts. "Categories"
-        is not a link: a category is not a state the list can be narrowed to on
-        its own — the category row below already does that — so it stays
-        informational rather than leading somewhere it cannot go.
+        is not a link: it counts every category at once, so there is no single
+        one it could narrow to — the Category select below is where that choice
+        is made. It stays informational rather than leading nowhere.
       */}
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {isLoading ? (
@@ -172,7 +160,7 @@ export default function PluginsPage() {
             />
             <MetricCard
               title="Categories"
-              value={categoryCount}
+              value={categories.length}
               icon={<IconLayersIntersect />}
               accent="primary"
               description="Security check categories"
@@ -181,43 +169,14 @@ export default function PluginsPage() {
         )}
       </div>
 
-      {/* Search + availability + category filters */}
-      <div className="mb-4 flex flex-col gap-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative max-w-sm flex-1">
-            <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search.draft}
-              onChange={(e) => search.setDraft(e.target.value)}
-              placeholder="Search checks…"
-              aria-label="Search checks"
-              className="pl-9"
-            />
-          </div>
-          {/* The state a card links to has to be visible here, or the list would
-              silently show a subset with nothing on screen explaining why. */}
-          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by availability">
-            {PLUGIN_STATE_VALUES.map((state) => (
-              <FilterChip
-                key={state}
-                label={PLUGIN_STATE_LABELS[state]}
-                active={filters.state === state}
-                onClick={() => applyFilters({ ...filters, state })}
-              />
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by category">
-          {categories.map((cat) => (
-            <FilterChip
-              key={cat}
-              label={cat === ALL_CATEGORIES ? 'All categories' : cat}
-              active={filters.category === cat}
-              onClick={() => applyFilters({ ...filters, category: cat })}
-            />
-          ))}
-        </div>
-      </div>
+      {/* The state a card links to has to be readable here, or the list would
+          silently show a subset with nothing on screen explaining why. */}
+      <PluginFilters
+        value={filters}
+        onChange={applyFilters}
+        categories={categories}
+        className="mb-4"
+      />
 
       {/* Plugin grid */}
       {isLoading ? (
@@ -251,36 +210,6 @@ export default function PluginsPage() {
         </div>
       )}
     </PageContainer>
-  );
-}
-
-/**
- * One toggle in the availability or category row. `aria-pressed` rather than a
- * tab role: these are filters that stay applied, not navigation.
- */
-function FilterChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-        active
-          ? 'border-primary/30 bg-primary/10 text-primary'
-          : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground',
-      )}
-    >
-      {label}
-    </button>
   );
 }
 

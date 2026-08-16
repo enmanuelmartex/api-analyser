@@ -69,6 +69,36 @@ export function useNotificationSummary() {
 }
 
 /**
+ * Reading a notification, from either surface that shows one.
+ *
+ * The bell's panel and the notifications screen both need mark-one and
+ * mark-all, and both must invalidate the *same two* keys afterwards — the
+ * summary behind the badge and the list behind the rows. A surface that
+ * invalidated only its own is how the bell keeps a count for something the user
+ * has just read on the other one.
+ */
+export function useNotificationActions() {
+  const queryClient = useQueryClient();
+
+  const invalidate = React.useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: NOTIFICATION_SUMMARY_KEY });
+    void queryClient.invalidateQueries({ queryKey: NOTIFICATION_LIST_KEY });
+  }, [queryClient]);
+
+  const markRead = useMutation({
+    mutationFn: (id: string) => notificationsApi.markRead(id),
+    onSuccess: invalidate,
+  });
+
+  const markAllRead = useMutation({
+    mutationFn: () => notificationsApi.markAllRead(),
+    onSuccess: invalidate,
+  });
+
+  return { markRead, markAllRead };
+}
+
+/**
  * Marks one section read, and updates the badge immediately.
  *
  * Optimistic because the user has just navigated to the section: waiting for a

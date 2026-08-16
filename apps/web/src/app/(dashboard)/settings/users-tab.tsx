@@ -61,7 +61,15 @@ import {
   AlertDialogMedia,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { UserAvatar } from '@/components/shared/user-avatar';
+/*
+ * `formatDay` and `formatRelativeDay` used to be defined at the bottom of this
+ * file against the browser's own timezone. They are the shared, account-aware
+ * versions now — the directory said "Yesterday" based on the reader's clock
+ * while every other date on the screen came from `lib/utils`, so the two could
+ * disagree about which day it was.
+ */
+import { formatDay, formatRelativeDay } from '@/lib/utils';
 import {
   Field,
   SettingsNote,
@@ -617,31 +625,6 @@ function UserRowActions({
   );
 }
 
-// ── Dates ────────────────────────────────────────────────────────────────────
-
-function formatDay(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
-/**
- * Recent activity as an interval, older activity as a date.
- *
- * "3d ago" answers "is this account in use?" at a glance, which is the question
- * the column exists for; a date three weeks back answers it just as well
- * without the arithmetic.
- */
-function formatRelativeDay(iso: string): string {
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days < 1) return 'Today';
-  if (days === 1) return 'Yesterday';
-  if (days < 7) return `${days}d ago`;
-  return formatDay(iso);
-}
-
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 export function UsersTab({ currentUserId }: { currentUserId: string }) {
@@ -816,9 +799,12 @@ export function UsersTab({ currentUserId }: { currentUserId: string }) {
                     <TableRow key={user.id}>
                       <TableCell className="py-2.5">
                         <div className="flex items-center gap-3">
-                          <Avatar className="h-8 w-8 flex-shrink-0">
-                            <AvatarFallback>{user.name.charAt(0).toUpperCase()}</AvatarFallback>
-                          </Avatar>
+                          <UserAvatar
+                            name={user.name}
+                            color={user.avatarColor}
+                            src={user.avatar}
+                            className="h-8 w-8 flex-shrink-0"
+                          />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
                               <p className="truncate text-sm font-medium text-foreground">

@@ -26,7 +26,23 @@ export function NavBadge({ count, className }: { count: number; className?: stri
   return (
     <span
       className={cn(
-        'pointer-events-none flex h-4.5 min-w-4.5 select-none items-center justify-center',
+        /*
+         * `h-5 min-w-5`, and both halves matter.
+         *
+         * Equal height and minimum width are what make a single digit a circle
+         * rather than a pill: the box is 20px tall and cannot be narrower than
+         * 20px, so "3" sits in a round badge instead of one shrink-wrapped to
+         * the glyph. Two digits land at almost exactly 20px too (11px
+         * tabular-nums plus `px-1`), so "12" stays round; only "99+" grows into
+         * a lozenge, which is the right shape for it.
+         *
+         * These were `h-4.5 min-w-4.5`, which is Tailwind v4 syntax. This app is
+         * on v3, whose default spacing scale stops half-steps at 3.5 — so both
+         * classes compiled to nothing, the badge lost its height and its floor
+         * width, and collapsed to whatever `px-1` and the digit gave it. Nothing
+         * warns about an unknown utility; it simply is not in the stylesheet.
+         */
+        'pointer-events-none flex h-5 min-w-5 select-none items-center justify-center',
         'rounded-full px-1 text-[11px] font-medium leading-none tabular-nums',
         'bg-primary/10 text-primary',
         className,

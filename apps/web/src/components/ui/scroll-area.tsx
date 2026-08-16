@@ -6,10 +6,34 @@ import { cn } from '@/lib/utils';
 
 const ScrollArea = React.forwardRef<
   React.ElementRef<typeof ScrollAreaPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> & {
+    /**
+     * Classes for the scrolling viewport itself.
+     *
+     * This is the only place a `max-h-*` cap belongs. The viewport is `h-full`,
+     * and a percentage height against a root that has only a `max-height`
+     * resolves to `auto` — so the viewport grows to its content, nothing ever
+     * overflows it, and the root's `overflow-hidden` simply CLIPS the rest with
+     * no scrollbar and no wheel response. Capping the viewport instead gives it
+     * the definite bound it needs to scroll, while the root still shrinks to fit
+     * a short list. A container with a definite height (`h-64`, or `flex-1` in a
+     * fixed-height column) needs none of this and can cap the root as usual.
+     */
+    viewportClassName?: string;
+  }
+>(({ className, viewportClassName, children, ...props }, ref) => (
   <ScrollAreaPrimitive.Root ref={ref} className={cn('relative overflow-hidden', className)} {...props}>
-    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
+    {/*
+      `[&>div]:!block` overrides the `display: table` Radix sets inline on the
+      viewport's content wrapper. A table shrink-wraps to its widest child, so
+      anything unbounded inside — a long comma-separated list, a right-aligned
+      value in a two-column grid — widened the layout past the viewport instead
+      of truncating, and the overflow was clipped with no horizontal scrollbar
+      to reveal it. `min-width: 100%`, also inline, keeps the block full-width.
+    */}
+    <ScrollAreaPrimitive.Viewport
+      className={cn('h-full w-full rounded-[inherit] [&>div]:!block', viewportClassName)}
+    >
       {children}
     </ScrollAreaPrimitive.Viewport>
     <ScrollBar />
