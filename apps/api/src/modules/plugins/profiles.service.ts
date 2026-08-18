@@ -134,8 +134,13 @@ export class ProfilesService implements OnModuleInit {
 
   async findOne(profileId: string, userId: string) {
     const profile = await this.prisma.scanProfile.findUnique({ where: { id: profileId } });
-    if (!profile) throw new NotFoundException('Scan profile not found');
-    if (!profile.isSystem && profile.userId !== userId) throw new ForbiddenException();
+    // Collapsed into one generic 404, same as every other module's ownership
+    // check: a 403 here would confirm that some other user's profile id
+    // exists, which is exactly the existence leak the rest of the app avoids
+    // (compare ProjectsService.assertOwner, ScheduledScansService.assertOwned).
+    if (!profile || (!profile.isSystem && profile.userId !== userId)) {
+      throw new NotFoundException('Scan profile not found');
+    }
     return profile;
   }
 
@@ -153,9 +158,10 @@ export class ProfilesService implements OnModuleInit {
 
   async update(profileId: string, userId: string, dto: Partial<CreateProfileDto>) {
     const profile = await this.prisma.scanProfile.findUnique({ where: { id: profileId } });
-    if (!profile) throw new NotFoundException('Scan profile not found');
+    if (!profile || (!profile.isSystem && profile.userId !== userId)) {
+      throw new NotFoundException('Scan profile not found');
+    }
     if (profile.isSystem) throw new ForbiddenException('Cannot modify system profiles');
-    if (profile.userId !== userId) throw new ForbiddenException();
 
     this.assertChecksExist(dto.enabledPlugins);
 
@@ -166,9 +172,10 @@ export class ProfilesService implements OnModuleInit {
 
   async remove(profileId: string, userId: string) {
     const profile = await this.prisma.scanProfile.findUnique({ where: { id: profileId } });
-    if (!profile) throw new NotFoundException('Scan profile not found');
+    if (!profile || (!profile.isSystem && profile.userId !== userId)) {
+      throw new NotFoundException('Scan profile not found');
+    }
     if (profile.isSystem) throw new ForbiddenException('Cannot delete system profiles');
-    if (profile.userId !== userId) throw new ForbiddenException();
 
     await this.prisma.scanProfile.delete({ where: { id: profileId } });
     return { deleted: true };

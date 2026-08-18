@@ -1,11 +1,14 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { BullModule } from '@nestjs/bullmq';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import configuration from './config/configuration';
 import { validateEnv } from './config/env.validation';
 import { CryptoModule } from './common/crypto/crypto.module';
+import { ThrottlingModule } from './common/throttler/throttling.module';
+import { RedisThrottlerStorageService } from './common/throttler/redis-throttler-storage.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -63,23 +66,35 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
       }),
     }),
 
-    ThrottlerModule.forRoot([
-      {
-        name: 'short',
-        ttl: 1000,
-        limit: 20,
-      },
-      {
-        name: 'medium',
-        ttl: 10000,
-        limit: 100,
-      },
-      {
-        name: 'long',
-        ttl: 60000,
-        limit: 500,
-      },
-    ]),
+    /*
+     * This module was previously registered with `.forRoot(...)` and no
+     * `APP_GUARD` anywhere in the codebase — so it configured three named
+     * throttlers that no guard ever consulted, and every route, including
+     * `/auth/login` and `/auth/register`, had zero rate limiting despite the
+     * limits appearing to exist. `ThrottlerGuard` below is what actually
+     * applies them; the storage is Redis-backed (`RedisThrottlerStorageService`)
+     * rather than the library's default in-memory map, so the limit holds
+     * across multiple API instances behind a load balancer instead of each
+     * process counting independently.
+     *
+     * `/auth/login` and `/auth/register` tighten the `short` bucket further
+     * with `@Throttle()` (see AuthController) and layer a second, account-keyed
+     * guard on login specifically — see AccountRateLimitGuard for why IP-based
+     * throttling alone does not catch distributed credential stuffing.
+     */
+    ThrottlingModule,
+    ThrottlerModule.forRootAsync({
+      imports: [ThrottlingModule],
+      inject: [RedisThrottlerStorageService],
+      useFactory: (storage: RedisThrottlerStorageService) => ({
+        storage,
+        throttlers: [
+          { name: 'short', ttl: 1000, limit: 20 },
+          { name: 'medium', ttl: 10000, limit: 100 },
+          { name: 'long', ttl: 60000, limit: 500 },
+        ],
+      }),
+    }),
 
     CryptoModule,
     PrismaModule,
@@ -107,6 +122,7 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
     AuditModule,
     SystemModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule implements NestModule {
   /**

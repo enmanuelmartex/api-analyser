@@ -565,7 +565,7 @@ bun run --cwd apps/web test   # 23 tests
 bunx tsc --noEmit             # typecheck (por app)
 ```
 
-Documentación de la API en `http://localhost:4000/api/docs` (Swagger, solo fuera de producción).
+Documentación de la API en `http://localhost:4000/api/docs` (Swagger; el documento OpenAPI en `/api/docs-json`). Activa en cualquier `NODE_ENV` salvo que se ponga `SWAGGER_ENABLED=false`.
 
 **Advertencias operativas:**
 - Nunca ejecutar `bun run build:web` ni borrar `.next` con un `bun dev` corriendo — rompe el servidor en vivo.

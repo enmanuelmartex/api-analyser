@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, type OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { existsSync } from 'node:fs';
 import puppeteer from 'puppeteer-core';
@@ -20,11 +20,34 @@ const SEVERITY_ORDER: Record<string, number> = {
 };
 
 @Injectable()
-export class ReportGeneratorService {
+export class ReportGeneratorService implements OnModuleInit {
+  private readonly logger = new Logger(ReportGeneratorService.name);
+
   constructor(
     private prisma: PrismaService,
     private registry: PluginRegistryService,
   ) {}
+
+  /**
+   * Says at boot whether this host can print PDFs.
+   *
+   * A missing browser used to surface only when somebody clicked Download —
+   * three queue retries and a 503 later — with nothing in the startup output to
+   * suggest the install was incomplete. One line at boot makes it a
+   * configuration fact instead of a runtime surprise. It never throws: every
+   * other report format renders without a browser, and an install that only
+   * ever exports JSON or SARIF is perfectly valid.
+   */
+  onModuleInit(): void {
+    try {
+      this.logger.log(`PDF renderer: ${this.findBrowserExecutable()}`);
+    } catch {
+      this.logger.warn(
+        'No PDF renderer found — PDF reports will fail; every other format is unaffected. ' +
+          'Install Chromium or set CHROMIUM_EXECUTABLE_PATH.',
+      );
+    }
+  }
 
   /**
    * Loads the data a report renders.

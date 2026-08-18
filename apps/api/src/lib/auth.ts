@@ -4,6 +4,7 @@ import { verifyPassword } from 'better-auth/crypto';
 import { bearer } from 'better-auth/plugins';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { getAllowedOrigins } from '../config/cors.util';
 
 // Separate PrismaClient for Better Auth (lazy connection, same DB as NestJS)
 const prisma = new PrismaClient();
@@ -18,7 +19,10 @@ export const auth = betterAuth({
     process.env.BETTER_AUTH_SECRET ||
     'api-analyser-dev-secret-change-in-production-min-32-chars!!',
 
-  trustedOrigins: [process.env.FRONTEND_URL || 'http://localhost:3000'],
+  // Same allowlist as the rest of the API (see cors.util.ts) — one variable,
+  // one list, rather than a second independent single-origin default that
+  // could silently drift from the NestJS CORS configuration.
+  trustedOrigins: getAllowedOrigins(),
 
   database: prismaAdapter(prisma as any, {
     provider: 'postgresql',

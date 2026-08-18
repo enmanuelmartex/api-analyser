@@ -3,6 +3,26 @@ export default () => ({
   nodeEnv: process.env.NODE_ENV || 'development',
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
 
+  /**
+   * Interactive API documentation: Swagger UI at `/api/docs`, the OpenAPI
+   * document at `/api/docs-json` (and `/api/docs-yaml`).
+   *
+   * On unless an operator turns it off, rather than keyed to NODE_ENV. The
+   * plain `docker compose up` path builds the production stage, so gating the
+   * docs on `NODE_ENV !== 'production'` 404'd the URL the README and the boot
+   * banner both advertise — for everyone who followed the quick start, which is
+   * everyone who clones this. The document itself describes the same routes the
+   * shipped web client already calls and contains no secret; every domain route
+   * still requires a bearer token, and the UI's "Authorize" button does not
+   * bypass that.
+   *
+   * Set SWAGGER_ENABLED=false on an install that would rather not publish its
+   * surface — an internet-facing deployment, typically.
+   */
+  docs: {
+    enabled: (process.env.SWAGGER_ENABLED ?? 'true').toLowerCase() !== 'false',
+  },
+
   database: {
     url: process.env.DATABASE_URL,
   },

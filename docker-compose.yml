@@ -72,6 +72,12 @@ services:
       # layered, not from an unrelated variable. docker-compose.dev.yml sets
       # this to "development" explicitly.
       NODE_ENV: production
+      # Swagger UI (/api/docs) and the OpenAPI document (/api/docs-json).
+      # Deliberately NOT tied to the NODE_ENV above: this file is also the
+      # clone-it-and-run path, and the docs are part of what a new install is
+      # meant to look at. Set SWAGGER_ENABLED=false in .env to switch them off
+      # for a deployment that is reachable from outside.
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
       # Fixed, not ${API_PORT}. The published mapping below is `API_PORT:4000`,
       # so the container must always listen on 4000 — feeding API_PORT in here
       # made the process bind the *host* port number inside the container, and
@@ -113,6 +119,28 @@ services:
       NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-true}
       NOTIFICATIONS_RETENTION_DAYS: ${NOTIFICATIONS_RETENTION_DAYS:-90}
       REPORTS_DIR: /app/reports
+      # PDF rendering. The image installs Chromium and pins this same path; it
+      # is repeated here only so an operator can point at a different browser
+      # from .env without rebuilding.
+      CHROMIUM_EXECUTABLE_PATH: ${CHROMIUM_EXECUTABLE_PATH:-/usr/bin/chromium-browser}
+      # True by default HERE — and only here. Docker's default seccomp profile
+      # denies the user-namespace clone Chromium's zygote needs, so a sandboxed
+      # launch dies with "Failed to move to new namespace … Operation not
+      # permitted" and every PDF fails. Nothing in .env.example turns this on,
+      # because a from-source run on a desktop OS has a working sandbox and
+      # should keep it.
+      #
+      # What is given up: the renderer runs unsandboxed *inside* this container,
+      # as the unprivileged `nestjs` user, with no added capabilities and the
+      # default seccomp filter still applied — the container is the boundary. It
+      # prints HTML this application generated itself, with every value from
+      # scan data escaped by `esc()` in report-template.ts, so the renderer is
+      # not parsing attacker-controlled markup.
+      #
+      # To keep Chromium's own sandbox instead, run the service with Chrome's
+      # seccomp profile (`security_opt: [seccomp=./docker/chrome-seccomp.json]`)
+      # and set this to false.
+      CHROMIUM_DISABLE_SANDBOX: ${CHROMIUM_DISABLE_SANDBOX:-true}
       # Outbound email, via Resend. Optional: with no key the API boots, logs
       # that email is disabled and records every send as SKIPPED — in-app
       # notifications are unaffected.

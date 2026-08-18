@@ -1,11 +1,13 @@
 import {
   Controller, Get, Put, Delete, Post, Body, Param, UseGuards, HttpCode,
 } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { AiService } from './ai.service';
-import { AiConfigService, SaveProviderConfigDto, TestConnectionDto } from './ai-config.service';
+import { AiConfigService } from './ai-config.service';
+import type { SaveProviderConfigDto, TestConnectionDto } from './ai-config.service';
 import { AiUsageService } from './guidance/ai-usage.service';
 
 /**
@@ -15,7 +17,15 @@ import { AiUsageService } from './guidance/ai-usage.service';
  *
  * `GET /ai/status` stays available to any authenticated user: the scan UI needs
  * to know whether AI enrichment is available, and it exposes no credentials.
+ *
+ * `@ApiTags`/`@ApiBearerAuth` were previously absent, so the generated OpenAPI
+ * document carried no security requirement for this controller at all — a
+ * scanner reading the spec had no way to know these routes are guarded, since
+ * the document did not say so even though `JwtAuthGuard`/`RolesGuard` do
+ * enforce it at runtime. The spec and the runtime now agree.
  */
+@ApiTags('AI')
+@ApiBearerAuth('JWT')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('ai')
 export class AiController {
@@ -53,6 +63,7 @@ export class AiController {
 
   /** Returns all 5 providers with their current config + status. */
   @Roles('ADMIN')
+  @ApiOperation({ summary: 'Get AI provider configuration (admin-only)' })
   @Get('config')
   async getAllConfigs() {
     return this.aiConfigService.getAllConfigs();

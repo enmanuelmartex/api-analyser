@@ -93,7 +93,24 @@ export default function ProjectsPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => projectsApi.delete(id),
     onSuccess: () => {
+      /*
+       * The backend now hard-deletes a project's scans, findings, reports and
+       * scheduled scans along with it (previously a soft delete, so this
+       * cache was never stale in the same way). Invalidating only `projects`
+       * left every other screen — Assessments, Issues, Reports, the
+       * dashboard, Scheduled Scans — showing rows for a project that no
+       * longer exists in the database until a full page reload happened to
+       * refetch them. Every query domain that can reference a project (or an
+       * assessment, which just vanished with it) needs invalidating here.
+       */
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      void queryClient.invalidateQueries({ queryKey: ['assessments'] });
+      void queryClient.invalidateQueries({ queryKey: ['assessment-score'] });
+      void queryClient.invalidateQueries({ queryKey: ['issues'] });
+      void queryClient.invalidateQueries({ queryKey: ['reports'] });
+      void queryClient.invalidateQueries({ queryKey: ['reports-stats'] });
+      void queryClient.invalidateQueries({ queryKey: ['scheduled-scans'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('Proyecto eliminado');
     },
     onError: () => toast.error('No se pudo eliminar el proyecto'),

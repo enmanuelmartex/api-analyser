@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Patch, Body, UseGuards, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuditAction } from '@prisma/client';
 import { AuthService, profileChanges } from './auth.service';
 import { AuditService } from '../audit/audit.service';
@@ -10,6 +11,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { AccountRateLimitGuard } from '../../common/throttler/account-rate-limit.guard';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -19,14 +21,43 @@ export class AuthController {
     private audit: AuditService,
   ) {}
 
+  /*
+   * Public by design — registration necessarily happens before an account, and
+   * therefore a session, exists. What has to guard this route is not an
+   * authentication requirement (there is nothing to authenticate against yet)
+   * but anti-automation: the `short` throttler bucket is tightened here from
+   * its app-wide 20-per-second default to 3 per 5 minutes per IP, catching
+   * bulk account creation without touching legitimate signups.
+   */
   @Public()
+  @Throttle({ short: { limit: 3, ttl: 300_000 } })
   @Post('register')
   @ApiOperation({ summary: 'Register a new user account' })
   async register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
   }
 
+  /*
+   * Public by design — a login endpoint that required a prior session could
+   * never be used to obtain one. Do not add an authentication guard here; the
+   * defence against brute force and credential stuffing is the pair of
+   * throttles below instead:
+   *
+   *   - `@Throttle` tightens the per-IP `short` bucket to 5/minute, well below
+   *     its 20/second app-wide default.
+   *   - `AccountRateLimitGuard` adds a second, independent counter keyed by
+   *     the submitted email rather than the caller's IP, so credential
+   *     stuffing spread across many addresses against one account is caught
+   *     even though no single IP crosses the limit above.
+   *
+   * `AuthService.login` is also responsible for not distinguishing "no such
+   * account" from "wrong password" in its response, which is the other half
+   * of not helping an attacker — rate limiting slows the guess, a generic
+   * message stops it from confirming which accounts exist.
+   */
   @Public()
+  @UseGuards(AccountRateLimitGuard)
+  @Throttle({ short: { limit: 5, ttl: 60_000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login with email and password' })

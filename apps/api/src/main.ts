@@ -12,6 +12,8 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { appBrand } from './brand/brand';
+import { getAllowedOrigins, isOriginAllowed } from './config/cors.util';
+import { noStoreForApi } from './common/middleware/no-store.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -25,15 +27,28 @@ async function bootstrap() {
   // ── Better Auth ──────────────────────────────────────────────────────────────
   // Mounted FIRST so it intercepts /api/auth/* before NestJS routing.
   const betterAuthHandler = toNodeHandler(auth);
-  const authCorsOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const allowedOrigins = getAllowedOrigins();
   app.use((req: any, res: any, next: any) => {
     if (!req.originalUrl?.startsWith('/api/auth')) return next();
 
-    // Handle CORS for all /api/auth/* routes (Better Auth doesn't respond to OPTIONS)
-    res.setHeader('Access-Control-Allow-Origin', authCorsOrigin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Cookie,Set-Cookie');
+    // Handle CORS for all /api/auth/* routes (Better Auth doesn't respond to OPTIONS).
+    //
+    // The origin is only ever echoed back when it is on the allowlist — never
+    // reflected unconditionally. `Access-Control-Allow-Origin` cannot carry more
+    // than one value, so an allowlisted origin is echoed rather than a static
+    // default returned, which is what lets more than one trusted frontend
+    // (see CORS_ALLOWED_ORIGINS) share this API with credentials enabled. A
+    // request from an origin not on the list gets no CORS headers at all: the
+    // browser enforces the block, and the request never reaches this API's own
+    // auth/authorization checks regardless.
+    const requestOrigin = req.headers.origin as string | undefined;
+    if (isOriginAllowed(requestOrigin, allowedOrigins)) {
+      res.setHeader('Access-Control-Allow-Origin', requestOrigin!);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Cookie,Set-Cookie');
+    }
 
     if (req.method === 'OPTIONS') return res.sendStatus(204);
 
@@ -55,7 +70,6 @@ async function bootstrap() {
   // ── Security headers ─────────────────────────────────────────────────────────
   const configService = app.get(ConfigService);
   const port        = configService.get<number>('PORT', 4000);
-  const frontendUrl = configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
   const nodeEnv     = configService.get<string>('NODE_ENV', 'development');
 
   app.use(
@@ -66,12 +80,41 @@ async function bootstrap() {
   );
 
   // ── CORS for NestJS routes ────────────────────────────────────────────────────
+  //
+  // `origin` is a validator, not a string or `*`, specifically so an arbitrary
+  // site cannot obtain CORS access by sending any `Origin` header it likes: the
+  // `cors` package calls back with `true` only for an origin on the allowlist
+  // (`CORS_ALLOWED_ORIGINS`, falling back to `FRONTEND_URL`) and `false`
+  // otherwise, which omits `Access-Control-Allow-Origin` from the response
+  // rather than echoing the request's origin back unconditionally.
+  //
+  // `!origin` (no Origin header at all) is allowed through: that is a
+  // server-to-server call, a health check, or curl/Postman, none of which are
+  // subject to the browser same-origin policy CORS exists to relax in the
+  // first place, and none of which can be a cross-site browser attack.
+  //
+  // Every method here is genuinely used somewhere in this API (DELETE by
+  // project/report/AI-provider-config removal, PATCH/PUT by the various
+  // updates) — CORS is not the place to restrict a method a route doesn't
+  // implement; a route that doesn't implement it already 404s regardless of
+  // what a preflight for a *different* route advertises. Authentication and
+  // ownership checks, not CORS, are what actually gate a destructive request.
   app.enableCors({
-    origin: frontendUrl,
+    origin: (requestOrigin, callback) => {
+      if (!requestOrigin || isOriginAllowed(requestOrigin, allowedOrigins)) {
+        return callback(null, true);
+      }
+      callback(null, false);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
   });
+
+  // ── Cache-Control for the API surface ────────────────────────────────────────
+  // Every /api/v1 response, success or error (401/403/429 included) — see
+  // no-store.middleware.ts for why this has to be middleware, not an interceptor.
+  app.use(noStoreForApi());
 
   // ── Global prefix ─────────────────────────────────────────────────────────────
   app.setGlobalPrefix('api/v1');
@@ -97,8 +140,11 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter(app.get(EventEmitter2)));
   app.useGlobalInterceptors(new LoggingInterceptor());
 
-  // ── Swagger (non-production) ──────────────────────────────────────────────────
-  if (nodeEnv !== 'production') {
+  // ── Swagger ───────────────────────────────────────────────────────────────────
+  // Gated by SWAGGER_ENABLED, not by NODE_ENV — see `docs` in configuration.ts.
+  const docsEnabled = configService.get<boolean>('docs.enabled');
+
+  if (docsEnabled) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle(`${appBrand.name} API`)
       .setDescription(
@@ -115,15 +161,25 @@ async function bootstrap() {
       .addTag('Findings', 'Vulnerability findings')
       .addTag('Reports', 'Report generation and download')
       .addTag('Users', 'User management')
+      .addTag('AI', 'AI provider configuration and usage — admin-only except GET /ai/status')
       .build();
 
     const document = SwaggerModule.createDocument(app, swaggerConfig);
+    // Both document URLs are named explicitly. `<path>-json` is only a default
+    // of the current @nestjs/swagger, and these two addresses are what the
+    // README, the banner below and any generated client point at.
     SwaggerModule.setup('api/docs', app, document, {
+      jsonDocumentUrl: 'api/docs-json',
+      yamlDocumentUrl: 'api/docs-yaml',
       swaggerOptions: { persistAuthorization: true, displayRequestDuration: true },
     });
   }
 
   await app.listen(port);
+
+  const docsLine = docsEnabled
+    ? `Docs: http://localhost:${port}/api/docs`
+    : 'Docs: off (SWAGGER_ENABLED=false)';
 
   console.log(`
   ╔══════════════════════════════════════════════════════╗
@@ -131,10 +187,10 @@ async function bootstrap() {
   ║   ${`${appBrand.name} — ${appBrand.tagline}`.padEnd(51)}║
   ║   Version 0.2.0                                      ║
   ║                                                      ║
-  ║   API:  http://localhost:${port}/api/v1                ║
-  ║   Auth: http://localhost:${port}/api/auth              ║
-  ║   Docs: http://localhost:${port}/api/docs              ║
-  ║   Env:  ${nodeEnv.padEnd(42)}║
+  ║   ${`API:  http://localhost:${port}/api/v1`.padEnd(51)}║
+  ║   ${`Auth: http://localhost:${port}/api/auth`.padEnd(51)}║
+  ║   ${docsLine.padEnd(51)}║
+  ║   ${`Env:  ${nodeEnv}`.padEnd(51)}║
   ║                                                      ║
   ╚══════════════════════════════════════════════════════╝
   `);

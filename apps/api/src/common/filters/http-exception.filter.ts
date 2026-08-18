@@ -7,7 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { EventEmitter2 } from '@nestjs/event-emitter';
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { redactUrl } from '../utils/redact.util';
 
 /**
@@ -79,6 +79,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       method: request.method,
       error: typeof message === 'string' ? message : (message as any).message || message,
     };
+
+    if (status === HttpStatus.TOO_MANY_REQUESTS) this.normalizeRetryAfterHeader(response);
 
     if (status >= 500) {
       this.logger.error(
@@ -167,6 +169,28 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     return { folded };
+  }
+
+  /**
+   * Ensures a 429 response carries a plain `Retry-After` header.
+   *
+   * `@nestjs/throttler`'s `ThrottlerGuard` names it `Retry-After` only for a
+   * throttler literally named `'default'`; every other named throttler (this
+   * API configures `short`/`medium`/`long`, and the login/register routes
+   * layer stricter `short` overrides on top) gets a suffixed header instead —
+   * `Retry-After-short`, in that case — which is correct per-throttler
+   * bookkeeping but not a header any HTTP client, browser, or the security
+   * scanner's own check for `Retry-After` on a 429 will read. This copies
+   * whichever suffixed value is present onto the standard header name without
+   * changing what the guard itself sends, so both the specific and the
+   * generic name are available on the response.
+   */
+  private normalizeRetryAfterHeader(response: Response): void {
+    if (response.getHeader('Retry-After')) return;
+    const suffixed = response
+      .getHeaderNames()
+      .find((name) => /^retry-after-/i.test(name));
+    if (suffixed) response.setHeader('Retry-After', response.getHeader(suffixed) as string | number);
   }
 }
 

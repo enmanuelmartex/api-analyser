@@ -6,6 +6,9 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { AuditAction } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProjectDto, SaveProjectDraftDto, UpdateProjectDto } from './dto/create-project.dto';
 import SwaggerParser = require('swagger-parser');
@@ -19,6 +22,9 @@ import {
   SAFE_PARSER_OPTIONS,
 } from '../../common/utils/openapi-safety.util';
 import { SettingsService } from '../settings/settings.service';
+import { AuditService } from '../audit/audit.service';
+import { ReportStorageService } from '../reports/report-storage.service';
+import { REPORTS_QUEUE } from '../reports/auto-report.service';
 
 @Injectable()
 export class ProjectsService {
@@ -29,6 +35,10 @@ export class ProjectsService {
     private crypto: CryptoService,
     private events: EventEmitter2,
     private settings: SettingsService,
+    private audit: AuditService,
+    private reportStorage: ReportStorageService,
+    @InjectQueue('scanner') private scannerQueue: Queue,
+    @InjectQueue(REPORTS_QUEUE) private reportsQueue: Queue,
   ) {}
 
   /**
@@ -202,43 +212,124 @@ export class ProjectsService {
   }
 
   /**
-   * Deletes a project.
+   * Permanently deletes a project and everything that exists only because of
+   * it — API spec, endpoints, auth config, assessments, security issues,
+   * occurrences, triage history, reports, scheduled scans.
    *
-   * A SOFT delete — the row stays and `isActive` goes false — so the scans,
-   * findings and reports it produced remain readable.
+   * Ownership is re-verified before anything else runs (`assertOwner` returns
+   * the same generic "not found or access denied" for a missing project and
+   * for someone else's project, so a caller cannot use this endpoint to probe
+   * which project ids exist).
    *
-   * Its scheduled scans are paused in the same breath. Without that, deleting a
-   * project would leave its automation running: the schedule would keep sending
-   * traffic at an API the operator believes they removed, and the scans would
-   * appear under a project that is no longer listed anywhere. The scheduler
-   * independently refuses to dispatch for an inactive project (see
-   * `SchedulerService.tick`), so this is the honest state rather than the
-   * mechanism — but a paused schedule is what an operator would expect to find
-   * if the project were ever restored.
+   * The actual row removal is a single `project.delete()`. Every dependent
+   * table cascades from `Project` through real Postgres foreign keys
+   * (`onDelete: Cascade` in schema.prisma) — Assessment, SecurityIssue,
+   * ApiSpec and everything under them — so the database does the cascading
+   * work atomically; this method does not walk the tree itself. Two things a
+   * foreign key cannot reach are cleaned up explicitly around that call:
+   *
+   *   1. In-flight BullMQ jobs (a running scan, a queued PDF render) reference
+   *      an assessment/report id that is about to disappear. Left alone, the
+   *      worker would either error against rows it can no longer find or,
+   *      worse, silently write a result nobody can see. Removed best-effort —
+   *      a job already claimed by a worker cannot be pulled out from under it
+   *      (see the same trade-off in `AssessmentsService.cancel`), and that is
+   *      an acceptable race for a delete: the processor tolerates a missing
+   *      assessment.
+   *   2. Report PDFs live on disk (`ReportStorageService`), not in Postgres.
+   *      The DB cascade removes the `Report` rows; the bytes are only removed
+   *      by calling the storage service, which this method does after the
+   *      cascade succeeds, using file names read before the rows disappeared.
+   *
+   * `AuditLog`, `Notification` and `EmailDelivery` reference the project by a
+   * plain string column rather than a foreign key specifically so a deletion
+   * like this one cannot cascade the evidence of itself away — see the model
+   * comments on those tables. This method's own audit entry is written after
+   * the delete succeeds, once it is known what was actually removed.
+   *
+   * This used to be a soft delete (`isActive = false`) so a project's scan
+   * history stayed browsable after "deleting" it. That is no longer the
+   * behaviour: this endpoint now destroys the data. Callers that want the
+   * project hidden without destroying its history should stop calling
+   * `DELETE` for that purpose.
    */
   async remove(id: string, userId: string) {
-    await this.assertOwner(id, userId);
-    const project = await this.prisma.project.update({
-      where: { id },
-      data: { isActive: false },
+    const project = await this.assertOwner(id, userId);
+
+    const [jobBearingAssessments, reports, securityIssueCount] = await Promise.all([
+      this.prisma.assessment.findMany({
+        where: { projectId: id, jobId: { not: null } },
+        select: { id: true, jobId: true },
+      }),
+      this.prisma.report.findMany({
+        where: { assessment: { projectId: id } },
+        select: { id: true, filePath: true },
+      }),
+      this.prisma.securityIssue.count({ where: { projectId: id } }),
+    ]);
+
+    await Promise.all([
+      ...jobBearingAssessments.map(({ id: assessmentId, jobId }) =>
+        this.removeQueuedJob(this.scannerQueue, jobId!, `scan ${assessmentId}`),
+      ),
+      ...reports.map(({ id: reportId }) =>
+        this.removeQueuedJob(this.reportsQueue, `report-${reportId}`, `report ${reportId}`),
+      ),
+    ]);
+
+    // One statement; Postgres cascades every dependent row via the foreign
+    // keys declared in schema.prisma. If this throws, nothing above has
+    // mutated any row this method is responsible for, so there is nothing to
+    // roll back — the queue removals were already-orphaned jobs regardless of
+    // outcome.
+    await this.prisma.project.delete({ where: { id } });
+
+    const filePaths = reports.map((r) => r.filePath).filter((path): path is string => Boolean(path));
+    await Promise.all(filePaths.map((path) => this.reportStorage.delete(path)));
+
+    this.audit.log({
+      userId,
+      action: AuditAction.DELETE,
+      resource: 'project',
+      resourceId: id,
+      metadata: {
+        name: project.name,
+        assessmentsWithJobsCancelled: jobBearingAssessments.length,
+        reportsDeleted: reports.length,
+        reportFilesDeleted: filePaths.length,
+        securityIssuesDeleted: securityIssueCount,
+      },
     });
 
-    const paused = await this.prisma.scheduledScan.updateMany({
-      where: { projectId: id, status: 'ACTIVE' },
-      data: { status: 'PAUSED', nextRunAt: null },
+    this.announce('deleted', 'DELETE', project, userId, `Project "${project.name}" permanently deleted`, {
+      reportsDeleted: reports.length,
+      securityIssuesDeleted: securityIssueCount,
     });
 
-    if (paused.count > 0) {
-      this.logger.log(
-        `Paused ${paused.count} scheduled scan(s) belonging to deleted project ${id}`,
-      );
+    return { id, name: project.name };
+  }
+
+  /**
+   * Best-effort BullMQ job removal for a job about to be orphaned by a hard
+   * delete. Mirrors `AssessmentsService.cancel`: a job a worker already holds
+   * a lock on cannot be pulled out, so it is discarded (no retries) instead —
+   * the worker itself tolerates the rows it depended on disappearing under it.
+   */
+  private async removeQueuedJob(queue: Queue, jobId: string, description: string) {
+    try {
+      const job = await queue.getJob(jobId);
+      if (!job) return;
+      try {
+        await job.remove();
+      } catch (err) {
+        this.logger.log(
+          `${description} job is in flight during project deletion; discarding instead of removing (${(err as Error).message})`,
+        );
+        await job.discard();
+      }
+    } catch (err) {
+      this.logger.warn(`Could not clean up queued job for ${description}: ${(err as Error).message}`);
     }
-
-    this.announce('deleted', 'DELETE', project, userId, `Project "${project.name}" deleted`, {
-      scheduledScansPaused: paused.count,
-    });
-
-    return project;
   }
 
   async importOpenApiFromUrl(projectId: string, userId: string, url: string) {

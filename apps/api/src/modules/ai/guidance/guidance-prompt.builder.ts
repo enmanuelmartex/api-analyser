@@ -10,7 +10,7 @@ import type { SecurityPlaybook } from './security-knowledge.registry';
  *
  * Bump the version whenever the wording or the requested shape changes.
  */
-export const GUIDANCE_PROMPT_VERSION = 'guidance-prompt-v3';
+export const GUIDANCE_PROMPT_VERSION = 'guidance-prompt-v4';
 
 export interface GuidancePromptInput {
   title: string;
@@ -42,6 +42,24 @@ const SYSTEM_PROMPT = [
   '   are not listed there.',
   '6. If the finding could plausibly be a false positive, say so honestly in',
   '   falsePositiveConsiderations. An honest caveat is more useful than false confidence.',
+  '7. A login, sign-in, token-exchange, password-reset-request or registration operation is',
+  '   PUBLIC BY DESIGN — that is what it is for. Never recommend requiring the caller to already',
+  '   be authenticated, hold a session, or be otherwise "logged in" before using it; that would',
+  '   make the operation impossible to use for its own purpose. If the finding is about weak',
+  '   protection on such an operation, the primary remediation is anti-automation and anti-abuse',
+  '   controls specific to that operation, prioritized in this order: rate limiting / throttling',
+  '   scoped to both the caller\'s IP and the account being targeted, monitoring and alerting on',
+  '   abnormal attempt volume, a step-up challenge (CAPTCHA, delay, MFA) triggered by suspicious',
+  '   behavior rather than every request, protection against user enumeration (a uniform response',
+  '   regardless of whether the account exists), and multi-factor or step-up authentication for the',
+  '   account itself. Do not propose an authentication requirement on the operation as a fix.',
+  '8. Idempotency keys prevent a retried request from being applied twice — they solve duplicate',
+  '   side effects (a payment charged twice, an order placed twice), not unauthorized access.',
+  '   Never recommend an idempotency key as a defense against brute force, credential stuffing,',
+  '   scraping, or any other volumetric abuse; that is what rule 7\'s controls are for. An',
+  '   idempotency key is only ever appropriate remediation for a finding about a repeatable',
+  '   side-effecting action producing duplicate results, never for a missing anti-automation or',
+  '   authentication control.',
 ].join('\n');
 
 export function buildGuidanceSystemPrompt(): string {

@@ -3,6 +3,7 @@ import {
   classifyBusinessFlow,
   flowKindLabel,
   isHighImpactFlow,
+  isPublicByDesignAccountFlow,
 } from './business-flow-classifier';
 
 /**
@@ -91,6 +92,50 @@ describe('classifyBusinessFlow — refusing to guess', () => {
 
   it('returns null for an endpoint whose naming says nothing about a flow', () => {
     expect(classifyBusinessFlow(endpoint('/v1/widgets'))).toBeNull();
+  });
+
+  it('does not let a generic word in the summary override a login path', () => {
+    // The regression this guards: /auth/login documented as "Login with email
+    // and password" used to classify as MESSAGING purely because "email" is
+    // in that vocabulary — a login endpoint reported as a messaging flow with
+    // no anti-automation control. The path already says this is a login; the
+    // summary's incidental "email" must not get a vote.
+    expect(
+      classifyBusinessFlow(endpoint('/auth/login', 'POST', { summary: 'Login with email and password' })),
+    ).toBeNull();
+  });
+
+  it('recognises login/signin/logout/oauth spellings, hyphenated or not', () => {
+    expect(classifyBusinessFlow(endpoint('/auth/signin'))).toBeNull();
+    expect(classifyBusinessFlow(endpoint('/auth/sign-in'))).toBeNull();
+    expect(classifyBusinessFlow(endpoint('/auth/logout'))).toBeNull();
+    expect(classifyBusinessFlow(endpoint('/oauth/authenticate'))).toBeNull();
+  });
+
+  it('still classifies registration from the path even when the summary mentions messaging', () => {
+    // Register legitimately sends a welcome email, so its own summary often
+    // contains the word — that must not reclassify it as MESSAGING either,
+    // for the same reason as the login case above.
+    const match = classifyBusinessFlow(
+      endpoint('/auth/register', 'POST', { summary: 'Create an account and send a welcome email' }),
+    )!;
+    expect(match.kind).toBe('ACCOUNT');
+    expect(match.matchedIn).toBe('path');
+  });
+});
+
+describe('isPublicByDesignAccountFlow', () => {
+  it('is true for account creation, which cannot require a session that does not exist yet', () => {
+    expect(isPublicByDesignAccountFlow(classifyBusinessFlow(endpoint('/auth/register'))!)).toBe(true);
+    expect(isPublicByDesignAccountFlow(classifyBusinessFlow(endpoint('/auth/signup'))!)).toBe(true);
+  });
+
+  it('is false for other ACCOUNT terms that may legitimately require a session', () => {
+    // "/account/password" reads as a signed-in "change my password" action.
+    // Accepting it unauthenticated would be an account-takeover bug, so this
+    // must keep being checked rather than being swept into the same allowance
+    // as registration.
+    expect(isPublicByDesignAccountFlow(classifyBusinessFlow(endpoint('/account/password'))!)).toBe(false);
   });
 });
 

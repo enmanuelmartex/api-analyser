@@ -70,7 +70,11 @@ export class ReportsService {
   async findAll(userId: string, options: { assessmentId?: string; includeHistory?: boolean } = {}) {
     const reports = await this.prisma.report.findMany({
       where: {
-        assessment: { project: { userId } },
+        // `isActive: true` on the project, same reasoning as
+        // AssessmentsService.findAll — this was the one list query in this
+        // file missing it, so a soft-deleted project's reports stayed
+        // visible in the global Reports list.
+        assessment: { project: { userId, isActive: true } },
         ...(options.assessmentId ? { assessmentId: options.assessmentId } : {}),
       },
       include: {

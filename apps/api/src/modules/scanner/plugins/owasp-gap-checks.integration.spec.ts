@@ -203,6 +203,49 @@ describe('a target with the controls in place', () => {
   });
 });
 
+/**
+ * A registration endpoint with no throttle in front of it — realistic, since
+ * an account-creation form is public by construction. This is the case
+ * `isPublicByDesignAccountFlow` exists for: the missing anti-automation
+ * control is a real, reportable gap, but "accepts unauthenticated requests"
+ * is not a finding here, because a caller registering an account cannot
+ * possibly hold a session for it yet.
+ */
+function registrationTarget(): Server {
+  return createServer((req, res) => {
+    const path = (req.url ?? '').split('?')[0];
+    if (path === '/v1/auth/register' && req.method === 'POST') {
+      return json(res, 201, { id: 'new-user' });
+    }
+    return json(res, 404, { error: 'Not Found' });
+  });
+}
+
+describe('a public-by-design registration flow with no anti-automation control', () => {
+  let server: Server;
+  let url: string;
+
+  beforeAll(async () => {
+    server = registrationTarget();
+    url = await listen(server);
+  });
+
+  afterAll(() => close(server));
+
+  it('reports the missing throttle but not "accepts unauthenticated requests"', async () => {
+    const context: ScanContext = {
+      ...contextFor(url),
+      endpoints: [endpoint('/v1/auth/register', 'POST')],
+    };
+
+    const result = await new BusinessFlowsPlugin().run(context, {});
+    const rules = result.findings.map((f) => f.ruleId).sort();
+
+    expect(rules).toEqual(['business-flow.no-anti-automation']);
+    expect(rules).not.toContain('business-flow.unauthenticated-access');
+  });
+});
+
 describe('a host that answers everything the same way', () => {
   /*
    * The wrong-base-URL case, and the reason every one of these checks takes a

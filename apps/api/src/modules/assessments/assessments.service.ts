@@ -66,7 +66,16 @@ export class AssessmentsService {
   async findAll(userId: string, projectId?: string) {
     const assessments = await this.prisma.assessment.findMany({
       where: {
-        project: { userId },
+        // `isActive: true` here matches every other project-scoped query in
+        // this file (dashboard, comparison candidates...) — this one was the
+        // odd one out, so a project hidden by the old soft-delete kept its
+        // scans visible in the global Assessments list even though the
+        // project itself no longer appeared anywhere. Hard-deleted projects
+        // (current behavior) don't need this — their assessments are gone
+        // from the table entirely — but it still matters for any project
+        // soft-deleted before that change, and for defense in depth if a
+        // soft delete is ever reintroduced for some other purpose.
+        project: { userId, isActive: true },
         ...(projectId ? { projectId } : {}),
       },
       include: {

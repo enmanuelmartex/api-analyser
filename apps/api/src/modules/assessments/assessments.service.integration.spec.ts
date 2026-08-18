@@ -210,6 +210,22 @@ describe('project isolation', () => {
     const forB = await service.findAll(USER_B);
     expect(forB.map((r) => r.id)).toEqual(['b-in-B']);
   });
+
+  it('excludes scans belonging to a deactivated project from the global list', async () => {
+    // `isActive: false` is what a project looked like under the old soft
+    // delete, and any project deactivated before the switch to a hard delete
+    // (see ProjectsService.remove) still has this shape in the database. This
+    // pins the fix: findAll used to filter only by `project: { userId }`,
+    // missing `isActive`, so a project a user believed was deleted kept its
+    // scans visible in the Assessments screen indefinitely.
+    await createUser(USER_A);
+    await createProject(PROJECT_A, USER_A);
+    await createAssessment('a-active', PROJECT_A, new Date('2026-01-01'));
+    await prisma.project.update({ where: { id: PROJECT_A }, data: { isActive: false } });
+
+    expect(await service.findAll(USER_A)).toEqual([]);
+    expect(await service.findAll(USER_A, PROJECT_A)).toEqual([]);
+  });
 });
 
 describe('findByProjectPaginated', () => {

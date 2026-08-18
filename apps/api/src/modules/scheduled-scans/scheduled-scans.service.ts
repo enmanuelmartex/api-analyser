@@ -58,7 +58,10 @@ export class ScheduledScansService {
     const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Math.floor(query.pageSize ?? DEFAULT_PAGE_SIZE)));
 
     const where: Prisma.ScheduledScanWhereInput = {
-      project: { userId },
+      // isActive: true — same reasoning as AssessmentsService.findAll: a
+      // project soft-deleted before hard delete became the behavior would
+      // otherwise keep its schedules listed here.
+      project: { userId, isActive: true },
       ...(query.projectId ? { projectId: query.projectId } : {}),
       ...(query.status?.length ? { status: { in: query.status } } : {}),
       ...(query.frequency?.length ? { frequency: { in: query.frequency } } : {}),

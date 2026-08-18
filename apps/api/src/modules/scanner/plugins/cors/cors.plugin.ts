@@ -177,10 +177,11 @@ app.enableCors({
     // Test OPTIONS preflight
     tested++;
     try {
+      const evilOrigin = 'https://evil.com';
       const resp = await axios.options(url, {
         headers: {
           ...authHeaders,
-          'Origin': 'https://evil.com',
+          'Origin': evilOrigin,
           'Access-Control-Request-Method': 'DELETE',
           'Access-Control-Request-Headers': 'Authorization',
         },
@@ -188,27 +189,108 @@ app.enableCors({
         validateStatus: () => true,
       });
 
-      const allowedMethods = resp.headers['access-control-allow-methods'];
-      if (allowedMethods?.includes('DELETE') || allowedMethods?.includes('*')) {
+      const allowedMethods = resp.headers['access-control-allow-methods'] ?? '';
+      const advertisesDangerousMethod =
+        /(^|,)\s*(delete|put|patch)\s*($|,)/i.test(allowedMethods) || allowedMethods.trim() === '*';
+
+      if (advertisesDangerousMethod) {
+        /*
+         * Access-Control-Allow-Methods is emitted by CORS middleware sitting in
+         * front of the whole API — a preflight for a route that has never heard
+         * of DELETE still gets an answer, because the middleware doesn't know
+         * what any specific route implements. Treating that list alone as proof
+         * of a destructive vulnerability is what produced the false positive
+         * this check used to report on every endpoint, dangerous method or not.
+         *
+         * Two more pieces of evidence, both obtainable without sending the
+         * dangerous method itself, separate a real exposure from noise:
+         *
+         *   1. Would a browser actually deliver the real request? Only if THIS
+         *      SAME preflight response's Access-Control-Allow-Origin accepted
+         *      the attacker's origin. A server that ignores the requested
+         *      Origin and always names its own frontend (or omits the header)
+         *      blocks the browser from sending the follow-up request, no
+         *      matter what Access-Control-Allow-Methods claims.
+         *   2. Does the operation exist at all? The discovered specification
+         *      already says which methods this exact path implements — DELETE
+         *      is never sent live to find out, for the same reason the
+         *      business-flow check never repeats one: this scanner does not
+         *      get to decide a destructive call against someone else's system
+         *      is worth the risk just to confirm a preflight header.
+         */
+        const preflightAcao = resp.headers['access-control-allow-origin'];
+        const preflightAcac = resp.headers['access-control-allow-credentials'];
+        const originAccepted = preflightAcao === evilOrigin || preflightAcao === '*';
+        const credentialsExposed = preflightAcac === 'true' || preflightAcac === true;
+
+        const requestedMethod = 'DELETE';
+        const implementedOperation = context.endpoints.find(
+          (e) => e.path === testEndpoint.path && e.method.toUpperCase() === requestedMethod,
+        );
+        const methodImplemented = Boolean(implementedOperation);
+        const operationRequiresAuth = Boolean(
+          implementedOperation &&
+            Array.isArray(implementedOperation.security) &&
+            implementedOperation.security.length > 0,
+        );
+
+        // Exploitable from an arbitrary origin only if the browser would both
+        // deliver the request (origin accepted) and the server would act on it
+        // (the method is a real, implemented operation on this path).
+        const exploitable = originAccepted && methodImplemented;
+
         findings.push({
-          title: 'CORS Preflight Allows Dangerous HTTP Methods from Any Origin',
+          title: exploitable
+            ? `CORS Preflight Allows Cross-Origin ${requestedMethod} from an Untrusted Origin`
+            : 'CORS Preflight Advertises Destructive Methods Regardless of Origin',
           category: 'Security Misconfiguration',
-          severity: 'HIGH',
-          cvssScore: 7.4,
+          severity: exploitable ? (credentialsExposed ? 'HIGH' : 'MEDIUM') : 'LOW',
+          cvssScore: exploitable ? (credentialsExposed ? 7.4 : 5.8) : 3.1,
           owaspCategory: 'API8:2023',
+          cweId: 'CWE-942',
           ruleId: 'cors.preflight-dangerous-methods',
           component: 'response-header:access-control-allow-methods',
           route: testEndpoint.path,
           method: testEndpoint.method,
           pluginId: this.id,
           affectedUrl: url,
-          description: `The CORS preflight response allows the DELETE method from cross-origin requests (Access-Control-Allow-Methods: ${allowedMethods}).`,
-          impact: 'Allows cross-origin DELETE requests which can lead to data deletion by malicious websites.',
-          likelihood: 'MEDIUM',
-          riskScore: 7.4,
-          evidence: { allowedMethods, preflightStatus: resp.status },
-          remediation: 'Restrict allowed methods in CORS preflight to only those necessary (GET, POST). Never allow DELETE or PUT from untrusted origins.',
-          references: ['https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS'],
+          description: exploitable
+            ? `The CORS preflight for ${testEndpoint.path} both accepts the untrusted origin "${evilOrigin}" (Access-Control-Allow-Origin: ${preflightAcao}) and advertises ${requestedMethod} in Access-Control-Allow-Methods (${allowedMethods}). The specification confirms ${requestedMethod} ${testEndpoint.path} is a real, implemented operation${operationRequiresAuth ? ', declared as requiring authentication in the specification — verify at runtime that the requirement is actually enforced' : ' with no declared authentication requirement'}. A browser at an arbitrary origin would be permitted to deliver that ${requestedMethod} request.`
+            : `The CORS preflight for ${testEndpoint.path} lists ${requestedMethod} in Access-Control-Allow-Methods (${allowedMethods}), but that alone does not make it exploitable from an untrusted origin: ` +
+              (!originAccepted
+                ? `Access-Control-Allow-Origin (${preflightAcao ?? 'absent'}) does not accept the "${evilOrigin}" origin used in this probe, so a browser enforcing CORS would block the response and never send the real cross-origin request.`
+                : `the discovered specification declares no ${requestedMethod} operation on ${testEndpoint.path}, so there is nothing for a cross-origin caller to invoke at this exact path even though CORS middleware shared across the API advertises the method on every preflight.`),
+          impact: exploitable
+            ? `A malicious website can trigger a cross-origin ${requestedMethod} request against this endpoint using an ordinary visitor's browser.`
+            : 'None demonstrated at this endpoint. The Allow-Methods list reflects app-wide CORS configuration rather than what this specific route accepts, and the missing piece above (origin acceptance or a real operation) is what would have to change before this became exploitable.',
+          likelihood: exploitable ? 'MEDIUM' : 'LOW',
+          riskScore: exploitable ? (credentialsExposed ? 7.4 : 5.8) : 3.1,
+          evidence: {
+            testedOrigin: evilOrigin,
+            requestedMethod,
+            allowedMethods,
+            preflightStatus: resp.status,
+            accessControlAllowOrigin: preflightAcao ?? null,
+            originAccepted,
+            credentialsAllowed: credentialsExposed,
+            methodImplementedInSpec: methodImplemented,
+            operationRequiresAuthentication: operationRequiresAuth,
+            confidence: exploitable ? 'HIGH' : 'LOW',
+            note: `${requestedMethod} was never sent to the target — exploitability is inferred from this preflight's own Origin handling and from the discovered specification, not from a live destructive request.`,
+          },
+          httpRequest: this.buildRequestString('OPTIONS', url, {
+            ...authHeaders,
+            Origin: evilOrigin,
+            'Access-Control-Request-Method': requestedMethod,
+          }),
+          httpResponse: this.buildResponseString(resp.status, resp.headers as any, null),
+          remediation: exploitable
+            ? `Scope Access-Control-Allow-Methods per route to what it actually implements, and never accept an untrusted origin for a state-changing method. Enforce authentication and ownership checks on ${requestedMethod} ${testEndpoint.path} independently of CORS — CORS is a browser-side relaxation, not an authorization mechanism.`
+            : `Scope Access-Control-Allow-Methods per route to what it actually implements rather than advertising the full set on every preflight. It is not exploitable here today, but the mismatch invites confusion and stops being harmless the day a ${requestedMethod} operation is added at this exact path or the origin allowlist is loosened.`,
+          references: [
+            'https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS',
+            'https://portswigger.net/web-security/cors',
+          ],
         });
       }
     } catch (_) {}

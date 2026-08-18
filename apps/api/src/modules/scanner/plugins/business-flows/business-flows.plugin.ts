@@ -9,6 +9,7 @@ import {
   classifyBusinessFlow,
   flowKindLabel,
   isHighImpactFlow,
+  isPublicByDesignAccountFlow,
   type BusinessFlowMatch,
 } from './business-flow-classifier';
 
@@ -251,6 +252,14 @@ async checkout(@Req() req, @Headers('idempotency-key') key: string) {
       }
 
       // ── Does the flow require authentication at all? ───────────────────────
+      //
+      // Skipped for account-creation flows (register/signup): a caller cannot
+      // already hold a session for an account that does not exist yet, so
+      // "accepts unauthenticated requests" is not a finding there, it is the
+      // feature. This does not extend to the rest of ACCOUNT — a `password`
+      // match may well be an authenticated "change my password" endpoint,
+      // where the same probe finding unauthenticated access is a real
+      // account-takeover bug and must still be reported.
       const anonymousProbeHeaders = {
         ...anonymousHeaders,
         'Content-Type': 'application/json',
@@ -267,6 +276,7 @@ async checkout(@Req() req, @Headers('idempotency-key') key: string) {
       const anonymous = await this.send(endpoint.method, url, anonymousProbeHeaders, body);
 
       if (
+        !isPublicByDesignAccountFlow(flow) &&
         anonymousBaseline &&
         wasProcessed(anonymous.status) &&
         isDistinctFromBaseline(

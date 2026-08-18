@@ -8,8 +8,21 @@ FROM oven/bun:1-alpine AS development
 
 WORKDIR /app
 
-# Install system deps for Prisma
-RUN apk add --no-cache openssl
+# openssl is for Prisma. The rest is the PDF renderer: reports are printed by a
+# headless Chromium through puppeteer-core, which — unlike `puppeteer` — never
+# downloads a browser of its own, so the image has to provide one. Without it
+# every PDF fails at generation AND at download, while JSON/HTML/Markdown/SARIF
+# keep working; the reports queue retried three times and gave up.
+#
+# ttf-liberation supplies the Arial/Helvetica/Liberation Mono metrics the report
+# stylesheet asks for by name, and font-noto covers the symbols outside them.
+# With no font package at all Chromium prints the layout with blank glyphs.
+RUN apk add --no-cache openssl chromium nss freetype harfbuzz ttf-liberation font-noto
+
+# Pinned rather than left to the runtime search: the search order in
+# ReportGeneratorService is for developer machines (Chrome, Edge, then the usual
+# Linux paths), and inside this image there is exactly one right answer.
+ENV CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # The workspace lockfile lives at the repository root, outside this build
 # context, so it cannot be copied here — `bun install` resolves within the
@@ -58,7 +71,13 @@ FROM node:22-alpine AS production
 
 WORKDIR /app
 
-RUN apk add --no-cache openssl dumb-init su-exec
+# chromium and the two font packages are the PDF renderer — same reasoning as in
+# the development stage above. They are installed here rather than copied from
+# the builder because the builder is a different base image (bun vs node) and
+# Chromium's shared libraries have to match the runtime that loads them.
+RUN apk add --no-cache openssl dumb-init su-exec chromium nss freetype harfbuzz ttf-liberation font-noto
+
+ENV CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs && \

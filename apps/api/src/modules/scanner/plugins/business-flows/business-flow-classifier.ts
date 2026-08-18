@@ -126,6 +126,47 @@ function findTerm(tokens: string[]): { kind: BusinessFlowKind; term: string } | 
 }
 
 /**
+ * Path terms that mean "this is a login/logout/token-exchange operation" —
+ * strong enough that nothing else about the endpoint gets a vote.
+ *
+ * `login`/`token`/`auth` are absent from `FLOW_TERMS` for the same reason
+ * (see the module comment), which stops the *path* from matching one of the
+ * flow kinds above. It does not stop the summary or tags from matching one
+ * instead: `POST /auth/login` documented as "Login with email and password"
+ * used to classify as MESSAGING, because "email" is in `FLOW_TERMS.MESSAGING`
+ * and the summary fallback only runs when the path found nothing. A specific
+ * signal the API author put in the path must outrank an incidental word in
+ * free-text prose — that priority is the entire point of trying signals in
+ * order — so this check runs first and exits before summary/tags are ever
+ * consulted, rather than merely being one more term nothing happens to match.
+ */
+const AUTH_EXCLUSION_TERMS = ['login', 'signin', 'logout', 'authenticate', 'oauth'];
+
+function isAuthenticationPath(tokens: string[]): boolean {
+  if (tokens.some((token) => AUTH_EXCLUSION_TERMS.includes(token))) return true;
+  // "sign-in" tokenises to ["sign", "in"] rather than the single word "signin".
+  for (let i = 0; i < tokens.length - 1; i++) {
+    if (tokens[i] === 'sign' && tokens[i + 1] === 'in') return true;
+  }
+  return false;
+}
+
+/**
+ * Terms whose entire point is that no session exists yet — a caller creating
+ * an account cannot already be signed into it. Used to suppress the
+ * "accepts unauthenticated requests" finding for this specific slice of
+ * `ACCOUNT`, without touching the rest of that kind (e.g. `password`, which
+ * also names an authenticated "change my password" endpoint and must keep
+ * being checked for exactly this).
+ */
+const PUBLIC_BY_DESIGN_ACCOUNT_TERMS = ['register', 'registration', 'signup'];
+
+/** True when `flow` names a step of account creation, never a signed-in action. */
+export function isPublicByDesignAccountFlow(flow: BusinessFlowMatch): boolean {
+  return flow.kind === 'ACCOUNT' && PUBLIC_BY_DESIGN_ACCOUNT_TERMS.includes(flow.term);
+}
+
+/**
  * Returns the flow this endpoint belongs to, or `null` when nothing in its
  * naming identifies it as business-sensitive.
  *
@@ -138,7 +179,10 @@ export function classifyBusinessFlow(
 ): BusinessFlowMatch | null {
   if (!PROBED_METHODS.includes(endpoint.method?.toUpperCase())) return null;
 
-  const fromPath = findTerm(tokenise(endpoint.path ?? ''));
+  const pathTokens = tokenise(endpoint.path ?? '');
+  if (isAuthenticationPath(pathTokens)) return null;
+
+  const fromPath = findTerm(pathTokens);
   if (fromPath) return { ...fromPath, matchedIn: 'path' };
 
   const fromSummary = findTerm(tokenise(endpoint.summary ?? ''));

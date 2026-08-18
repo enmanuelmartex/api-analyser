@@ -55,7 +55,10 @@ your own PostgreSQL and Redis, skip the compose line and edit `DATABASE_URL` and
 
 ### Then sign in
 
-Open **http://localhost:3000** — the API is on **:4000**.
+Open **http://localhost:3000** — the API is on **:4000**, and its interactive
+documentation on **http://localhost:4000/api/docs** (the OpenAPI document itself
+is at `/api/docs-json`, or `/api/docs-yaml`). Both come up whichever way you
+started the stack; set `SWAGGER_ENABLED=false` to turn them off.
 
 | | |
 |---|---|
@@ -86,7 +89,10 @@ API Analyser automatically assesses REST API security by:
 5. **Generating** reports in PDF, HTML, JSON, SARIF and Markdown. Every scan that
    completes gets its PDF automatically — rendered on a queue, retried three
    times with backoff, and never marked ready until the bytes are on disk. The
-   other formats are exported on request.
+   other formats are exported on request. PDF is the one format that needs a
+   headless Chromium: the Docker image ships one, and a from-source run uses the
+   Chrome, Edge or Chromium already installed (or `CHROMIUM_EXECUTABLE_PATH`).
+   The API logs which renderer it found at boot.
 6. **Scheduling** those assessments to run on their own — hourly, daily, weekly,
    monthly or on a cron expression, in the timezone you configure. Scheduled
    scans run entirely on the server: they keep going with the browser closed and
@@ -249,6 +255,10 @@ ADMIN_PASSWORD=admin1234
 # Optional — enables AI-powered vulnerability analysis
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
+
+# Optional — Swagger UI at /api/docs and the OpenAPI document at /api/docs-json.
+# On by default, in every NODE_ENV; set to false to stop serving them.
+SWAGGER_ENABLED=true
 
 # Optional — enables outbound email through Resend. Without a key the app runs
 # normally, records every would-be send as SKIPPED with a reason, and leaves

@@ -7,6 +7,7 @@ import { AuthService } from './auth.service';
 import { AdminBootstrapService } from './admin-bootstrap.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { AuditModule } from '../audit/audit.module';
+import { ThrottlingModule } from '../../common/throttler/throttling.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { AuditModule } from '../audit/audit.module';
       }),
     }),
     AuditModule,
+    ThrottlingModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, AdminBootstrapService],
