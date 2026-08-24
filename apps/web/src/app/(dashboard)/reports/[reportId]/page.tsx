@@ -31,8 +31,10 @@ import { ReportMetadata } from '@/components/reports/report-metadata';
 import { ReportAssessmentSummary } from '@/components/reports/report-assessment-summary';
 import { ReportFindingsList } from '@/components/reports/report-findings-list';
 import { ReportFormatActions } from '@/components/reports/report-format-actions';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 export default function ReportDetailPage() {
+  const { canWrite } = useCurrentUser();
   const { reportId } = useParams<{ reportId: string }>();
   const queryClient = useQueryClient();
   const [downloading, setDownloading] = useState(false);
@@ -183,20 +185,22 @@ export default function ReportDetailPage() {
                     Download {entry.format}
                   </DropdownMenuItem>
                 ))}
-                <DropdownMenuItem
-                  disabled={regenerate.isPending}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    regenerate.mutate();
-                  }}
-                >
-                  {regenerate.isPending ? (
-                    <IconLoader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <IconRefresh className="size-3.5" />
-                  )}
-                  Regenerate {report.format}
-                </DropdownMenuItem>
+                {canWrite && (
+                  <DropdownMenuItem
+                    disabled={regenerate.isPending}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      regenerate.mutate();
+                    }}
+                  >
+                    {regenerate.isPending ? (
+                      <IconLoader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <IconRefresh className="size-3.5" />
+                    )}
+                    Regenerate {report.format}
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </>

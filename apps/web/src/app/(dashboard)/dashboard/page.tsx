@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { IconActivity, IconAlertTriangle, IconFolder, IconPlus, IconShield } from '@tabler/icons-react';
 import { assessmentsApi, issuesApi } from '@/lib/api';
 import { issuesHref } from '@/lib/issue-list';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import { PageHeader } from '@/components/layout/page-header';
 import { PageContainer } from '@/components/layout/page-container';
 import { Button } from '@/components/ui/button';
@@ -78,6 +79,7 @@ function DashboardSectionsSkeleton() {
 }
 
 export default function DashboardPage() {
+  const { canWrite } = useCurrentUser();
   const { data: stats, isLoading, isError } = useQuery<DashboardStats>({ queryKey: ['dashboard'], queryFn: assessmentsApi.dashboard, refetchInterval: 30000 });
 
   // The radar's own source. Kept as a separate query rather than folded into
@@ -103,7 +105,7 @@ export default function DashboardPage() {
   const criticalFindings = stats?.findings?.critical ?? 0;
 
   return <PageContainer className="space-y-5 pb-10">
-    <PageHeader title="Security Dashboard" description="Monitor your API security posture across all projects" className="mb-0" actions={<Button asChild><Link href="/projects/new"><IconPlus className="h-4 w-4" />New Project</Link></Button>} />
+    <PageHeader title="Security Dashboard" description="Monitor your API security posture across all projects" className="mb-0" actions={canWrite ? <Button asChild><Link href="/projects/new"><IconPlus className="h-4 w-4" />New Project</Link></Button> : undefined} />
     {isError && <div role="alert" className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">Dashboard data could not be refreshed. Try again shortly.</div>}
     {isLoading ? <DashboardSectionsSkeleton /> : <>
     <section aria-label="Security metrics" className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
@@ -159,7 +161,7 @@ export default function DashboardPage() {
       it had before.
     */}
     <section className="grid gap-5 lg:grid-cols-[2fr_1fr]">
-      <RecentAssessmentsTable assessments={(stats?.recentAssessments ?? []).slice(0, 3)} />
+      <RecentAssessmentsTable assessments={(stats?.recentAssessments ?? []).slice(0, 3)} canWrite={canWrite} />
       <UpcomingScansCard />
     </section>
     </>}

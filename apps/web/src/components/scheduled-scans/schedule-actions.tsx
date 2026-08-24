@@ -14,6 +14,7 @@ import {
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { scheduledScansApi } from '@/lib/api';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import type { ScheduledScan } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -53,6 +54,7 @@ export function ScheduleActions({
   /** Where to go after deletion. The list stays put; the detail page leaves. */
   onDeleted?: () => void;
 }) {
+  const { canWrite } = useCurrentUser();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = React.useState(false);
@@ -121,6 +123,10 @@ export function ScheduleActions({
 
   const isPaused = schedule.status === 'PAUSED';
   const busy = runNow.isPending || pause.isPending || resume.isPending;
+
+  // VIEWER is read-only: nothing in this menu is an action they may take, so
+  // the trigger itself does not render rather than opening onto an empty menu.
+  if (!canWrite) return null;
 
   return (
     <>

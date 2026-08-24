@@ -2,6 +2,8 @@ import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/c
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuditAction } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IssuesService } from './issues.service';
 import { AssignIssueDto, IssueQueryDto, UpdateIssueStatusDto } from './dto/issue.dto';
@@ -17,7 +19,7 @@ import { AuditService } from '../audit/audit.service';
  */
 @ApiTags('Issues')
 @ApiBearerAuth('JWT')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('issues')
 export class IssuesController {
   constructor(
@@ -27,20 +29,20 @@ export class IssuesController {
 
   @Get()
   @ApiOperation({ summary: 'List persistent issues (deduplicated, paginated)' })
-  findAll(@CurrentUser() user: any, @Query() query: IssueQueryDto) {
-    return this.issues.findAll(user.id, query);
+  findAll(@Query() query: IssueQueryDto) {
+    return this.issues.findAll(query);
   }
 
   @Get('stats')
   @ApiOperation({ summary: 'Aggregate counts over current issues' })
-  getStats(@CurrentUser() user: any, @Query('projectId') projectId?: string) {
-    return this.issues.getStats(user.id, projectId);
+  getStats(@Query('projectId') projectId?: string) {
+    return this.issues.getStats(projectId);
   }
 
   @Get('occurrences/assessment/:assessmentId')
   @ApiOperation({ summary: 'Detections produced by one scan' })
-  findOccurrences(@Param('assessmentId') assessmentId: string, @CurrentUser() user: any) {
-    return this.issues.findOccurrencesByAssessment(assessmentId, user.id);
+  findOccurrences(@Param('assessmentId') assessmentId: string) {
+    return this.issues.findOccurrencesByAssessment(assessmentId);
   }
 
   /**
@@ -53,17 +55,18 @@ export class IssuesController {
    */
   @Get(':id/guidance')
   @ApiOperation({ summary: 'AI security guidance for an issue' })
-  getGuidance(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.issues.getGuidance(id, user.id);
+  getGuidance(@Param('id') id: string) {
+    return this.issues.getGuidance(id);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Issue detail with occurrence history and triage timeline' })
-  findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.issues.findOne(id, user.id);
+  findOne(@Param('id') id: string) {
+    return this.issues.findOne(id);
   }
 
   @Patch(':id/status')
+  @Roles('ADMIN', 'ANALYST')
   @ApiOperation({ summary: 'Apply a triage decision' })
   async updateStatus(
     @Param('id') id: string,
@@ -99,9 +102,10 @@ export class IssuesController {
   }
 
   @Patch(':id/assignee')
+  @Roles('ADMIN', 'ANALYST')
   @ApiOperation({ summary: 'Assign or unassign an issue' })
   async assign(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: AssignIssueDto) {
-    const issue = await this.issues.assign(id, user.id, dto.assigneeId ?? null);
+    const issue = await this.issues.assign(id, dto.assigneeId ?? null);
 
     this.audit.log({
       userId: user.id,

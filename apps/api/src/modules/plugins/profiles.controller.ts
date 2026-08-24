@@ -3,11 +3,13 @@ import {
 } from '@nestjs/common';
 import { AuditAction } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { ProfilesService } from './profiles.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateScanProfileDto, UpdateScanProfileDto } from './dto/scan-profile.dto';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('plugins/profiles')
 export class ProfilesController {
   constructor(
@@ -29,6 +31,7 @@ export class ProfilesController {
 
   // POST /plugins/profiles
   @Post()
+  @Roles('ADMIN', 'ANALYST')
   async create(@Body() body: CreateScanProfileDto, @Request() req: any) {
     const profile = await this.profilesService.create(req.user.id, body);
 
@@ -45,6 +48,7 @@ export class ProfilesController {
 
   // PUT /plugins/profiles/:id
   @Put(':id')
+  @Roles('ADMIN', 'ANALYST')
   async update(
     @Param('id') id: string,
     @Body() body: UpdateScanProfileDto,
@@ -65,6 +69,7 @@ export class ProfilesController {
 
   // DELETE /plugins/profiles/:id
   @Delete(':id')
+  @Roles('ADMIN', 'ANALYST')
   async remove(@Param('id') id: string, @Request() req: any) {
     const result = await this.profilesService.remove(id, req.user.id);
 

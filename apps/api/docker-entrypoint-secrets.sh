@@ -21,8 +21,20 @@
 SECRETS_DIR=/app/.secrets
 SECRETS_FILE="$SECRETS_DIR/generated.env"
 
+# Runtime-provided values (.env / compose / secret manager) must win over any
+# value persisted on the volume from a previous boot.
+ENV_ENCRYPTION_KEY=${ENCRYPTION_KEY-}
+ENV_JWT_SECRET=${JWT_SECRET-}
+ENV_REFRESH_TOKEN_SECRET=${REFRESH_TOKEN_SECRET-}
+ENV_BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET-}
+
 mkdir -p "$SECRETS_DIR"
 [ -f "$SECRETS_FILE" ] && . "$SECRETS_FILE"
+
+[ -n "$ENV_ENCRYPTION_KEY" ] && ENCRYPTION_KEY="$ENV_ENCRYPTION_KEY"
+[ -n "$ENV_JWT_SECRET" ] && JWT_SECRET="$ENV_JWT_SECRET"
+[ -n "$ENV_REFRESH_TOKEN_SECRET" ] && REFRESH_TOKEN_SECRET="$ENV_REFRESH_TOKEN_SECRET"
+[ -n "$ENV_BETTER_AUTH_SECRET" ] && BETTER_AUTH_SECRET="$ENV_BETTER_AUTH_SECRET"
 
 generated=""
 

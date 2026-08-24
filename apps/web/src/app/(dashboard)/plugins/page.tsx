@@ -24,6 +24,7 @@ import {
   IconAdjustments,
 } from '@tabler/icons-react';
 import { pluginsApi } from '@/lib/api';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import type { Plugin } from '@/types';
 import { cn } from '@/lib/utils';
 import {
@@ -72,6 +73,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function PluginsPage() {
+  const { canWrite } = useCurrentUser();
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -205,7 +207,7 @@ export default function PluginsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((plugin) => (
-            <PluginCard key={plugin.id} plugin={plugin} onToggle={(isEnabled) => toggleMutation.mutate({ id: plugin.id, isEnabled })} isToggling={toggleMutation.isPending} />
+            <PluginCard key={plugin.id} plugin={plugin} onToggle={(isEnabled) => toggleMutation.mutate({ id: plugin.id, isEnabled })} isToggling={toggleMutation.isPending} canToggle={canWrite} />
           ))}
         </div>
       )}
@@ -213,7 +215,7 @@ export default function PluginsPage() {
   );
 }
 
-function PluginCard({ plugin, onToggle, isToggling }: { plugin: Plugin; onToggle: (_v: boolean) => void; isToggling: boolean }) {
+function PluginCard({ plugin, onToggle, isToggling, canToggle = true }: { plugin: Plugin; onToggle: (_v: boolean) => void; isToggling: boolean; canToggle?: boolean }) {
   const Icon = CATEGORY_ICONS[plugin.category] ?? IconPuzzle;
   const colorClass = CATEGORY_COLORS[plugin.category] ?? 'text-muted-foreground bg-muted border-border';
 
@@ -232,9 +234,9 @@ function PluginCard({ plugin, onToggle, isToggling }: { plugin: Plugin; onToggle
         </div>
         <button
           onClick={() => onToggle(!plugin.isEnabled)}
-          disabled={isToggling}
-          className="flex-shrink-0 text-muted-foreground transition-colors hover:text-foreground"
-          title={plugin.isEnabled ? 'Disable plugin' : 'Enable plugin'}
+          disabled={isToggling || !canToggle}
+          className="flex-shrink-0 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          title={canToggle ? (plugin.isEnabled ? 'Disable plugin' : 'Enable plugin') : 'Read-only access'}
         >
           {plugin.isEnabled ? <IconToggleRight className="h-6 w-6 text-primary" /> : <IconToggleLeft className="h-6 w-6" />}
         </button>

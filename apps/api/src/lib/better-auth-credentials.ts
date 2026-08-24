@@ -4,6 +4,14 @@ import { auth } from './auth';
 export const CREDENTIAL_PROVIDER_ID = 'credential';
 
 /**
+ * Better Auth 1.7 scopes account identity by issuer as well as providerId
+ * (every internal-adapter lookup now filters on both). This app has no OAuth,
+ * so every account is local — this mirrors the value Better Auth's own code
+ * generates for a local provider via `createLocalAccountIssuer(providerId)`.
+ */
+const CREDENTIAL_ISSUER = `local:${CREDENTIAL_PROVIDER_ID}`;
+
+/**
  * Writes the credential the login form actually checks.
  *
  * The product has two auth surfaces over one `users` table (see `auth.ts` and
@@ -59,6 +67,7 @@ async function writeCredential(ctx: any, userId: string, passwordHash: string): 
     // login — there is no external provider to carry an id of its own.
     accountId: userId,
     providerId: CREDENTIAL_PROVIDER_ID,
+    issuer: CREDENTIAL_ISSUER,
     password: passwordHash,
   });
 }

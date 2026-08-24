@@ -224,18 +224,6 @@ enum ReportStatus {
   FAILED
 }
 
-/// Outcome of one attempted email delivery.
-///
-/// SKIPPED is a first-class result, not a failure: a user with email
-/// notifications switched off, or with no address, produces a SKIPPED row so
-/// "why did I not get an email" is answerable from the record.
-enum EmailDeliveryStatus {
-  PENDING
-  SENT
-  FAILED
-  SKIPPED
-}
-
 enum AuditAction {
   CREATE
   READ
@@ -310,8 +298,6 @@ enum NotificationType {
   NEW_FINDINGS
   SCHEDULED_SCAN_COMPLETED
   SCHEDULED_SCAN_FAILED
-  EMAIL_REPORT_SENT
-  EMAIL_REPORT_FAILED
   SYSTEM_ERROR
 }
 
@@ -421,7 +407,6 @@ model User {
   issueStatusChanges     IssueStatusChange[]     @relation("IssueStatusActor")
   scheduledScans         ScheduledScan[]         @relation("ScheduleAuthor")
   requestedReports       Report[]                @relation("ReportRequester")
-  emailDeliveries        EmailDelivery[]
 
   @@map("users")
 }
@@ -469,6 +454,10 @@ model Account {
   user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   accountId             String
   providerId            String
+  /// Better Auth 1.7 scopes account identity by issuer, not providerId alone
+  /// (see the 1.7 upgrade guide). This app has no OAuth, so every account is
+  /// local and the value is always `local:credential`.
+  issuer                String    @default("local:credential")
   accessToken           String?
   refreshToken          String?
   idToken               String?
@@ -1283,56 +1272,6 @@ model Report {
 
 /// One attempted email, recorded whether or not it was sent.
 ///
-/// Exists to make delivery idempotent. Jobs retry and events can be redelivered,
-/// so "send the report-ready email" must be safe to ask for repeatedly — the
-/// unique `idempotencyKey` turns the second ask into a no-op instead of a second
-/// message in the recipient's inbox.
-///
-/// Deliberately NOT merged into Notification: a notification is something the
-/// user reads in the product, this is a record of an outbound message to a third
-/// party. They have different lifetimes, different privacy properties, and one
-/// notification can exist with no email and vice versa.
-model EmailDelivery {
-  id String @id @default(cuid())
-
-  /// `<event>:<entityId>:<userId>` — stable across retries of the same logical
-  /// send, distinct for genuinely different ones.
-  idempotencyKey String @unique
-
-  userId String?
-  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  /// Recorded rather than joined through `user`: an address that changes later
-  /// must not rewrite the history of where a message was actually delivered.
-  toEmail String
-  subject String
-  /// Which template rendered it, e.g. `report-ready`.
-  template String
-
-  status   EmailDeliveryStatus @default(PENDING)
-  attempts Int                 @default(0)
-
-  /// Resend's id for the accepted message, for support requests and for
-  /// correlating with the provider's own delivery log.
-  providerMessageId String?
-  /// Why it failed or was skipped. Never contains credentials.
-  failureReason     String?
-
-  /// What the message was about, so a report's delivery history is reachable
-  /// from the report itself.
-  entityType String?
-  entityId   String?
-
-  sentAt    DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  /// "Has this already been sent?" on the retry path.
-  @@index([entityType, entityId])
-  @@index([userId, createdAt])
-  @@map("email_deliveries")
-}
-
 // =============================================================================
 // PLUGIN MANAGEMENT
 // =============================================================================
@@ -1611,34 +1550,6 @@ model NotificationPreference {
   criticalFinding Boolean @default(true)
   newFindings     Boolean @default(true)
   systemError     Boolean @default(true)
-
-  /// The master switch for outbound email. Off by default: a self-hosted
-  /// install has no mail provider configured until someone sets one up, and
-  /// defaulting this on would queue deliveries that can only fail.
-  emailEnabled Boolean @default(false)
-
-  /// Per-event email switches, each subordinate to `emailEnabled`.
-  ///
-  /// A deliberately smaller set than the in-app switches above. Email is
-  /// interruptive and cannot be marked read, so only the events worth someone's
-  /// attention while they are elsewhere are offered: an outcome they are waiting
-  /// for, a failure that stops work, and a critical vulnerability. Routine
-  /// findings stay in-app.
-  emailScanCompleted   Boolean @default(true)
-  emailScanFailed      Boolean @default(true)
-  emailReportGenerated Boolean @default(true)
-  emailCriticalFinding Boolean @default(true)
-
-  /// The weekly activity digest.
-  ///
-  /// Its own switch rather than riding on `emailScanCompleted`, because it is a
-  /// different kind of message: the others are reactions to something the user
-  /// caused, this one arrives on a schedule whether or not they did anything.
-  /// Someone who wants to know the moment a scan finishes may reasonably not
-  /// want a Monday digest, and vice versa.
-  ///
-  /// Still subordinate to `emailEnabled`, like every switch above it.
-  emailWeeklySummary Boolean @default(true)
 
   /// Play a short sound on arrival. Browser autoplay policy still applies; the
   /// UI never tries to work around it.

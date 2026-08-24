@@ -25,7 +25,6 @@ import { AuditModule } from './modules/audit/audit.module';
 import { SystemModule } from './modules/system/system.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
-import { EmailModule } from './modules/email/email.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 
 @Module({
@@ -115,10 +114,6 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
     PluginsModule,
     AiModule,
     NotificationsModule,
-    // After NotificationsModule and ReportsModule, both of which it reads:
-    // preferences decide whether a message is sent, and the stored PDF is what
-    // gets attached.
-    EmailModule,
     AuditModule,
     SystemModule,
   ],

@@ -60,36 +60,6 @@ export class NotificationPreferencesService {
     return preferences[definitionFor(type).preference];
   }
 
-  /**
-   * Whether this user wants `type` by email.
-   *
-   * Three gates, all of which must pass: the type must be emailable at all
-   * (`emailPreference` non-null in the catalog), the user's master switch must
-   * be on, and their per-event switch must be on. The catalog gate is first
-   * because it is a property of the type rather than of the user — no
-   * preference combination can opt into emailing a type that is in-app only.
-   */
-  async wantsEmail(userId: string, type: NotificationType): Promise<boolean> {
-    const emailPreference = definitionFor(type).emailPreference;
-    if (!emailPreference) return false;
-
-    const preferences = await this.get(userId);
-    return preferences.emailEnabled && preferences[emailPreference];
-  }
-
-  /**
-   * Whether this user wants the weekly digest.
-   *
-   * Separate from `wantsEmail` because that one is keyed by `NotificationType`,
-   * and the digest has none — nothing happened that a notification could
-   * describe. Both gates that do apply are still applied, in the same order:
-   * the master switch first, then the per-event one.
-   */
-  async wantsWeeklySummary(userId: string): Promise<boolean> {
-    const preferences = await this.get(userId);
-    return preferences.emailEnabled && preferences.emailWeeklySummary;
-  }
-
   /** Narrows an arbitrary patch to the keys the model actually has. */
   private pick(patch: Partial<PreferenceFlags>): Partial<PreferenceFlags> {
     const clean: Partial<PreferenceFlags> = {};

@@ -1,27 +1,24 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { ForbiddenException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { PluginExecutorService } from './plugin-executor.service';
 import { resetTestDatabase, setupTestDatabase, teardownTestDatabase } from '../../test/db';
 
 /**
- * `POST /plugins/:id/run` used to look the target project up with
- * `project.findUniqueOrThrow({ where: { id: projectId } })` — no `userId`
- * filter — even though `projectId` comes straight from the request body. Any
- * authenticated user could run a check against any other user's project,
- * using that project's own stored credentials (bearer token, API key,
- * whatever `AuthConfig` holds), and get the unredacted findings — including
- * raw HTTP evidence — back in the response. This is the regression test for
- * the fix: the project lookup is now scoped by `{ id: projectId, userId }`,
- * exactly like every other id-bearing method in this codebase.
+ * There is no per-project ownership boundary in this product: one
+ * installation is one company, and every authenticated user may run a plugin
+ * against any project, the same as starting a scan — see
+ * `ProjectsService.findAll`. This suite pins that a different user gets the
+ * same result as the project's creator, and that a genuinely unknown project
+ * id still 404s before any scan traffic is sent.
  */
 
 let prisma: PrismaClient;
 let service: PluginExecutorService;
 
 const OWNER = 'plugin-exec-owner';
-const ATTACKER = 'plugin-exec-attacker';
-const PROJECT = 'plugin-exec-victim-project';
+const OTHER = 'plugin-exec-other';
+const PROJECT = 'plugin-exec-project';
 
 /** A plugin whose `run()` proves whether it was ever invoked and with what auth. */
 function spyingRegistry(onRun: (context: any) => void) {
@@ -46,17 +43,17 @@ afterAll(async () => {
 beforeEach(async () => {
   await resetTestDatabase(prisma);
   await prisma.user.create({ data: { id: OWNER, email: 'owner@plugin-exec.test', name: 'Owner' } });
-  await prisma.user.create({ data: { id: ATTACKER, email: 'attacker@plugin-exec.test', name: 'Attacker' } });
+  await prisma.user.create({ data: { id: OTHER, email: 'other@plugin-exec.test', name: 'Other' } });
   // PluginExecution.pluginId is a real foreign key into the plugin catalog —
-  // needed for the "owner runs their own plugin" case to reach a completed
-  // execution row instead of failing on an unrelated constraint.
+  // needed to reach a completed execution row instead of failing on an
+  // unrelated constraint.
   await prisma.plugin.upsert({
     where: { id: 'spy' },
     update: {},
     create: { id: 'spy', name: 'Spy Plugin', description: 'test double', category: 'HEADERS', owaspMappings: [] },
   });
   await prisma.project.create({
-    data: { id: PROJECT, name: 'Victim Project', baseUrl: 'https://victim.test.local', userId: OWNER },
+    data: { id: PROJECT, name: 'Shared Project', baseUrl: 'https://shared.test.local', userId: OWNER },
   });
   await prisma.apiSpec.create({
     data: {
@@ -64,37 +61,27 @@ beforeEach(async () => {
       source: 'UPLOAD',
       rawSpec: {},
       parsed: {},
-      authConfig: { create: { type: 'BEARER', token: 'victim-secret-token' } },
+      authConfig: { create: { type: 'BEARER', token: 'shared-secret-token' } },
       endpoints: { create: [{ path: '/widgets', method: 'GET', tags: [], parameters: [], responses: {}, security: [] }] },
     },
   });
 });
 
-describe('PluginExecutorService.runSinglePlugin — cross-tenant project access', () => {
-  it('refuses to run a plugin against a project the caller does not own', async () => {
-    let invoked = false;
-    service = new PluginExecutorService(prisma as any, spyingRegistry(() => { invoked = true; }));
+describe('PluginExecutorService.runSinglePlugin — shared installation', () => {
+  it('lets a different user in the same installation run a plugin against the project', async () => {
+    let receivedAuthToken: string | undefined;
+    service = new PluginExecutorService(
+      prisma as any,
+      spyingRegistry((context) => { receivedAuthToken = context.auth.token; }),
+    );
 
-    await expect(
-      service.runSinglePlugin({ pluginId: 'spy', projectId: PROJECT, userId: ATTACKER }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    const result = await service.runSinglePlugin({ pluginId: 'spy', projectId: PROJECT, userId: OTHER });
 
-    // Never even reached the point of building a ScanContext with the
-    // victim's credentials — the whole point of rejecting before the try
-    // block, not inside it.
-    expect(invoked).toBe(false);
+    expect(result.status).toBe('SUCCESS');
+    expect(receivedAuthToken).toBe('shared-secret-token');
   });
 
-  it('never records a PluginExecution row for a rejected cross-tenant attempt', async () => {
-    service = new PluginExecutorService(prisma as any, spyingRegistry(() => {}));
-
-    await service.runSinglePlugin({ pluginId: 'spy', projectId: PROJECT, userId: ATTACKER }).catch(() => {});
-
-    const executions = await prisma.pluginExecution.findMany({ where: { userId: ATTACKER } });
-    expect(executions).toHaveLength(0);
-  });
-
-  it('allows the actual owner to run a plugin against their own project', async () => {
+  it('allows the project creator to run a plugin against their own project', async () => {
     let receivedAuthToken: string | undefined;
     service = new PluginExecutorService(
       prisma as any,
@@ -104,19 +91,26 @@ describe('PluginExecutorService.runSinglePlugin — cross-tenant project access'
     const result = await service.runSinglePlugin({ pluginId: 'spy', projectId: PROJECT, userId: OWNER });
 
     expect(result.status).toBe('SUCCESS');
-    expect(receivedAuthToken).toBe('victim-secret-token');
+    expect(receivedAuthToken).toBe('shared-secret-token');
   });
 
-  it('responds the same way for a nonexistent project as for one that is not owned', async () => {
+  it('rejects a nonexistent project before any scan traffic is sent', async () => {
+    let invoked = false;
+    service = new PluginExecutorService(prisma as any, spyingRegistry(() => { invoked = true; }));
+
+    await expect(
+      service.runSinglePlugin({ pluginId: 'spy', projectId: 'does-not-exist', userId: OTHER }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(invoked).toBe(false);
+  });
+
+  it('never records a PluginExecution row for a rejected attempt', async () => {
     service = new PluginExecutorService(prisma as any, spyingRegistry(() => {}));
 
-    const forOther = service
-      .runSinglePlugin({ pluginId: 'spy', projectId: PROJECT, userId: ATTACKER })
-      .catch((e) => e.message);
-    const forMissing = service
-      .runSinglePlugin({ pluginId: 'spy', projectId: 'does-not-exist', userId: OWNER })
-      .catch((e) => e.message);
+    await service.runSinglePlugin({ pluginId: 'spy', projectId: 'does-not-exist', userId: OTHER }).catch(() => {});
 
-    expect(await forOther).toEqual(await forMissing);
+    const executions = await prisma.pluginExecution.findMany({ where: { userId: OTHER } });
+    expect(executions).toHaveLength(0);
   });
 });

@@ -141,35 +141,13 @@ services:
       # seccomp profile (`security_opt: [seccomp=./docker/chrome-seccomp.json]`)
       # and set this to false.
       CHROMIUM_DISABLE_SANDBOX: ${CHROMIUM_DISABLE_SANDBOX:-true}
-      # Outbound email, via Resend. Optional: with no key the API boots, logs
-      # that email is disabled and records every send as SKIPPED — in-app
-      # notifications are unaffected.
-      #
-      # The `reports` and `email` queues are consumed by this service, alongside
-      # `scanner` and the log-retention queue. There is deliberately no separate
-      # worker container: BullMQ workers are registered by the same Nest process
-      # that registers the queues, so one `api` service processes everything and
+      # The `reports` queue is consumed by this service, alongside `scanner` and
+      # the log-retention queue. There is deliberately no separate worker
+      # container: BullMQ workers are registered by the same Nest process that
+      # registers the queues, so one `api` service processes everything and
       # there is no way to end up running two copies of a worker by accident.
       # Scaling `api` would scale the workers with it, which is the intended
       # behaviour — the queues are the coordination point.
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-onboarding@resend.dev}
-      RESEND_FROM_NAME: ${RESEND_FROM_NAME:-API Analyzer}
-      # The hosted relay, used when this install has no Resend key of its own.
-      # The URL is the same for every install — it is the address of a service,
-      # not a secret — so it defaults here and only the token needs supplying.
-      # Without a token the relay stays inactive and mail is simply disabled.
-      MAIL_RELAY_URL: ${MAIL_RELAY_URL:-https://mail.apianalyser.com}
-      MAIL_RELAY_TOKEN: ${MAIL_RELAY_TOKEN:-}
-      # Install-level report recipients. Overridable at runtime in
-      # Settings → Notifications, and the override wins over what is set here.
-      REPORT_EMAIL_RECIPIENTS: ${REPORT_EMAIL_RECIPIENTS:-}
-      EMAIL_ON_SCAN_COMPLETED: ${EMAIL_ON_SCAN_COMPLETED:-true}
-      EMAIL_ON_SCAN_FAILED: ${EMAIL_ON_SCAN_FAILED:-true}
-      # Links inside emails. Falls back to FRONTEND_URL, which is already set
-      # above, so this only needs setting when the two differ.
-      APP_URL: ${APP_URL:-}
-      EMAIL_MAX_ATTACHMENT_BYTES: ${EMAIL_MAX_ATTACHMENT_BYTES:-8388608}
       DOCKER_ENV: "true"
       # Required for the localhost → host.docker.internal rewrite to be usable:
       # host-gateway resolves to a private IP, so the SSRF check rejects it

@@ -1,0 +1,12 @@
+-- Better Auth 1.7 scopes account identity by issuer, not providerId alone,
+-- and every internal-adapter call (createAccount, findCredentialAccount,
+-- updatePassword) now reads/writes an `issuer` column that never existed in
+-- this schema. Without it, every credential-account write fails outright —
+-- including the default-admin bootstrap on a fresh install, which is why a
+-- brand new clone could never log in with the documented default credentials.
+--
+-- This app has no OAuth, so every account is local and the value is always
+-- `local:credential`. NOT NULL with that default rather than nullable: the
+-- column is part of Better Auth's own lookup key, so a NULL row would be
+-- unreachable by sign-in the same way a missing column was.
+ALTER TABLE "accounts" ADD COLUMN "issuer" TEXT NOT NULL DEFAULT 'local:credential';

@@ -67,14 +67,17 @@ export class ReportsService {
    * migration — but showing every one of them is what made the list look like it
    * held duplicate rows. `includeHistory` opts back in.
    */
-  async findAll(userId: string, options: { assessmentId?: string; includeHistory?: boolean } = {}) {
+  async findAll(options: { assessmentId?: string; includeHistory?: boolean } = {}) {
     const reports = await this.prisma.report.findMany({
       where: {
         // `isActive: true` on the project, same reasoning as
         // AssessmentsService.findAll — this was the one list query in this
         // file missing it, so a soft-deleted project's reports stayed
         // visible in the global Reports list.
-        assessment: { project: { userId, isActive: true } },
+        //
+        // No user filter: every user in the installation shares the same
+        // projects, see `ProjectsService.findAll`.
+        assessment: { project: { isActive: true } },
         ...(options.assessmentId ? { assessmentId: options.assessmentId } : {}),
       },
       include: {
@@ -108,15 +111,17 @@ export class ReportsService {
   }
 
   /**
-   * A report and everything its detail page renders.
+   * A report and everything its detail page renders. Shared across every user
+   * in the installation, like every other business resource — see
+   * `ProjectsService.findAll`.
    *
    * The assessment is included with its stored summary and its occurrence
    * snapshots — the scan's own record — so the page shows what the report said
    * when it was issued, not a recomputation against today's issue triage.
    */
-  async findOne(id: string, userId: string) {
+  async findOne(id: string) {
     const report = await this.prisma.report.findFirst({
-      where: { id, assessment: { project: { userId } } },
+      where: { id },
       include: {
         assessment: {
           select: {
@@ -157,9 +162,9 @@ export class ReportsService {
     };
   }
 
-  async findByAssessment(assessmentId: string, userId: string) {
-    await this.assertAssessmentAccess(assessmentId, userId);
-    return this.findAll(userId, { assessmentId });
+  async findByAssessment(assessmentId: string) {
+    await this.assertAssessmentAccess(assessmentId);
+    return this.findAll({ assessmentId });
   }
 
   /**
@@ -231,7 +236,7 @@ export class ReportsService {
 
     if (!regenerate) {
       const existing = await this.prisma.report.findFirst({
-        where: { assessmentId, type: type as any, format: format as any, assessment: { project: { userId } } },
+        where: { assessmentId, type: type as any, format: format as any },
         orderBy: { version: 'desc' },
       });
       // An existing row with no bytes behind it is a pre-fix record: fall
@@ -241,12 +246,12 @@ export class ReportsService {
         return { report: this.withArtifactState(existing), created: false };
       }
       if (existing) {
-        const filled = await this.renderInto(existing.id, assessmentId, userId, type, format);
+        const filled = await this.renderInto(existing.id, assessmentId, type, format);
         return { report: filled, created: false };
       }
     }
 
-    const assessment = await this.generator.getAssessmentData(assessmentId, userId);
+    const assessment = await this.generator.getAssessmentData(assessmentId);
     const projectName = (assessment.project as any)?.name ?? 'Report';
     const generatedAt = new Date();
 
@@ -326,10 +331,12 @@ export class ReportsService {
    * version and never emits: the caller owns the row's lifecycle, because only
    * the caller knows whether this was the last retry. Keeping the event out of
    * here is what guarantees `report.generated` fires exactly once, after bytes
-   * are on disk — the ordering the "your report is ready" email depends on.
+   * are on disk.
    *
-   * Ownership is resolved from the report's own assessment rather than passed
-   * in, since the job payload carries no user and must not be trusted for one.
+   * The project's creator is resolved from the report's own assessment rather
+   * than passed in, since the job payload carries no user and must not be
+   * trusted for one — it is who the in-app "Report ready" notification is
+   * addressed to, not an access check.
    *
    * Renders strictly: a PDF that will not print is an error the caller must see,
    * not a row quietly recorded as finished.
@@ -350,7 +357,7 @@ export class ReportsService {
     if (!report) throw new NotFoundException(`Report ${reportId} not found`);
 
     const ownerId = report.assessment.project.userId;
-    const assessment = await this.generator.getAssessmentData(report.assessmentId, ownerId);
+    const assessment = await this.generator.getAssessmentData(report.assessmentId);
     const projectName = report.assessment.project.name ?? 'Report';
 
     const snapshot = this.renderSnapshot(
@@ -380,11 +387,10 @@ export class ReportsService {
   private async renderInto(
     reportId: string,
     assessmentId: string,
-    userId: string,
     type: ReportType,
     format: ReportFormat,
   ) {
-    const assessment = await this.generator.getAssessmentData(assessmentId, userId);
+    const assessment = await this.generator.getAssessmentData(assessmentId);
     const projectName = (assessment.project as any)?.name ?? 'Report';
     const report = await this.prisma.report.findUniqueOrThrow({ where: { id: reportId } });
     const snapshot = this.renderSnapshot(assessment, type, format, {
@@ -503,8 +509,7 @@ export class ReportsService {
    * Resolves the bytes of an ALREADY GENERATED report.
    *
    * This never writes to the `Report` table, never touches `generatedAt`, and
-   * never reads the current findings. Ownership is proven from the report id
-   * against the caller, not from anything the client sends alongside it.
+   * never reads the current findings.
    *
    * Resolution order:
    *   1. the stored binary, when the checksum still matches;
@@ -514,9 +519,9 @@ export class ReportsService {
    * Step 2 is a re-render, not a regeneration: it consumes the snapshot captured
    * at issue time, so the document is identical to the one first delivered.
    */
-  async resolveArtifact(reportId: string, userId: string): Promise<ResolvedArtifact> {
+  async resolveArtifact(reportId: string): Promise<ResolvedArtifact> {
     const report = await this.prisma.report.findFirst({
-      where: { id: reportId, assessment: { project: { userId } } },
+      where: { id: reportId },
       include: { assessment: { select: { project: { select: { name: true } } } } },
     });
     if (!report) throw new NotFoundException('Report not found');
@@ -597,10 +602,9 @@ export class ReportsService {
    * Scoped to assessments that produced a report, and counted once per
    * assessment. See `report-metrics.ts` for why.
    */
-  async getStats(userId: string) {
+  async getStats() {
     const [reportRows, projects, completedAssessments] = await Promise.all([
       this.prisma.report.findMany({
-        where: { assessment: { project: { userId } } },
         select: {
           id: true,
           assessmentId: true,
@@ -610,9 +614,9 @@ export class ReportsService {
           generatedAt: true,
         },
       }),
-      this.prisma.project.count({ where: { userId, isActive: true } }),
+      this.prisma.project.count({ where: { isActive: true } }),
       this.prisma.assessment.findMany({
-        where: { project: { userId }, status: 'COMPLETED' },
+        where: { status: 'COMPLETED' },
         select: {
           id: true,
           projectId: true,
@@ -729,9 +733,9 @@ export class ReportsService {
    * The stored file name is derived from the report id and re-validated by the
    * storage service, so this cannot reach a file outside the report store.
    */
-  async remove(id: string, userId: string) {
+  async remove(id: string) {
     const report = await this.prisma.report.findFirst({
-      where: { id, assessment: { project: { userId } } },
+      where: { id },
     });
     if (!report) throw new NotFoundException('Report not found');
 
@@ -740,9 +744,9 @@ export class ReportsService {
     return { message: 'Report deleted' };
   }
 
-  private async assertAssessmentAccess(assessmentId: string, userId: string) {
+  private async assertAssessmentAccess(assessmentId: string) {
     const assessment = await this.prisma.assessment.findFirst({
-      where: { id: assessmentId, project: { userId } },
+      where: { id: assessmentId },
       select: { id: true },
     });
     if (!assessment) throw new NotFoundException('Assessment not found');

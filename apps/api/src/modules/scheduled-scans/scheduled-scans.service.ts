@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -47,13 +46,10 @@ export class ScheduledScansService {
   // ── Reading ────────────────────────────────────────────────────────────────
 
   /**
-   * One page of the caller's schedules.
-   *
-   * Ownership is enforced through `project: { userId }` in the same query as
-   * the filters, the pattern every other list in this API uses: another user's
-   * schedule is not hidden by the UI, it is not in the result set.
+   * One page of every schedule in the installation — shared across users, like
+   * every other business resource. See `ProjectsService.findAll`.
    */
-  async findAll(userId: string, query: QueryScheduledScansDto = {}) {
+  async findAll(query: QueryScheduledScansDto = {}) {
     const page = Math.max(1, Math.floor(query.page ?? 1));
     const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Math.floor(query.pageSize ?? DEFAULT_PAGE_SIZE)));
 
@@ -61,7 +57,7 @@ export class ScheduledScansService {
       // isActive: true — same reasoning as AssessmentsService.findAll: a
       // project soft-deleted before hard delete became the behavior would
       // otherwise keep its schedules listed here.
-      project: { userId, isActive: true },
+      project: { isActive: true },
       ...(query.projectId ? { projectId: query.projectId } : {}),
       ...(query.status?.length ? { status: { in: query.status } } : {}),
       ...(query.frequency?.length ? { frequency: { in: query.frequency } } : {}),
@@ -98,9 +94,9 @@ export class ScheduledScansService {
     };
   }
 
-  async findOne(id: string, userId: string) {
+  async findOne(id: string) {
     const schedule = await this.prisma.scheduledScan.findFirst({
-      where: { id, project: { userId } },
+      where: { id },
       include: LIST_INCLUDE,
     });
     if (!schedule) throw new NotFoundException('Scheduled scan not found');
@@ -117,8 +113,8 @@ export class ScheduledScansService {
   }
 
   /** Execution history for one schedule, newest first. */
-  async listExecutions(id: string, userId: string, page = 1, pageSize = EXECUTIONS_PAGE_SIZE) {
-    await this.assertOwned(id, userId);
+  async listExecutions(id: string, page = 1, pageSize = EXECUTIONS_PAGE_SIZE) {
+    await this.assertExists(id);
 
     const safePage = Math.max(1, Math.floor(page));
     const safeSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Math.floor(pageSize)));
@@ -168,15 +164,15 @@ export class ScheduledScansService {
   }
 
   /**
-   * The next few runs across every schedule the user owns.
+   * The next few runs across every active schedule in the installation.
    *
    * Feeds the dashboard's "Upcoming scheduled scans" strip. Deliberately a
    * separate, tiny query rather than a filter over `findAll`: the dashboard
    * wants three rows and must not pay for a page of full schedule payloads.
    */
-  async upcoming(userId: string, limit = 5) {
+  async upcoming(limit = 5) {
     const rows = await this.prisma.scheduledScan.findMany({
-      where: { project: { userId }, status: 'ACTIVE', nextRunAt: { not: null } },
+      where: { status: 'ACTIVE', nextRunAt: { not: null } },
       orderBy: { nextRunAt: 'asc' },
       take: Math.min(20, Math.max(1, Math.floor(limit))),
       select: {
@@ -226,7 +222,7 @@ export class ScheduledScansService {
   // ── Writing ────────────────────────────────────────────────────────────────
 
   async create(userId: string, dto: CreateScheduledScanDto) {
-    const project = await this.assertScannableProject(dto.projectId, userId);
+    const project = await this.assertScannableProject(dto.projectId);
     await this.assertValidScanConfig(dto, userId);
 
     const rule = this.buildRule(dto);
@@ -273,7 +269,7 @@ export class ScheduledScansService {
    * and validating the patch in isolation would reject it for having none.
    */
   async update(id: string, userId: string, dto: UpdateScheduledScanDto) {
-    const existing = await this.assertOwned(id, userId);
+    const existing = await this.assertExists(id);
     await this.assertValidScanConfig({ ...existing, ...dto } as CreateScheduledScanDto, userId);
 
     const merged = this.mergeForRule(existing, dto);
@@ -331,7 +327,7 @@ export class ScheduledScansService {
    * schedule is invisible to it on both counts.
    */
   async pause(id: string, userId: string) {
-    const existing = await this.assertOwned(id, userId);
+    const existing = await this.assertExists(id);
     if (existing.status === 'PAUSED') return this.toResponse(existing);
 
     const schedule = await this.prisma.scheduledScan.update({
@@ -359,7 +355,7 @@ export class ScheduledScansService {
    * instant and the missed window is simply gone.
    */
   async resume(id: string, userId: string) {
-    const existing = await this.assertOwned(id, userId);
+    const existing = await this.assertExists(id);
 
     const rule = toRule(existing);
     const nextRunAt = computeNextRun(rule);
@@ -397,7 +393,7 @@ export class ScheduledScansService {
    * meaning without the rule that produced it.
    */
   async remove(id: string, userId: string) {
-    const existing = await this.assertOwned(id, userId);
+    const existing = await this.assertExists(id);
 
     const [assessmentCount, executionCount] = await Promise.all([
       this.prisma.assessment.count({ where: { scheduleId: id } }),
@@ -425,7 +421,7 @@ export class ScheduledScansService {
    * as it would have.
    */
   async runNow(id: string, userId: string) {
-    const schedule = await this.assertOwned(id, userId);
+    const schedule = await this.assertExists(id);
 
     const result = await this.dispatcher.runNow(schedule.id, userId);
 
@@ -576,10 +572,10 @@ export class ScheduledScansService {
     }
   }
 
-  /** The project must exist, belong to the caller, and be scannable at all. */
-  private async assertScannableProject(projectId: string, userId: string) {
+  /** The project must exist and be scannable at all. */
+  private async assertScannableProject(projectId: string) {
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, userId },
+      where: { id: projectId },
       select: {
         id: true,
         name: true,
@@ -588,7 +584,7 @@ export class ScheduledScansService {
       },
     });
 
-    if (!project) throw new ForbiddenException('Project not found or access denied');
+    if (!project) throw new NotFoundException('Project not found');
     if (project.status !== 'READY') {
       throw new BadRequestException('Complete project setup before scheduling a scan');
     }
@@ -637,10 +633,10 @@ export class ScheduledScansService {
     }
   }
 
-  /** Loads a schedule the caller owns, or fails the way the API always does. */
-  private async assertOwned(id: string, userId: string) {
+  /** Loads a schedule by id, or fails the way the API always does. */
+  private async assertExists(id: string) {
     const schedule = await this.prisma.scheduledScan.findFirst({
-      where: { id, project: { userId } },
+      where: { id },
       include: LIST_INCLUDE,
     });
     if (!schedule) throw new NotFoundException('Scheduled scan not found');

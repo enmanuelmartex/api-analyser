@@ -157,23 +157,20 @@ export interface RetentionResult {
 // ── Runtime settings ─────────────────────────────────────────────────────────
 
 /** One entry of the settings catalogue, as `GET /settings` returns it. */
-/** `email-list` is the one kind whose value is not a scalar. */
-export type SettingValue = boolean | number | string[];
+export type SettingValue = boolean | number;
 
 export interface RuntimeSetting {
   key: string;
   value: SettingValue;
   /** Where the effective value came from, so the UI can mark overrides. */
   source: 'database' | 'environment' | 'default';
-  kind: 'boolean' | 'number' | 'email-list';
+  kind: 'boolean' | 'number';
   label: string;
   description: string;
   group: 'logs' | 'notifications' | 'scanner' | 'reports';
   env: string;
   min?: number;
   max?: number;
-  /** Ceiling on the number of entries, for `kind: 'email-list'`. */
-  maxItems?: number;
   default: SettingValue;
 }
 
@@ -182,8 +179,7 @@ export interface RuntimeSetting {
 export type NotificationType =
   | 'SCAN_COMPLETED' | 'SCAN_FAILED' | 'REPORT_GENERATED' | 'REPORT_FAILED'
   | 'SECURITY_WARNING' | 'CRITICAL_FINDING' | 'NEW_FINDINGS'
-  | 'SCHEDULED_SCAN_COMPLETED' | 'SCHEDULED_SCAN_FAILED'
-  | 'EMAIL_REPORT_SENT' | 'EMAIL_REPORT_FAILED' | 'SYSTEM_ERROR';
+  | 'SCHEDULED_SCAN_COMPLETED' | 'SCHEDULED_SCAN_FAILED' | 'SYSTEM_ERROR';
 
 export type NotificationCategory = 'SCANS' | 'REPORTS' | 'ISSUES' | 'SECURITY' | 'SYSTEM';
 
@@ -240,14 +236,6 @@ export interface NotificationPreferences {
   criticalFinding: boolean;
   newFindings: boolean;
   systemError: boolean;
-
-  // Email. Every one of these is subordinate to `emailEnabled`.
-  emailEnabled: boolean;
-  emailScanCompleted: boolean;
-  emailScanFailed: boolean;
-  emailReportGenerated: boolean;
-  emailCriticalFinding: boolean;
-  emailWeeklySummary: boolean;
 
   // Experience
   soundEnabled: boolean;

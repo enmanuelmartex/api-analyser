@@ -8,7 +8,6 @@ import {
   IconCircleCheck,
   IconCircleX,
   IconFileText,
-  IconMail,
 } from '@tabler/icons-react';
 import { cn, formatDay, formatTimeOfDay } from '@/lib/utils';
 import type { AppNotification, NotificationType } from '@/types';
@@ -38,8 +37,6 @@ const ICONS: Record<NotificationType, typeof IconBell> = {
   REPORT_FAILED: IconCircleX,
   NEW_FINDINGS: IconBug,
   CRITICAL_FINDING: IconAlertTriangle,
-  EMAIL_REPORT_SENT: IconMail,
-  EMAIL_REPORT_FAILED: IconMail,
   SECURITY_WARNING: IconAlertTriangle,
   SYSTEM_ERROR: IconAlertTriangle,
 };

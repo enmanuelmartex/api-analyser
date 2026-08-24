@@ -49,13 +49,17 @@ const DEFAULT_PAGE_SIZE = 20;
 export class IssuesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Paginated, deduplicated issues. One row per vulnerability, not per detection. */
-  async findAll(userId: string, filters: IssueFilters = {}) {
+  /**
+   * Paginated, deduplicated issues. One row per vulnerability, not per
+   * detection, and shared across every user in the installation — there is no
+   * organization boundary here, see `ProjectsService.findAll`.
+   */
+  async findAll(filters: IssueFilters = {}) {
     const page = Math.max(1, filters.page ?? 1);
     const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, filters.pageSize ?? DEFAULT_PAGE_SIZE));
 
     const where: Prisma.SecurityIssueWhereInput = {
-      project: { userId, isActive: true, ...(filters.projectId ? { id: filters.projectId } : {}) },
+      project: { isActive: true, ...(filters.projectId ? { id: filters.projectId } : {}) },
       ...(filters.status ? { status: this.parseStatus(filters.status) } : {}),
       ...(filters.severity ? { severity: this.parseSeverity(filters.severity) } : {}),
       ...(filters.owaspCategory ? { owaspCategory: filters.owaspCategory } : {}),
@@ -100,12 +104,11 @@ export class IssuesService {
    *
    * Never throws when guidance is missing — "no guidance yet" is a normal
    * outcome (AI disabled, provider unconfigured, scan predates the feature) and
-   * must be distinguishable from "we tried and it failed". Ownership is checked
-   * against the issue, so guidance cannot be read for another user's project.
+   * must be distinguishable from "we tried and it failed".
    */
-  async getGuidance(id: string, userId: string) {
+  async getGuidance(id: string) {
     const issue = await this.prisma.securityIssue.findFirst({
-      where: { id, project: { userId } },
+      where: { id },
       select: { id: true },
     });
     if (!issue) throw new NotFoundException('Issue not found');
@@ -147,9 +150,9 @@ export class IssuesService {
   }
 
   /** One issue with its occurrence history and full triage timeline. */
-  async findOne(id: string, userId: string) {
+  async findOne(id: string) {
     const issue = await this.prisma.securityIssue.findFirst({
-      where: { id, project: { userId } },
+      where: { id },
       include: {
         project: { select: { id: true, name: true, baseUrl: true } },
         assignee: { select: { id: true, name: true, email: true, avatar: true, avatarColor: true } },
@@ -179,7 +182,7 @@ export class IssuesService {
    */
   async updateStatus(id: string, userId: string, input: UpdateIssueStatusInput) {
     const issue = await this.prisma.securityIssue.findFirst({
-      where: { id, project: { userId } },
+      where: { id },
       select: { id: true, status: true },
     });
     if (!issue) throw new NotFoundException('Issue not found');
@@ -197,7 +200,7 @@ export class IssuesService {
       throw new BadRequestException(`A reason is required when marking an issue as ${toStatus}.`);
     }
 
-    if (toStatus === issue.status) return this.findOne(id, userId);
+    if (toStatus === issue.status) return this.findOne(id);
 
     const acceptedRiskUntil = input.acceptedRiskUntil ? new Date(input.acceptedRiskUntil) : null;
     if (acceptedRiskUntil && Number.isNaN(acceptedRiskUntil.getTime())) {
@@ -228,12 +231,12 @@ export class IssuesService {
       });
     });
 
-    return this.findOne(id, userId);
+    return this.findOne(id);
   }
 
-  async assign(id: string, userId: string, assigneeId: string | null) {
+  async assign(id: string, assigneeId: string | null) {
     const issue = await this.prisma.securityIssue.findFirst({
-      where: { id, project: { userId } },
+      where: { id },
       select: { id: true },
     });
     if (!issue) throw new NotFoundException('Issue not found');
@@ -258,13 +261,13 @@ export class IssuesService {
     }
 
     await this.prisma.securityIssue.update({ where: { id }, data: { assigneeId } });
-    return this.findOne(id, userId);
+    return this.findOne(id);
   }
 
   /** Aggregates over current issues, for dashboards. */
-  async getStats(userId: string, projectId?: string) {
+  async getStats(projectId?: string) {
     const where: Prisma.SecurityIssueWhereInput = {
-      project: { userId, isActive: true, ...(projectId ? { id: projectId } : {}) },
+      project: { isActive: true, ...(projectId ? { id: projectId } : {}) },
     };
 
     const [bySeverity, byStatus, byOwasp, total, open] = await Promise.all([
@@ -289,9 +292,9 @@ export class IssuesService {
   }
 
   /** The detections a single scan produced. Immutable history, not current state. */
-  async findOccurrencesByAssessment(assessmentId: string, userId: string) {
+  async findOccurrencesByAssessment(assessmentId: string) {
     const assessment = await this.prisma.assessment.findFirst({
-      where: { id: assessmentId, project: { userId } },
+      where: { id: assessmentId },
       select: { id: true },
     });
     if (!assessment) throw new NotFoundException('Scan not found');

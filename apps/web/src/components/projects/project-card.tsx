@@ -36,6 +36,8 @@ export type ProjectCardProps = {
   onEdit: (_project: ProjectListItem) => void;
   onDelete: (_project: ProjectListItem) => void;
   onContinueSetup: (_project: ProjectListItem) => void;
+  /** VIEWER is read-only: no edit, delete or draft setup. */
+  canWrite?: boolean;
   className?: string;
 };
 
@@ -46,6 +48,7 @@ export function ProjectCard({
   onEdit,
   onDelete,
   onContinueSetup,
+  canWrite = true,
   className,
 }: ProjectCardProps) {
   const isDraft = project.status === 'DRAFT';
@@ -78,41 +81,43 @@ export function ProjectCard({
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center self-start overflow-hidden rounded-lg border border-border/70">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => onEdit(project)}
-                    aria-label={`Editar ${name}`}
-                    className="size-8 rounded-none text-muted-foreground [&_svg]:size-[15px] hover:text-foreground"
-                  >
-                    <Pencil />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Editar</TooltipContent>
-              </Tooltip>
+            {canWrite && (
+              <div className="flex shrink-0 items-center self-start overflow-hidden rounded-lg border border-border/70">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => onEdit(project)}
+                      aria-label={`Editar ${name}`}
+                      className="size-8 rounded-none text-muted-foreground [&_svg]:size-[15px] hover:text-foreground"
+                    >
+                      <Pencil />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Editar</TooltipContent>
+                </Tooltip>
 
-              <span aria-hidden="true" className="h-5 w-[0.5px] shrink-0 bg-border" />
+                <span aria-hidden="true" className="h-5 w-[0.5px] shrink-0 bg-border" />
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => onDelete(project)}
-                    aria-label={`Eliminar ${name}`}
-                    className="size-8 rounded-none text-muted-foreground [&_svg]:size-[15px] hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Trash2 />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Eliminar</TooltipContent>
-              </Tooltip>
-            </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => onDelete(project)}
+                      aria-label={`Eliminar ${name}`}
+                      className="size-8 rounded-none text-muted-foreground [&_svg]:size-[15px] hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Eliminar</TooltipContent>
+                </Tooltip>
+              </div>
+            )}
           </div>
 
           <BaseUrlRow url={project.baseUrl} />
@@ -138,10 +143,12 @@ export function ProjectCard({
                   <Badge className="h-5 border-transparent bg-severity-medium/10 px-2 text-[11px] font-medium text-severity-medium">
                     Paso {project.setupStep || 1} de 3
                   </Badge>
-                  <button type="button" onClick={() => onContinueSetup(project)} className={FOOTER_LINK_CLASS}>
-                    Continuar configuración
-                    <ChevronRight className="size-3.5" />
-                  </button>
+                  {canWrite && (
+                    <button type="button" onClick={() => onContinueSetup(project)} className={FOOTER_LINK_CLASS}>
+                      Continuar configuración
+                      <ChevronRight className="size-3.5" />
+                    </button>
+                  )}
                 </>
               ) : (
                 <>

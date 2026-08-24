@@ -19,14 +19,6 @@ export class UpdatePreferencesDto {
   @IsOptional() @IsBoolean() newFindings?: boolean;
   @IsOptional() @IsBoolean() systemError?: boolean;
 
-  // ── Email ─────────────────────────────────────────────────────────────────
-  @IsOptional() @IsBoolean() emailEnabled?: boolean;
-  @IsOptional() @IsBoolean() emailScanCompleted?: boolean;
-  @IsOptional() @IsBoolean() emailScanFailed?: boolean;
-  @IsOptional() @IsBoolean() emailReportGenerated?: boolean;
-  @IsOptional() @IsBoolean() emailCriticalFinding?: boolean;
-  @IsOptional() @IsBoolean() emailWeeklySummary?: boolean;
-
   // ── Experience ────────────────────────────────────────────────────────────
   @IsOptional() @IsBoolean() soundEnabled?: boolean;
   @IsOptional() @IsBoolean() desktopEnabled?: boolean;

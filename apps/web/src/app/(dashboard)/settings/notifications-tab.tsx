@@ -10,7 +10,7 @@ import {
   IconInfoCircle,
 } from '@tabler/icons-react';
 import { notificationsApi, settingsApi } from '@/lib/api';
-import type { NotificationPreferences, SettingValue } from '@/types';
+import type { NotificationPreferences } from '@/types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,7 +23,6 @@ import {
   SettingsSection,
   SwitchRow,
 } from './_components/settings-primitives';
-import { RecipientsField } from './_components/recipients-field';
 
 /**
  * Which switch controls what, and how it is described.
@@ -40,51 +39,6 @@ interface PreferenceGroup {
     description: string;
   }[];
 }
-
-/**
- * The events that can be emailed.
- *
- * Deliberately a shorter list than the in-app one. An email cannot be marked
- * read and arrives while the recipient is doing something else, so it is offered
- * only for outcomes somebody is waiting for, failures that stop work, and
- * critical vulnerabilities. Routine findings stay in-app — this mirrors
- * `emailPreference: null` in the backend's notification catalog, which is what
- * actually enforces it.
- */
-const EMAIL_ITEMS: {
-  key: keyof NotificationPreferences;
-  label: string;
-  description: string;
-}[] = [
-  {
-    key: 'emailScanCompleted',
-    label: 'Scan completed',
-    description: 'The scan summary, with the PDF report attached once it has been generated.',
-  },
-  {
-    key: 'emailReportGenerated',
-    label: 'Report ready',
-    description:
-      'Sent with the scan summary above — one email per scan, never one for each.',
-  },
-  {
-    key: 'emailScanFailed',
-    label: 'Scan failed',
-    description: 'When an assessment does not complete. No report is generated for a failed run.',
-  },
-  {
-    key: 'emailCriticalFinding',
-    label: 'Critical findings',
-    description:
-      'Only sent on its own if you have muted scan-completed emails — otherwise the breakdown is already in that email.',
-  },
-  {
-    key: 'emailWeeklySummary',
-    label: 'Weekly summary',
-    description:
-      'A Monday digest of the previous week: assessments run, findings, criticals, and how each compares with the week before.',
-  },
-];
 
 const GROUPS: PreferenceGroup[] = [
   {
@@ -324,52 +278,6 @@ export function NotificationsTab({ isAdmin }: { isAdmin: boolean }) {
           </SettingsSection>
         ))}
 
-        {/*
-         * Administrator-only, and placed above the personal switches on
-         * purpose: it is the setting most people come to this screen for, and
-         * it governs a different audience entirely. See ReportRecipientsSection.
-         */}
-        {isAdmin && <ReportRecipientsSection />}
-
-        <SettingsSection
-          title="Your email"
-          description="Sent to your own account address. Independent of the report recipients above — these switches govern only what you receive."
-        >
-          {loading ? (
-            <SettingRowsSkeleton count={5} />
-          ) : (
-            <SettingsRows>
-              <SwitchRow
-                id="pref-email-enabled"
-                label="Email notifications"
-                description="The master switch. Off by default — a self-hosted install has no mail provider until an administrator configures one."
-                hint="If the server has no mail transport configured — neither MAIL_RELAY_URL/MAIL_RELAY_TOKEN nor RESEND_API_KEY — messages are recorded as skipped rather than queued, and your in-app notifications are unaffected."
-                checked={Boolean(values?.emailEnabled)}
-                onCheckedChange={(next) => update('emailEnabled', next)}
-              />
-
-              {/*
-               * The per-event switches stay visible but disabled when the master
-               * is off, rather than disappearing. Hiding them would make the
-               * screen appear to lose settings the user had chosen, and they are
-               * still stored — turning the master back on restores exactly the
-               * selection that was there before.
-               */}
-              {EMAIL_ITEMS.map((item) => (
-                <SwitchRow
-                  key={item.key}
-                  id={`pref-${item.key}`}
-                  label={item.label}
-                  description={item.description}
-                  checked={Boolean(values?.emailEnabled) && Boolean(values?.[item.key])}
-                  disabled={!values?.emailEnabled}
-                  onCheckedChange={(next) => update(item.key, next)}
-                />
-              ))}
-            </SettingsRows>
-          )}
-        </SettingsSection>
-
         <SettingsSection
           title="Delivery"
           description="How notifications reach you once they are created."
@@ -420,9 +328,7 @@ export function NotificationsTab({ isAdmin }: { isAdmin: boolean }) {
 
       <SettingsNote icon={IconBell}>
         In-app notifications are always available and are stored in the database, so anything that
-        happened while you were away is waiting when you return. Email is optional and requires an
-        administrator to configure a Resend API key on the server; without one, no message is sent
-        and nothing else changes. There are no webhooks.
+        happened while you were away is waiting when you return. There are no webhooks.
       </SettingsNote>
     </div>
   );
@@ -455,99 +361,4 @@ function DesktopPermissionBadge() {
     );
   }
   return null;
-}
-
-/**
- * Where scan results are emailed, for the whole installation.
- *
- * The distinction this section has to make legible, because getting it wrong
- * means either a security report going somewhere it should not or a report
- * nobody receives:
- *
- *   • **These addresses** belong to the installation. They are usually a team
- *     mailbox or a ticketing inbox, frequently not users at all, and an
- *     administrator controls them. They receive the report for every scan.
- *   • **The switches below** belong to whoever is reading the screen, and
- *     govern only the mail sent to their own account address.
- *
- * Saves on change rather than behind a Save button, like the rest of Settings:
- * there is no valid intermediate state to protect, and a settings screen with
- * unsaved changes is the other common way these end up not persisting.
- */
-function ReportRecipientsSection() {
-  const queryClient = useQueryClient();
-
-  const settings = useQuery({
-    queryKey: ['settings'],
-    queryFn: settingsApi.list,
-    staleTime: 60_000,
-  });
-
-  const save = useMutation({
-    mutationFn: (patch: Record<string, SettingValue>) => settingsApi.update(patch),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
-    onError: (err: any) =>
-      toast.error('Could not save', {
-        // The API names the offending address, which is the difference between
-        // a usable error and "invalid value".
-        description: err?.response?.data?.message ?? 'The API rejected the change.',
-      }),
-  });
-
-  const setting = (key: string) => settings.data?.find((entry) => entry.key === key);
-
-  const recipients = setting('notifications.reportRecipients');
-  const onCompleted = setting('notifications.emailOnScanCompleted');
-  const onFailed = setting('notifications.emailOnScanFailed');
-
-  const addresses = Array.isArray(recipients?.value) ? (recipients.value as string[]) : [];
-
-  return (
-    <SettingsSection
-      title="Report recipients"
-      description="Addresses that receive the security report for every completed scan, manual or scheduled. They do not need to be users of this installation."
-    >
-      {settings.isLoading ? (
-        <SettingRowsSkeleton count={3} />
-      ) : (
-        <div className="space-y-5">
-          <RecipientsField
-            value={addresses}
-            max={recipients?.maxItems}
-            disabled={save.isPending}
-            inputId="report-recipients"
-            emptyHint="No addresses yet — reports are only emailed to users who have enabled it for themselves."
-            onChange={(next) => save.mutate({ 'notifications.reportRecipients': next })}
-          />
-
-          <SettingsRows>
-            <SwitchRow
-              id="setting-email-on-scan-completed"
-              label="Email completed scans"
-              description="Send the report to the addresses above when a scan finishes."
-              checked={onCompleted?.value !== false}
-              disabled={save.isPending}
-              onCheckedChange={(next) =>
-                save.mutate({ 'notifications.emailOnScanCompleted': next })
-              }
-            />
-            <SwitchRow
-              id="setting-email-on-scan-failed"
-              label="Email failed scans"
-              description="Tell those addresses when a scan does not complete. A failed scheduled scan is easy to miss otherwise."
-              checked={onFailed?.value !== false}
-              disabled={save.isPending}
-              onCheckedChange={(next) => save.mutate({ 'notifications.emailOnScanFailed': next })}
-            />
-          </SettingsRows>
-
-          <SettingsNote icon={IconInfoCircle}>
-            A report over the attachment limit is linked rather than attached, and the email says
-            so. Addresses here receive mail regardless of any individual user&rsquo;s notification
-            preferences.
-          </SettingsNote>
-        </div>
-      )}
-    </SettingsSection>
-  );
 }

@@ -11,8 +11,8 @@ import type { NotificationCategory, NotificationType, LogSeverity } from '@prism
  *
  * The bug this replaces is worth naming: `COLUMN_FOR_TYPE` in the preferences
  * service listed six of the twelve types. `wants()` indexed it with the other
- * six, got `undefined`, and returned it — so every NEW_FINDINGS, REPORT_FAILED,
- * SCHEDULED_SCAN_* and EMAIL_* notification was silently discarded at the
+ * six, got `undefined`, and returned it — so every NEW_FINDINGS, REPORT_FAILED
+ * and SCHEDULED_SCAN_* notification was silently discarded at the
  * preference gate. `Record<NotificationType, …>` below makes that specific
  * mistake a compile error: a type added to the enum without an entry here fails
  * the build.
@@ -30,41 +30,13 @@ export interface InAppPreferenceFlags {
   systemError: boolean;
 }
 
-/**
- * The email switches, plus the master.
- *
- * Deliberately a smaller set than the in-app one. Email is interruptive and
- * cannot be marked read, so only outcomes somebody is waiting for, failures that
- * stop work, and critical vulnerabilities are offered. Routine findings stay
- * in-app — see `emailPreference: null` on NEW_FINDINGS below.
- */
-export interface EmailPreferenceFlags {
-  emailEnabled: boolean;
-  emailScanCompleted: boolean;
-  emailScanFailed: boolean;
-  emailReportGenerated: boolean;
-  emailCriticalFinding: boolean;
-  /**
-   * The weekly digest.
-   *
-   * The one email switch with no `NotificationType` behind it, because it is
-   * not a reaction to an event: nothing happens that a notification could
-   * describe, a scheduler simply comes round on Monday. It is therefore read
-   * directly by the weekly job rather than through `wantsEmail`, which takes a
-   * notification type — see `NotificationPreferencesService.wantsWeeklySummary`.
-   */
-  emailWeeklySummary: boolean;
-}
-
 /** Presentation-only switches. Neither gates delivery; both shape arrival. */
 export interface ExperiencePreferenceFlags {
   soundEnabled: boolean;
   desktopEnabled: boolean;
 }
 
-export type PreferenceFlags = InAppPreferenceFlags &
-  EmailPreferenceFlags &
-  ExperiencePreferenceFlags;
+export type PreferenceFlags = InAppPreferenceFlags & ExperiencePreferenceFlags;
 
 export interface NotificationDefinition {
   /** Which product area it badges. Drives the per-section sidebar counters. */
@@ -73,14 +45,6 @@ export interface NotificationDefinition {
   severity: LogSeverity;
   /** The in-app switch that gates it. */
   preference: keyof InAppPreferenceFlags;
-  /**
-   * The email switch that gates it, or null when the type is never emailed.
-   *
-   * Null is a hard rule, not a default: a type with no email preference cannot
-   * be emailed even if a caller asks, because `mayEmail` below is the only way
-   * the email pipeline decides.
-   */
-  emailPreference: keyof Omit<EmailPreferenceFlags, 'emailEnabled'> | null;
 }
 
 /**
@@ -94,81 +58,51 @@ export const NOTIFICATION_CATALOG = {
     category: 'SCANS',
     severity: 'INFO',
     preference: 'scanCompleted',
-    emailPreference: 'emailScanCompleted',
   },
   SCAN_FAILED: {
     category: 'SCANS',
     severity: 'ERROR',
     preference: 'scanFailed',
-    emailPreference: 'emailScanFailed',
   },
   SCHEDULED_SCAN_COMPLETED: {
     category: 'SCANS',
     severity: 'INFO',
     preference: 'scanCompleted',
-    emailPreference: 'emailScanCompleted',
   },
   SCHEDULED_SCAN_FAILED: {
     category: 'SCANS',
     severity: 'ERROR',
     preference: 'scanFailed',
-    emailPreference: 'emailScanFailed',
   },
   REPORT_GENERATED: {
     category: 'REPORTS',
     severity: 'INFO',
     preference: 'reportGenerated',
-    emailPreference: 'emailReportGenerated',
   },
   REPORT_FAILED: {
     category: 'REPORTS',
     severity: 'ERROR',
     preference: 'reportFailed',
-    // Not emailed. A report that failed to generate is retried automatically and
-    // usually succeeds; mailing about the intermediate failure would announce a
-    // problem the user cannot act on and that may already be resolved.
-    emailPreference: null,
   },
   NEW_FINDINGS: {
     category: 'ISSUES',
     severity: 'WARNING',
     preference: 'newFindings',
-    // In-app only, by design: the scan-completed email already carries the
-    // severity breakdown, so emailing this too would be the same news twice.
-    emailPreference: null,
   },
   CRITICAL_FINDING: {
     category: 'ISSUES',
     severity: 'CRITICAL',
     preference: 'criticalFinding',
-    emailPreference: 'emailCriticalFinding',
-  },
-  EMAIL_REPORT_SENT: {
-    category: 'REPORTS',
-    severity: 'INFO',
-    preference: 'reportGenerated',
-    // Never emailed — mailing to confirm a mail is a loop with no exit.
-    emailPreference: null,
-  },
-  EMAIL_REPORT_FAILED: {
-    category: 'REPORTS',
-    severity: 'WARNING',
-    preference: 'reportFailed',
-    // Never emailed, and for the same reason plus a stronger one: the delivery
-    // channel is the thing that just failed.
-    emailPreference: null,
   },
   SECURITY_WARNING: {
     category: 'SECURITY',
     severity: 'WARNING',
     preference: 'securityWarning',
-    emailPreference: null,
   },
   SYSTEM_ERROR: {
     category: 'SYSTEM',
     severity: 'ERROR',
     preference: 'systemError',
-    emailPreference: null,
   },
 } satisfies Record<NotificationType, NotificationDefinition>;
 
@@ -181,9 +115,7 @@ export function definitionFor(type: NotificationType): NotificationDefinition {
  * Defaults for a user who has never opened the settings screen.
  *
  * Every in-app event is on: a new user should receive the notifications the
- * product exists to deliver. `emailEnabled` is off because a self-hosted install
- * has no mail provider until somebody configures one, and defaulting it on would
- * queue deliveries that can only fail. Sound and desktop are off because neither
+ * product exists to deliver. Sound and desktop are off because neither
  * should start happening because of a default the user never chose.
  *
  * Kept in step with the column defaults in `schema.prisma`; the preferences
@@ -198,13 +130,6 @@ export const DEFAULT_PREFERENCES: PreferenceFlags = {
   criticalFinding: true,
   newFindings: true,
   systemError: true,
-
-  emailEnabled: false,
-  emailScanCompleted: true,
-  emailScanFailed: true,
-  emailReportGenerated: true,
-  emailCriticalFinding: true,
-  emailWeeklySummary: true,
 
   soundEnabled: false,
   desktopEnabled: false,

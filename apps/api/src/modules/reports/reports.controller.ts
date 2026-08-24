@@ -15,6 +15,8 @@ import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuditAction } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ReportsService } from './reports.service';
 import { AuditService } from '../audit/audit.service';
@@ -43,7 +45,7 @@ import {
  */
 @ApiTags('Reports')
 @ApiBearerAuth('JWT')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('reports')
 export class ReportsController {
   constructor(
@@ -53,18 +55,17 @@ export class ReportsController {
 
   @Get('stats')
   @ApiOperation({ summary: 'Reports metrics and vulnerability trend' })
-  getStats(@CurrentUser() user: any) {
-    return this.reportsService.getStats(user.id);
+  getStats() {
+    return this.reportsService.getStats();
   }
 
   @Get()
   @ApiOperation({ summary: 'List reports (latest version of each artifact)' })
   findAll(
-    @CurrentUser() user: any,
     @Query('assessmentId') assessmentId?: string,
     @Query('includeHistory') includeHistory?: string,
   ) {
-    return this.reportsService.findAll(user.id, {
+    return this.reportsService.findAll({
       assessmentId,
       includeHistory: includeHistory === 'true',
     });
@@ -72,19 +73,18 @@ export class ReportsController {
 
   @Get('assessment/:assessmentId')
   @ApiOperation({ summary: 'List reports of one assessment' })
-  findByAssessment(@Param('assessmentId') assessmentId: string, @CurrentUser() user: any) {
-    return this.reportsService.findByAssessment(assessmentId, user.id);
+  findByAssessment(@Param('assessmentId') assessmentId: string) {
+    return this.reportsService.findByAssessment(assessmentId);
   }
 
   @Get('assessment/:assessmentId/formats')
   @ApiOperation({ summary: 'Availability of every format for an assessment + report type' })
   formats(
     @Param('assessmentId') assessmentId: string,
-    @CurrentUser() user: any,
     @Query('type') type = 'TECHNICAL',
   ) {
     if (!isReportType(type)) throw new BadRequestException(`Unsupported report type: ${type}`);
-    return this.reportsService.findByAssessment(assessmentId, user.id).then(() =>
+    return this.reportsService.findByAssessment(assessmentId).then(() =>
       this.reportsService.formatAvailability(assessmentId, type as ReportType),
     );
   }
@@ -97,6 +97,7 @@ export class ReportsController {
    * or a retried request cannot produce a second row.
    */
   @Post('assessment/:assessmentId/generate')
+  @Roles('ADMIN', 'ANALYST')
   @HttpCode(200)
   @ApiOperation({ summary: 'Generate a report artifact for an assessment' })
   async generate(
@@ -145,13 +146,12 @@ export class ReportsController {
    *
    * Read-only by contract: no row is created, `generatedAt` is unchanged, and
    * the current findings are never consulted — the bytes come from the artifact
-   * frozen at generation time. Ownership is resolved from the report id against
-   * the authenticated user, so a foreign id is a 404 rather than a download.
+   * frozen at generation time. A missing id is a 404 rather than a download.
    */
   @Get(':id/download')
   @ApiOperation({ summary: 'Download an existing report artifact' })
   async download(@Param('id') id: string, @CurrentUser() user: any, @Res() res: Response) {
-    const artifact = await this.reportsService.resolveArtifact(id, user.id);
+    const artifact = await this.reportsService.resolveArtifact(id);
 
     res.setHeader('Content-Type', artifact.contentType);
     res.setHeader('Content-Disposition', contentDisposition(artifact.fileName));
@@ -178,14 +178,15 @@ export class ReportsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get report details' })
-  findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.reportsService.findOne(id, user.id);
+  findOne(@Param('id') id: string) {
+    return this.reportsService.findOne(id);
   }
 
   @Delete(':id')
+  @Roles('ADMIN', 'ANALYST')
   @ApiOperation({ summary: 'Delete a report and its artifact' })
   async remove(@Param('id') id: string, @CurrentUser() user: any) {
-    const result = await this.reportsService.remove(id, user.id);
+    const result = await this.reportsService.remove(id);
 
     this.audit.log({
       userId: user.id,

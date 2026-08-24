@@ -39,7 +39,6 @@ export class SettingsController {
       env: definition.env,
       min: definition.min,
       max: definition.max,
-      maxItems: definition.maxItems,
       default: definition.fallback,
     }));
   }

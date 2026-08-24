@@ -24,6 +24,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDate } from '@/lib/utils';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 const STATUSES: IssueStatus[] = [
   'OPEN',
@@ -34,6 +35,7 @@ const STATUSES: IssueStatus[] = [
 ];
 
 export default function IssueDetailPage() {
+  const { canWrite } = useCurrentUser();
   const { issueId } = useParams<{ issueId: string }>();
   const queryClient = useQueryClient();
 
@@ -248,7 +250,7 @@ export default function IssueDetailPage() {
                     key={next}
                     variant={issue.status === next ? 'default' : 'outline'}
                     size="sm"
-                    disabled={mutation.isPending || issue.status === next}
+                    disabled={mutation.isPending || issue.status === next || !canWrite}
                     onClick={() => requestStatusChange(next)}
                   >
                     {next.replace(/_/g, ' ')}
@@ -267,7 +269,7 @@ export default function IssueDetailPage() {
                   id="issue-assignee"
                   assigneeId={issue.assigneeId}
                   assignee={issue.assignee}
-                  disabled={assignMutation.isPending}
+                  disabled={assignMutation.isPending || !canWrite}
                   onChange={(assigneeId) => assignMutation.mutate(assigneeId)}
                 />
               </Field>

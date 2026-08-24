@@ -71,7 +71,7 @@ describe('no stored artifact', () => {
       data: { assessmentId: SCAN, type: 'TECHNICAL', format: 'PDF', title: 'Legacy' } as any,
     });
 
-    await expect(service.resolveArtifact(legacy.id, USER)).rejects.toThrow(
+    await expect(service.resolveArtifact(legacy.id)).rejects.toThrow(
       /no stored artifact.*[Rr]egenerate/s,
     );
     expect(await prisma.report.count()).toBe(1);
@@ -86,7 +86,7 @@ describe('PDF renderer unavailable', () => {
     const { report } = await service.generate(SCAN, USER, { type: 'TECHNICAL', format: 'PDF' });
     expect(report.isDownloadable).toBe(true);
 
-    await expect(service.resolveArtifact(report.id, USER)).rejects.toThrow(
+    await expect(service.resolveArtifact(report.id)).rejects.toThrow(
       /no PDF renderer is available/i,
     );
   });
@@ -95,7 +95,7 @@ describe('PDF renderer unavailable', () => {
     const service = serviceWith(new NoChromiumGenerator(prisma as any, testPluginRegistry()));
     const { report } = await service.generate(SCAN, USER, { type: 'TECHNICAL', format: 'PDF' });
 
-    const message = await service.resolveArtifact(report.id, USER).then(
+    const message = await service.resolveArtifact(report.id).then(
       () => '',
       (error) => String(error.message),
     );
@@ -111,7 +111,7 @@ describe('PDF renderer unavailable', () => {
     const { report } = await service.generate(SCAN, USER, { type: 'TECHNICAL', format: 'PDF' });
 
     const before = await prisma.report.findMany();
-    await service.resolveArtifact(report.id, USER).catch(() => null);
+    await service.resolveArtifact(report.id).catch(() => null);
     const after = await prisma.report.findMany();
 
     expect(after).toHaveLength(before.length);
@@ -123,7 +123,7 @@ describe('PDF renderer unavailable', () => {
     const service = serviceWith(new NoChromiumGenerator(prisma as any, testPluginRegistry()));
     const { report } = await service.generate(SCAN, USER, { type: 'TECHNICAL', format: 'JSON' });
 
-    const artifact = await service.resolveArtifact(report.id, USER);
+    const artifact = await service.resolveArtifact(report.id);
     expect(artifact.contentType).toBe('application/json; charset=utf-8');
     expect(artifact.bytes.length).toBeGreaterThan(0);
   });

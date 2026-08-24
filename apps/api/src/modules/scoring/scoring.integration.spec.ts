@@ -18,7 +18,6 @@ let comparison: ComparisonService;
 let lifecycle: IssueLifecycleService;
 
 const PROJECT_ID = 'score-project';
-const USER_ID = `user-${PROJECT_ID}`;
 const SCAN_A = 'scan-a';
 const SCAN_B = 'scan-b';
 
@@ -218,14 +217,14 @@ describe('project posture', () => {
 describe('comparison', () => {
   it('rejects comparing a scan with itself', async () => {
     await runScan(SCAN_A, [finding()]);
-    await expect(comparison.compare(SCAN_A, USER_ID, SCAN_A)).rejects.toThrow(/cannot be compared with itself/i);
+    await expect(comparison.compare(SCAN_A, SCAN_A)).rejects.toThrow(/cannot be compared with itself/i);
   });
 
   it('rejects a baseline from a different project', async () => {
     await runScan(SCAN_A, [finding()]);
     await seedProjectAndAssessment(prisma, { projectId: 'other-project', assessmentId: 'other-scan' });
 
-    await expect(comparison.compare(SCAN_A, USER_ID, 'other-scan')).rejects.toThrow();
+    await expect(comparison.compare(SCAN_A, 'other-scan')).rejects.toThrow();
   });
 
   it('classifies new, persisting and resolved issues', async () => {
@@ -239,7 +238,7 @@ describe('comparison', () => {
       finding({ ruleId: 'headers.missing-x-frame-options', component: 'c3' }),
     ], { plannedChecks: 1, successfulChecks: 1 });
 
-    const result = await comparison.compare(SCAN_B, USER_ID, SCAN_A);
+    const result = await comparison.compare(SCAN_B, SCAN_A);
 
     expect(result.changes.PERSISTING).toHaveLength(1);
     expect(result.changes.NEW).toHaveLength(1);
@@ -256,7 +255,7 @@ describe('comparison', () => {
       { successfulPlugins: [], failedPlugins: ['security-headers'] },
     );
 
-    const result = await comparison.compare(SCAN_B, USER_ID, SCAN_A);
+    const result = await comparison.compare(SCAN_B, SCAN_A);
     expect(result.changes.NOT_TESTED).toHaveLength(1);
     expect(result.changes.RESOLVED).toHaveLength(0);
   });
@@ -270,7 +269,7 @@ describe('comparison', () => {
       { successfulPlugins: ['cors'] },
     );
 
-    const result = await comparison.compare(SCAN_B, USER_ID, SCAN_A);
+    const result = await comparison.compare(SCAN_B, SCAN_A);
     expect(result.changes.OUT_OF_SCOPE).toHaveLength(1);
     expect(result.changes.RESOLVED).toHaveLength(0);
   });
@@ -279,7 +278,7 @@ describe('comparison', () => {
     await runScan(SCAN_A, [finding()], { plannedChecks: 1, successfulChecks: 1 });
     await runScan(SCAN_B, [], { plannedChecks: 1, successfulChecks: 0, failedChecks: 1 });
 
-    const result = await comparison.compare(SCAN_B, USER_ID, SCAN_A);
+    const result = await comparison.compare(SCAN_B, SCAN_A);
     expect(result.comparability).toBe('NOT_COMPARABLE');
     expect(result.warnings.join(' ')).toContain('no computable score');
   });
@@ -293,7 +292,7 @@ describe('comparison', () => {
       { successfulPlugins: ['security-headers', 'cors'] },
     );
 
-    const result = await comparison.compare(SCAN_B, USER_ID, SCAN_A);
+    const result = await comparison.compare(SCAN_B, SCAN_A);
     expect(result.comparability).toBe('PARTIALLY_COMPARABLE');
     expect(result.scopeChanges!.addedChecks).toContain('cors');
     expect(result.scopeChanges!.sharedChecks).toContain('security-headers');
@@ -316,7 +315,7 @@ describe('comparison', () => {
     await runScan(SCAN_A, [finding()], { plannedChecks: 1, successfulChecks: 1 });
     await runScan(SCAN_B, [finding()], { plannedChecks: 1, successfulChecks: 1 });
 
-    const result = await comparison.compare(SCAN_B, USER_ID, SCAN_A);
+    const result = await comparison.compare(SCAN_B, SCAN_A);
 
     expect(Object.keys(result).sort()).toEqual([
       'baseline',
@@ -377,7 +376,7 @@ describe('comparison', () => {
     await runScan(SCAN_A, [finding()]);
     await runScan(SCAN_B, [finding()]);
 
-    const candidates = await comparison.getComparisonCandidates(SCAN_B, USER_ID);
+    const candidates = await comparison.getComparisonCandidates(SCAN_B);
 
     expect(candidates.length).toBeGreaterThan(0);
     expect(Object.keys(candidates[0]).sort()).toEqual(['createdAt', 'id', 'summary']);
@@ -395,7 +394,7 @@ describe('comparison', () => {
     await runScan(SCAN_A, []);
     await runScan(SCAN_B, [finding()]);
 
-    const result = await comparison.compare(SCAN_B, USER_ID, SCAN_A);
+    const result = await comparison.compare(SCAN_B, SCAN_A);
     const entry = result.changes.NEW[0];
 
     expect(entry).toBeDefined();
@@ -410,7 +409,7 @@ describe('comparison', () => {
     await runScan(SCAN_A, [finding()], { plannedChecks: 1, successfulChecks: 1 });
     await runScan(SCAN_B, [finding()], { plannedChecks: 1, successfulChecks: 1 });
 
-    const result = await comparison.compare(SCAN_B, USER_ID, SCAN_A);
+    const result = await comparison.compare(SCAN_B, SCAN_A);
     expect(result.comparability).toBe('COMPARABLE');
     expect(result.warnings).toEqual([]);
     expect(result.scoreDelta).toBe(0);
@@ -431,7 +430,7 @@ describe('comparison', () => {
       { successfulPlugins: ['security-headers'] },
     );
 
-    const result = await comparison.compare(SCAN_B, USER_ID, SCAN_A);
+    const result = await comparison.compare(SCAN_B, SCAN_A);
 
     expect(result.scoreDelta).toBeGreaterThan(0);
     expect(result.coverageDelta).toBeLessThan(0);
@@ -443,7 +442,7 @@ describe('comparison', () => {
     await runScan(SCAN_A, [finding()]);
     await runScan(SCAN_B, [finding()]);
 
-    const candidates = await comparison.getComparisonCandidates(SCAN_B, USER_ID);
+    const candidates = await comparison.getComparisonCandidates(SCAN_B);
     expect(candidates.map((c) => c.id)).toContain(SCAN_A);
     expect(candidates.map((c) => c.id)).not.toContain(SCAN_B);
   });

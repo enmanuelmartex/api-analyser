@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PluginRegistryService } from './plugin-registry.service';
 import { ScanContext } from '../scanner/types/scanner.types';
@@ -55,23 +55,17 @@ export class PluginExecutorService {
     }
 
     /*
-     * Ownership must be proven before anything below touches this project —
+     * Existence must be proven before anything below touches this project —
      * `buildContext` reads the project's stored `authConfig` (bearer token,
      * basic auth password, API key) and hands it straight to the plugin,
-     * which then sends live traffic to `project.baseUrl` carrying it. The
-     * result is returned to the caller as-is, including raw HTTP
-     * request/response evidence, without the redaction the normal scan
-     * pipeline applies through `IssueLifecycleService`. Without this check,
-     * any authenticated user could run a plugin against any other user's
-     * project by guessing or enumerating its id, using that project's own
-     * credentials, and read back the unredacted result — a cross-tenant scan
-     * plus a credential/evidence leak in one request. Rejected outright with
-     * `ForbiddenException` rather than folded into the FAILED-status path
-     * below: a caller who is not this project's owner gets no confirmation
-     * the project exists, and no scan traffic is ever sent on their behalf.
+     * which then sends live traffic to `project.baseUrl` carrying it. There is
+     * no per-project ownership boundary in this product — every authenticated
+     * user in the installation may run a plugin against any project, the same
+     * as starting a scan — but a genuinely unknown id must still be rejected
+     * before any scan traffic is sent on the caller's behalf.
      */
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, userId },
+      where: { id: projectId },
       include: {
         apiSpec: {
           include: { authConfig: true, endpoints: true },
@@ -79,7 +73,7 @@ export class PluginExecutorService {
       },
     });
     if (!project) {
-      throw new ForbiddenException('Project not found or access denied');
+      throw new NotFoundException('Project not found');
     }
 
     const execution = await this.prisma.pluginExecution.create({

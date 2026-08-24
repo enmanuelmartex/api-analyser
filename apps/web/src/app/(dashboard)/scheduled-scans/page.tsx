@@ -29,6 +29,7 @@ import { ScheduleFilters } from '@/components/scheduled-scans/schedule-filters';
 import { ScheduleStatusBadge } from '@/components/scheduled-scans/schedule-status-badge';
 import { ScheduleActions } from '@/components/scheduled-scans/schedule-actions';
 import { ScheduleSheet } from '@/components/scheduled-scans/schedule-sheet';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -43,6 +44,7 @@ const PAGE_SIZE = 20;
  * what lets the dashboard link straight to a filtered view.
  */
 export default function ScheduledScansPage() {
+  const { canWrite } = useCurrentUser();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -196,14 +198,16 @@ export default function ScheduledScansPage() {
         title="Scheduled Scans"
         description="Assessments that run on their own. They keep running while nobody is here — the scheduler lives on the server, not in this page."
         actions={
-          <ScheduleSheet
-            trigger={
-              <Button>
-                <IconPlus className="size-4" />
-                New schedule
-              </Button>
-            }
-          />
+          canWrite ? (
+            <ScheduleSheet
+              trigger={
+                <Button>
+                  <IconPlus className="size-4" />
+                  New schedule
+                </Button>
+              }
+            />
+          ) : undefined
         }
       />
 
@@ -231,7 +235,7 @@ export default function ScheduledScansPage() {
               <Button variant="outline" size="sm" onClick={() => applyFilters(EMPTY_SCHEDULE_FILTERS)}>
                 Clear filters
               </Button>
-            ) : (
+            ) : canWrite ? (
               <ScheduleSheet
                 trigger={
                   <Button size="sm">
@@ -240,7 +244,7 @@ export default function ScheduledScansPage() {
                   </Button>
                 }
               />
-            )
+            ) : undefined
           }
         />
       ) : (

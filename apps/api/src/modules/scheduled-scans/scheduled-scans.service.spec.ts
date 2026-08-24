@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ScheduledScansService } from './scheduled-scans.service';
 import { displayStatusOf } from './schedule-rule';
 
@@ -242,9 +242,9 @@ describe('create — cron safety', () => {
 });
 
 describe('create — project and scan configuration', () => {
-  it('refuses a project the caller does not own', async () => {
+  it('refuses a project that does not exist', async () => {
     const harness = makeHarness({ project: null });
-    await expect(harness.service.create('user-2', validCreate())).rejects.toThrow(ForbiddenException);
+    await expect(harness.service.create('user-2', validCreate())).rejects.toThrow(NotFoundException);
   });
 
   it('refuses a project that is still a draft', async () => {

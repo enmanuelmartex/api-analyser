@@ -255,12 +255,16 @@ describe('generate', () => {
     expect(await prisma.report.count({ where: { assessmentId: SCAN_A } })).toBe(2);
   });
 
-  it('refuses to generate against another user’s assessment', async () => {
+  /**
+   * There is no organization boundary in this product: one installation is
+   * one company, so a different user's project is not "another user's" from
+   * the API's point of view — see `ProjectsService.findAll`.
+   */
+  it('generates a report against a scan from a project a different user created', async () => {
     await createScan(SCAN_B, PROJECT_B);
-    await expect(
-      service.generate(SCAN_B, USER_A, { type: 'TECHNICAL', format: 'HTML' }),
-    ).rejects.toThrow();
-    expect(await prisma.report.count()).toBe(0);
+    const { created } = await service.generate(SCAN_B, USER_A, { type: 'TECHNICAL', format: 'HTML' });
+    expect(created).toBe(true);
+    expect(await prisma.report.count()).toBe(1);
   });
 });
 
@@ -273,9 +277,9 @@ describe('download', () => {
 
     const before = await prisma.report.findUniqueOrThrow({ where: { id: report.id } });
 
-    await service.resolveArtifact(report.id, USER_A);
-    await service.resolveArtifact(report.id, USER_A);
-    await service.resolveArtifact(report.id, USER_A);
+    await service.resolveArtifact(report.id);
+    await service.resolveArtifact(report.id);
+    await service.resolveArtifact(report.id);
 
     const after = await prisma.report.findUniqueOrThrow({ where: { id: report.id } });
     expect(await prisma.report.count({ where: { assessmentId: SCAN_A } })).toBe(1);
@@ -287,7 +291,7 @@ describe('download', () => {
     await createScan(SCAN_A, PROJECT_A);
     const { report } = await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'JSON' });
 
-    const artifact = await service.resolveArtifact(report.id, USER_A);
+    const artifact = await service.resolveArtifact(report.id);
 
     expect(artifact.contentType).toBe('application/json; charset=utf-8');
     expect(artifact.fileName).toBe(report.fileName);
@@ -300,26 +304,27 @@ describe('download', () => {
     await addOccurrence(PROJECT_A, SCAN_A, 'CRITICAL', 'original-finding');
 
     const { report } = await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'MARKDOWN' });
-    const issued = (await service.resolveArtifact(report.id, USER_A)).bytes.toString('utf8');
+    const issued = (await service.resolveArtifact(report.id)).bytes.toString('utf8');
     expect(issued).toContain('CRITICAL original-finding');
 
     // The scan gains a finding after the report was issued.
     await addOccurrence(PROJECT_A, SCAN_A, 'HIGH', 'added-later');
 
-    const redownloaded = (await service.resolveArtifact(report.id, USER_A)).bytes.toString('utf8');
+    const redownloaded = (await service.resolveArtifact(report.id)).bytes.toString('utf8');
     expect(redownloaded).toBe(issued);
     expect(redownloaded).not.toContain('added-later');
   });
 
-  it('refuses to serve another user’s report', async () => {
+  it('serves a report generated under a different user, same installation', async () => {
     await createScan(SCAN_A, PROJECT_A);
     const { report } = await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'HTML' });
 
-    await expect(service.resolveArtifact(report.id, USER_B)).rejects.toThrow('Report not found');
+    const artifact = await service.resolveArtifact(report.id);
+    expect(artifact.bytes.length).toBeGreaterThan(0);
   });
 
   it('rejects an unknown report id', async () => {
-    await expect(service.resolveArtifact('does-not-exist', USER_A)).rejects.toThrow('Report not found');
+    await expect(service.resolveArtifact('does-not-exist')).rejects.toThrow('Report not found');
   });
 
   it('fails loudly rather than silently regenerating when no artifact was ever stored', async () => {
@@ -334,7 +339,7 @@ describe('download', () => {
       } as any,
     });
 
-    await expect(service.resolveArtifact(legacy.id, USER_A)).rejects.toThrow(/no stored artifact/i);
+    await expect(service.resolveArtifact(legacy.id)).rejects.toThrow(/no stored artifact/i);
     expect(await prisma.report.count({ where: { assessmentId: SCAN_A } })).toBe(1);
   });
 });
@@ -348,10 +353,10 @@ describe('findAll', () => {
     await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'JSON' });
 
     const { report } = await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'HTML' });
-    await service.resolveArtifact(report.id, USER_A);
-    await service.resolveArtifact(report.id, USER_A);
+    await service.resolveArtifact(report.id);
+    await service.resolveArtifact(report.id);
 
-    const listed = await service.findAll(USER_A);
+    const listed = await service.findAll();
     expect(listed).toHaveLength(2);
     expect(listed.map((row) => row.format).sort()).toEqual(['HTML', 'JSON']);
   });
@@ -361,27 +366,26 @@ describe('findAll', () => {
     await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'HTML' });
     await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'HTML', regenerate: true });
 
-    expect(await service.findAll(USER_A)).toHaveLength(1);
-    expect((await service.findAll(USER_A))[0].version).toBe(2);
-    expect(await service.findAll(USER_A, { includeHistory: true })).toHaveLength(2);
+    expect(await service.findAll()).toHaveLength(1);
+    expect((await service.findAll())[0].version).toBe(2);
+    expect(await service.findAll({ includeHistory: true })).toHaveLength(2);
   });
 
-  it('never leaks another user’s reports', async () => {
+  it('lists reports across every user in the installation, not just the caller', async () => {
     await createScan(SCAN_A, PROJECT_A);
     await createScan(SCAN_B, PROJECT_B);
     await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'HTML' });
     await service.generate(SCAN_B, USER_B, { type: 'TECHNICAL', format: 'HTML' });
 
-    const mine = await service.findAll(USER_A);
-    expect(mine).toHaveLength(1);
-    expect(mine[0].assessmentId).toBe(SCAN_A);
+    const all = await service.findAll();
+    expect(all.map((r) => r.assessmentId).sort()).toEqual([SCAN_A, SCAN_B]);
   });
 
   it('does not ship the whole document body with every list row', async () => {
     await createScan(SCAN_A, PROJECT_A);
     await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'HTML' });
 
-    const listed = await service.findAll(USER_A);
+    const listed = await service.findAll();
     expect('sourceSnapshot' in listed[0]).toBe(false);
   });
 });
@@ -399,7 +403,7 @@ describe('getStats', () => {
       await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format });
     }
 
-    const stats = await service.getStats(USER_A);
+    const stats = await service.getStats();
 
     expect(stats.activeReportArtifacts).toBe(4); // four artifacts …
     expect(stats.distinctAssessmentsWithReports).toBe(1); // … of one scan
@@ -420,7 +424,7 @@ describe('getStats', () => {
 
     await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'HTML' });
 
-    const stats = await service.getStats(USER_A);
+    const stats = await service.getStats();
     expect(stats.criticalFindingsIncluded).toBe(1);
     expect(stats.averageAssessmentScore).toBe(90);
     expect(stats.distinctAssessmentsWithReports).toBe(1);
@@ -437,7 +441,7 @@ describe('getStats', () => {
     await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'HTML' });
     await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'JSON' });
 
-    const stats = await service.getStats(USER_A);
+    const stats = await service.getStats();
     expect(stats.vulnerabilityTrend).toHaveLength(30);
 
     const day = stats.vulnerabilityTrend.find((point) => point.date === today.toISOString().split('T')[0])!;
@@ -449,7 +453,7 @@ describe('getStats', () => {
     await createScan(SCAN_A, PROJECT_A, { securityScore: null });
     await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'HTML' });
 
-    const stats = await service.getStats(USER_A);
+    const stats = await service.getStats();
     expect(stats.averageAssessmentScore).toBeNull();
     expect(stats.scoredAssessmentsInAverage).toBe(0);
   });
@@ -466,17 +470,18 @@ describe('remove', () => {
     const bystander = join(storageRoot, 'unrelated.pdf');
     writeFileSync(bystander, 'keep me');
 
-    await service.remove(report.id, USER_A);
+    await service.remove(report.id);
 
     expect(await prisma.report.count({ where: { id: report.id } })).toBe(0);
     expect(existsSync(bystander)).toBe(true);
   });
 
-  it('refuses to delete another user’s report', async () => {
+  it('lets a different user in the same installation delete the report', async () => {
     await createScan(SCAN_A, PROJECT_A);
     const { report } = await service.generate(SCAN_A, USER_A, { type: 'TECHNICAL', format: 'HTML' });
 
-    await expect(service.remove(report.id, USER_B)).rejects.toThrow('Report not found');
-    expect(await prisma.report.count({ where: { id: report.id } })).toBe(1);
+    await service.remove(report.id);
+
+    expect(await prisma.report.count({ where: { id: report.id } })).toBe(0);
   });
 });

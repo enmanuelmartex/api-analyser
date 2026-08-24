@@ -14,6 +14,7 @@ import {
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { reportsApi } from '@/lib/api';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import type { Report } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -40,6 +41,7 @@ export function ReportActionsMenu({
   report: Report;
   onDelete?: (_report: Report) => void;
 }) {
+  const { canWrite } = useCurrentUser();
   const queryClient = useQueryClient();
   const [downloading, setDownloading] = useState(false);
 
@@ -103,20 +105,22 @@ export function ReportActionsMenu({
           {downloading ? 'Preparing…' : `Download ${report.format}`}
         </DropdownMenuItem>
 
-        <DropdownMenuItem
-          disabled={regenerate.isPending}
-          onSelect={(event) => {
-            event.preventDefault();
-            regenerate.mutate();
-          }}
-        >
-          {regenerate.isPending ? (
-            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <IconRefresh className="h-3.5 w-3.5" />
-          )}
-          Regenerate
-        </DropdownMenuItem>
+        {canWrite && (
+          <DropdownMenuItem
+            disabled={regenerate.isPending}
+            onSelect={(event) => {
+              event.preventDefault();
+              regenerate.mutate();
+            }}
+          >
+            {regenerate.isPending ? (
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <IconRefresh className="h-3.5 w-3.5" />
+            )}
+            Regenerate
+          </DropdownMenuItem>
+        )}
 
         <DropdownMenuSeparator />
 
@@ -127,7 +131,7 @@ export function ReportActionsMenu({
           </Link>
         </DropdownMenuItem>
 
-        {onDelete && (
+        {onDelete && canWrite && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onSelect={() => onDelete(report)}>

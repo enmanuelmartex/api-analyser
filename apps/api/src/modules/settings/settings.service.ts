@@ -9,7 +9,6 @@ import {
   type SettingValue,
   getSettingDefinition,
 } from './settings.registry';
-import { InvalidRecipientError, parseEmailList } from './email-list';
 
 /**
  * Resolves runtime settings as DB row → environment variable → fallback.
@@ -140,14 +139,11 @@ export class SettingsService implements OnModuleInit {
 
       const value = this.coerce(definition, raw);
       if (value === undefined) {
-        throw new BadRequestException(this.rejectionMessage(definition, raw));
+        throw new BadRequestException(this.rejectionMessage(definition));
       }
 
       const from = current.get(key)!;
-      // Structural, not referential: an `email-list` is a new array on every
-      // read, so `===` would report a change every time the form is submitted
-      // and write an audit event claiming one.
-      if (isSameValue(from, value)) continue;
+      if (from === value) continue;
 
       await this.prisma.systemSetting.upsert({
         where: { key },
@@ -221,8 +217,6 @@ export class SettingsService implements OnModuleInit {
 
   /** Parses and range-checks. `undefined` means "not acceptable for this key". */
   private coerce(definition: SettingDefinition, raw: unknown): SettingValue | undefined {
-    // An empty list is a meaningful value — "email nobody" — so it must not be
-    // conflated with "no value supplied" the way null and undefined are.
     if (raw === undefined || raw === null) return undefined;
 
     if (definition.kind === 'boolean') {
@@ -233,18 +227,6 @@ export class SettingsService implements OnModuleInit {
       return undefined;
     }
 
-    if (definition.kind === 'email-list') {
-      try {
-        const addresses = parseEmailList(raw);
-        if (definition.maxItems !== undefined && addresses.length > definition.maxItems) {
-          return undefined;
-        }
-        return addresses;
-      } catch {
-        return undefined;
-      }
-    }
-
     const parsed = typeof raw === 'number' ? raw : Number(String(raw).trim());
     if (!Number.isFinite(parsed)) return undefined;
     const rounded = Math.trunc(parsed);
@@ -253,37 +235,11 @@ export class SettingsService implements OnModuleInit {
     return rounded;
   }
 
-  /**
-   * Why a value was refused, in terms the operator can act on.
-   *
-   * For a list this names the offending address, which is the difference
-   * between "Invalid value for notifications.reportRecipients" and knowing
-   * which of the eight addresses in the box has the typo.
-   */
-  private rejectionMessage(definition: SettingDefinition, raw: unknown): string {
-    if (definition.kind === 'email-list') {
-      try {
-        parseEmailList(raw);
-        return `Too many recipients for ${definition.key}: at most ${definition.maxItems}.`;
-      } catch (error) {
-        if (error instanceof InvalidRecipientError) {
-          return `Invalid value for ${definition.key}: ${error.message}.`;
-        }
-        return `Invalid value for ${definition.key}: expected a list of email addresses.`;
-      }
-    }
-
+  /** Why a value was refused, in terms the operator can act on. */
+  private rejectionMessage(definition: SettingDefinition): string {
     return (
       `Invalid value for ${definition.key}: expected ${definition.kind}` +
       (definition.kind === 'number' ? ` between ${definition.min} and ${definition.max}` : '')
     );
   }
-}
-
-/** Structural equality across every setting kind. */
-function isSameValue(a: SettingValue | undefined, b: SettingValue): boolean {
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((entry, index) => entry === b[index]);
-  }
-  return a === b;
 }

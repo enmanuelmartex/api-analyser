@@ -2,8 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { NotificationsService } from './notifications.service';
 import type {
-  EmailFailedEvent,
-  EmailSentEvent,
   ReportFailedEvent,
   ReportGeneratedEvent,
   ScanCompletedEvent,
@@ -263,57 +261,6 @@ export class NotificationsListener {
         entityType: 'report',
         entityId: payload.reportId,
         href: `/assessments/${payload.assessmentId}`,
-      }),
-    );
-  }
-
-  /**
-   * The report email was accepted by the provider.
-   *
-   * Low-value on its own, which is why it shares the `reportGenerated`
-   * preference rather than getting one of its own — a user who does not want to
-   * hear about reports does not want to hear about their delivery either.
-   */
-  @OnEvent('email.sent')
-  async onEmailSent(payload: EmailSentEvent) {
-    if (!payload.userId || payload.template !== 'report-ready') return;
-
-    await this.safely(() =>
-      this.notifications.create({
-        userId: payload.userId!,
-        type: 'EMAIL_REPORT_SENT',
-        title: 'Report emailed',
-        message: `Your security report${payload.projectName ? ` for ${payload.projectName}` : ''} was sent to your inbox.`,
-        entityType: payload.entityType,
-        entityId: payload.entityId,
-        href: payload.entityId ? `/reports/${payload.entityId}` : '/reports',
-      }),
-    );
-  }
-
-  /**
-   * The email could not be delivered.
-   *
-   * Worth telling the user in-app precisely because the channel that failed is
-   * the one that would otherwise carry the news. The report itself is unaffected
-   * and still downloadable — the message says so, so a delivery failure does not
-   * read as a lost report.
-   */
-  @OnEvent('email.failed')
-  async onEmailFailed(payload: EmailFailedEvent) {
-    if (!payload.userId) return;
-
-    await this.safely(() =>
-      this.notifications.create({
-        userId: payload.userId!,
-        type: 'EMAIL_REPORT_FAILED',
-        title: 'Report email could not be sent',
-        message:
-          `Your report${payload.projectName ? ` for ${payload.projectName}` : ''} is ready and ` +
-          `available in the app, but the email could not be delivered: ${payload.reason}`,
-        entityType: payload.entityType,
-        entityId: payload.entityId,
-        href: payload.entityId ? `/reports/${payload.entityId}` : '/reports',
       }),
     );
   }

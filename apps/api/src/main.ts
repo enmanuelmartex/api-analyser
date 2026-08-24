@@ -31,6 +31,13 @@ async function bootstrap() {
   app.use((req: any, res: any, next: any) => {
     if (!req.originalUrl?.startsWith('/api/auth')) return next();
 
+    if (req.originalUrl.startsWith('/api/auth/sign-up')) {
+      return res.status(403).json({
+        message:
+          'Public registration is disabled. Ask an administrator to create your account in Settings > Users.',
+      });
+    }
+
     // Handle CORS for all /api/auth/* routes (Better Auth doesn't respond to OPTIONS).
     //
     // The origin is only ever echoed back when it is on the allowlist — never

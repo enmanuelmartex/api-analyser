@@ -1,7 +1,6 @@
 import {
   Injectable,
   NotFoundException,
-  ForbiddenException,
   Logger,
   BadRequestException,
 } from '@nestjs/common';
@@ -67,9 +66,18 @@ export class ProjectsService {
     });
   }
 
-  async findAll(userId: string) {
+  /**
+   * Every active project in the installation, not just the caller's own.
+   *
+   * There is no organization/tenant boundary in this product: one installation
+   * is one company, and every authenticated user in it works against the same
+   * projects — the way Wazuh or any other shared security console does.
+   * `userId` on `Project` still records who created it; it stops being an
+   * access filter.
+   */
+  async findAll() {
     const projects = await this.prisma.project.findMany({
-      where: { userId, isActive: true },
+      where: { isActive: true },
       include: {
         apiSpec: {
           include: { authConfig: true },
@@ -101,9 +109,9 @@ export class ProjectsService {
     }));
   }
 
-  async findOne(id: string, userId: string) {
+  async findOne(id: string) {
     const project = await this.prisma.project.findFirst({
-      where: { id, userId, isActive: true },
+      where: { id, isActive: true },
       include: {
         apiSpec: {
           include: {
@@ -165,15 +173,15 @@ export class ProjectsService {
     });
   }
 
-  async saveDraft(id: string, userId: string, dto: SaveProjectDraftDto) {
-    const project = await this.assertOwner(id, userId);
+  async saveDraft(id: string, dto: SaveProjectDraftDto) {
+    const project = await this.assertExists(id);
     if (project.status !== 'DRAFT') throw new BadRequestException('Only drafts can be autosaved.');
     return this.prisma.project.update({ where: { id }, data: dto });
   }
 
-  async finalize(id: string, userId: string) {
+  async finalize(id: string) {
     const project = await this.prisma.project.findFirst({
-      where: { id, userId, isActive: true },
+      where: { id, isActive: true },
       include: { apiSpec: { include: { authConfig: true } } },
     });
     if (!project) throw new NotFoundException('Project not found');
@@ -196,7 +204,7 @@ export class ProjectsService {
   }
 
   async update(id: string, userId: string, dto: UpdateProjectDto) {
-    await this.assertOwner(id, userId);
+    await this.assertExists(id);
     const project = await this.prisma.project.update({
       where: { id },
       data: dto,
@@ -216,10 +224,9 @@ export class ProjectsService {
    * it — API spec, endpoints, auth config, assessments, security issues,
    * occurrences, triage history, reports, scheduled scans.
    *
-   * Ownership is re-verified before anything else runs (`assertOwner` returns
-   * the same generic "not found or access denied" for a missing project and
-   * for someone else's project, so a caller cannot use this endpoint to probe
-   * which project ids exist).
+   * Existence is re-verified before anything else runs (`assertExists` throws
+   * a plain 404, since any authenticated user in the installation may act on
+   * any project — see `findAll`).
    *
    * The actual row removal is a single `project.delete()`. Every dependent
    * table cascades from `Project` through real Postgres foreign keys
@@ -241,7 +248,7 @@ export class ProjectsService {
    *      by calling the storage service, which this method does after the
    *      cascade succeeds, using file names read before the rows disappeared.
    *
-   * `AuditLog`, `Notification` and `EmailDelivery` reference the project by a
+   * `AuditLog` and `Notification` reference the project by a
    * plain string column rather than a foreign key specifically so a deletion
    * like this one cannot cascade the evidence of itself away — see the model
    * comments on those tables. This method's own audit entry is written after
@@ -254,7 +261,7 @@ export class ProjectsService {
    * `DELETE` for that purpose.
    */
   async remove(id: string, userId: string) {
-    const project = await this.assertOwner(id, userId);
+    const project = await this.assertExists(id);
 
     const [jobBearingAssessments, reports, securityIssueCount] = await Promise.all([
       this.prisma.assessment.findMany({
@@ -333,7 +340,7 @@ export class ProjectsService {
   }
 
   async importOpenApiFromUrl(projectId: string, userId: string, url: string) {
-    await this.assertOwner(projectId, userId);
+    await this.assertExists(projectId);
 
     const allowPrivate = await this.settings.getBoolean('scanner.allowPrivateTargets');
     const validatedUrl = await assertSafeRemoteUrl(url, allowPrivate);
@@ -364,7 +371,7 @@ export class ProjectsService {
     userId: string,
     content: object,
   ) {
-    await this.assertOwner(projectId, userId);
+    await this.assertExists(projectId);
     return this.parseAndSaveSpec(projectId, content, 'UPLOAD', userId);
   }
 
@@ -491,10 +498,9 @@ export class ProjectsService {
 
   async saveAuthConfig(
     projectId: string,
-    userId: string,
     authData: any,
   ) {
-    await this.assertOwner(projectId, userId);
+    await this.assertExists(projectId);
 
     const apiSpec = await this.prisma.apiSpec.findUnique({ where: { projectId } });
     if (!apiSpec) throw new NotFoundException('API spec not found. Please import a spec first.');
@@ -522,11 +528,11 @@ export class ProjectsService {
     return stripAuthSecrets(result);
   }
 
-  private async assertOwner(projectId: string, userId: string) {
+  private async assertExists(projectId: string) {
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, userId },
+      where: { id: projectId },
     });
-    if (!project) throw new ForbiddenException('Project not found or access denied');
+    if (!project) throw new NotFoundException('Project not found');
     return project;
   }
 

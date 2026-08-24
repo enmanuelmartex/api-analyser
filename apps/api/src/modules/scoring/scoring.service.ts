@@ -177,9 +177,9 @@ export class ScoringService {
   }
 
   /** The stored snapshot for one assessment. Never recomputed on read. */
-  async getAssessmentScore(assessmentId: string, userId: string) {
+  async getAssessmentScore(assessmentId: string) {
     const assessment = await this.prisma.assessment.findFirst({
-      where: { id: assessmentId, project: { userId } },
+      where: { id: assessmentId },
       select: {
         id: true,
         status: true,

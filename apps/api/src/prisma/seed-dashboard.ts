@@ -26,17 +26,25 @@
  */
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { auth } from '../lib/auth';
 
 const prisma = new PrismaClient();
 
 type Sev = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
 
+const DEFAULT_ADMIN_EMAIL = 'admin@apianalyser.local';
+const DEFAULT_ADMIN_PASSWORD = 'admin1234';
+const CONFIGURED_ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? DEFAULT_ADMIN_EMAIL)
+  .toLowerCase()
+  .trim();
+const CONFIGURED_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? DEFAULT_ADMIN_PASSWORD;
+
 const DEMO = {
   projectId: 'seed-dashboard-project',
   projectName: 'Dashboard Demo Project',
-  userEmail: process.env.SEED_DASHBOARD_EMAIL ?? 'admin@apianalyser.local',
+  userEmail: process.env.SEED_DASHBOARD_EMAIL ?? CONFIGURED_ADMIN_EMAIL,
   /** Only used if the target user does not exist yet. */
-  fallbackPassword: 'Admin@123!',
+  fallbackPassword: CONFIGURED_ADMIN_PASSWORD,
 } as const;
 
 const OWASP_IDS = [
@@ -130,10 +138,37 @@ function methodOf(route: string): string {
 async function resolveTargetUser() {
   const existing = await prisma.user.findUnique({ where: { email: DEMO.userEmail } });
   if (existing) return { user: existing, created: false };
-  const password = await bcrypt.hash(DEMO.fallbackPassword, 12);
-  const user = await prisma.user.create({
-    data: { email: DEMO.userEmail, name: 'Dashboard Demo User', password, role: 'ADMIN', emailVerified: true },
+
+  // Create through Better Auth so the credential account exists for web login.
+  await auth.api.signUpEmail({
+    body: {
+      name: 'Dashboard Demo User',
+      email: DEMO.userEmail,
+      password: DEMO.fallbackPassword,
+    },
   });
+
+  const created = await prisma.user.findUnique({ where: { email: DEMO.userEmail } });
+  if (!created) {
+    throw new Error(`Could not create dashboard demo user ${DEMO.userEmail}.`);
+  }
+
+  // Mirror AdminBootstrapService: keep bcrypt hash for the REST auth surface.
+  await prisma.user.update({
+    where: { id: created.id },
+    data: {
+      password: await bcrypt.hash(DEMO.fallbackPassword, 12),
+      role: 'ADMIN',
+      isActive: true,
+      emailVerified: true,
+    },
+  });
+
+  const user = await prisma.user.findUnique({ where: { id: created.id } });
+  if (!user) {
+    throw new Error(`Could not load dashboard demo user ${DEMO.userEmail} after creation.`);
+  }
+
   return { user, created: true };
 }
 

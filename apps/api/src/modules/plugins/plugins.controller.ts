@@ -2,12 +2,14 @@ import {
   Controller, Get, Put, Post, Param, Body, UseGuards, Request,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { PluginsService } from './plugins.service';
 import { PluginExecutorService } from './plugin-executor.service';
 import { PluginRegistryService } from './plugin-registry.service';
 import { PluginCategory } from '../scanner/types/plugin-manifest.types';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('plugins')
 export class PluginsController {
   constructor(
@@ -56,6 +58,7 @@ export class PluginsController {
 
   // PUT /plugins/:id/toggle — enable / disable for user
   @Put(':id/toggle')
+  @Roles('ADMIN', 'ANALYST')
   toggle(
     @Param('id') id: string,
     @Body() body: { isEnabled: boolean },
@@ -66,6 +69,7 @@ export class PluginsController {
 
   // PUT /plugins/:id/config — save user-specific config
   @Put(':id/config')
+  @Roles('ADMIN', 'ANALYST')
   saveConfig(
     @Param('id') id: string,
     @Body() body: Record<string, any>,
@@ -82,12 +86,13 @@ export class PluginsController {
 
   // GET /plugins/:id/issues — persistent issues detected by this check
   @Get(':id/issues')
-  getIssues(@Param('id') id: string, @Request() req: any) {
-    return this.pluginsService.getIssues(id, req.user.id);
+  getIssues(@Param('id') id: string) {
+    return this.pluginsService.getIssues(id);
   }
 
   // POST /plugins/:id/run — run single plugin against a project
   @Post(':id/run')
+  @Roles('ADMIN', 'ANALYST')
   runPlugin(
     @Param('id') pluginId: string,
     @Body() body: { projectId: string; pluginConfig?: Record<string, any>; timeoutMs?: number },

@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { FolderOpen, Plus, SearchX } from 'lucide-react';
 import { projectsApi } from '@/lib/api';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import {
   EMPTY_PROJECT_FILTERS,
   filterAndSortProjects,
@@ -39,6 +40,7 @@ import { DeleteConfirmationDialog } from '@/components/shared/delete-confirmatio
 const PROJECTS_PER_PAGE = 12;
 
 export default function ProjectsPage() {
+  const { canWrite } = useCurrentUser();
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -141,10 +143,12 @@ export default function ProjectsPage() {
         title="Projects"
         description="Manage your API security assessment projects"
         actions={
-          <Button onClick={createProject}>
-            <Plus className="size-4" />
-            Nuevo proyecto
-          </Button>
+          canWrite ? (
+            <Button onClick={createProject}>
+              <Plus className="size-4" />
+              Nuevo proyecto
+            </Button>
+          ) : undefined
         }
       />
 
@@ -162,12 +166,18 @@ export default function ProjectsPage() {
         <EmptyPanel
           icon={FolderOpen}
           title="No projects yet"
-          description="Create your first project to import an OpenAPI specification and run a security scan."
+          description={
+            canWrite
+              ? 'Create your first project to import an OpenAPI specification and run a security scan.'
+              : 'No projects have been created yet.'
+          }
           action={
-            <Button onClick={createProject}>
-              <Plus className="size-4" />
-              Crear primer proyecto
-            </Button>
+            canWrite ? (
+              <Button onClick={createProject}>
+                <Plus className="size-4" />
+                Crear primer proyecto
+              </Button>
+            ) : undefined
           }
         />
       ) : !visibleProjects.length ? (
@@ -192,6 +202,7 @@ export default function ProjectsPage() {
               onEdit={openProject}
               onContinueSetup={openProject}
               onDelete={setDeleteTarget}
+              canWrite={canWrite}
             />
           ))}
         </div>

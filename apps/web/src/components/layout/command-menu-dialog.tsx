@@ -13,6 +13,7 @@ import {
   CommandSeparator,
 } from '@/components/ui/command';
 import { NAV_MAIN, NAV_COLLAPSIBLE } from '@/components/navigation/nav-data';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 /**
  * The palette body, split out from `command-menu.tsx` so that `cmdk` and the
@@ -27,6 +28,7 @@ import { NAV_MAIN, NAV_COLLAPSIBLE } from '@/components/navigation/nav-data';
 export function CommandMenu({ open, setOpen }: { open: boolean; setOpen: (_next: boolean) => void }) {
   const router = useRouter();
   const { setTheme, resolvedTheme } = useTheme();
+  const { canWrite } = useCurrentUser();
 
   function runCommand(action: () => void) {
     setOpen(false);
@@ -39,10 +41,12 @@ export function CommandMenu({ open, setOpen }: { open: boolean; setOpen: (_next:
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Actions">
-          <CommandItem onSelect={() => runCommand(() => router.push('/projects/new'))}>
-            <IconPlus className="h-4 w-4" />
-            New Project
-          </CommandItem>
+          {canWrite && (
+            <CommandItem onSelect={() => runCommand(() => router.push('/projects/new'))}>
+              <IconPlus className="h-4 w-4" />
+              New Project
+            </CommandItem>
+          )}
           <CommandItem onSelect={() => runCommand(() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark'))}>
             {resolvedTheme === 'dark' ? <IconSun className="h-4 w-4" /> : <IconMoon className="h-4 w-4" />}
             Toggle theme

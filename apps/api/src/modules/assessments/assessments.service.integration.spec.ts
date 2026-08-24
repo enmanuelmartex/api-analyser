@@ -100,7 +100,7 @@ describe('findAll — finding counts derived from real occurrences', () => {
     await createProject(PROJECT_A, USER_A);
     await createAssessment('a-empty', PROJECT_A, new Date('2026-01-01'));
 
-    const [row] = await service.findAll(USER_A);
+    const [row] = await service.findAll();
     expect(row.id).toBe('a-empty');
     expect(row.findingCounts).toEqual({
       critical: 0,
@@ -127,7 +127,7 @@ describe('findAll — finding counts derived from real occurrences', () => {
       finding('INFO', 'r8'),
     ]);
 
-    const [row] = await service.findAll(USER_A);
+    const [row] = await service.findAll();
     expect(row.findingCounts).toEqual({
       critical: 2,
       high: 1,
@@ -144,7 +144,7 @@ describe('findAll — finding counts derived from real occurrences', () => {
     await createAssessment('a1', PROJECT_A, new Date('2026-01-01'));
     await addFindings(PROJECT_A, 'a1', [finding('CRITICAL', 'r1'), finding('HIGH', 'r2')]);
 
-    const [row] = await service.findAll(USER_A);
+    const [row] = await service.findAll();
     // The summary row exists but was never aggregated (defaults to 0), exactly
     // like demo/old data — yet the counts are correct.
     expect(row.summary?.criticalCount).toBe(0);
@@ -160,7 +160,7 @@ describe('findAll — finding counts derived from real occurrences', () => {
     await addFindings(PROJECT_A, 'a1', [finding('CRITICAL', 'rc')]);
     await addFindings(PROJECT_A, 'a2', [finding('HIGH', 'rh')]);
 
-    const rows = await service.findAll(USER_A);
+    const rows = await service.findAll();
     const a1 = rows.find((r) => r.id === 'a1')!;
     const a2 = rows.find((r) => r.id === 'a2')!;
     expect(a1.findingCounts).toMatchObject({ critical: 1, high: 0, total: 1 });
@@ -182,7 +182,7 @@ describe('findAll — finding counts derived from real occurrences', () => {
       return (original as any).apply(prisma.findingOccurrence, args);
     };
     try {
-      await service.findAll(USER_A);
+      await service.findAll();
     } finally {
       (prisma.findingOccurrence as any).groupBy = original;
     }
@@ -190,8 +190,15 @@ describe('findAll — finding counts derived from real occurrences', () => {
   });
 });
 
-describe('project isolation', () => {
-  it("does not surface one project's assessments under another project or user", async () => {
+describe('shared visibility across users', () => {
+  /**
+   * There is no organization boundary in this product: one installation is
+   * one company, and `findAll` returns every active project's assessments
+   * regardless of who created the project — the way an analyst account sees
+   * the same data an admin does. `projectId` narrows the result to one
+   * project; it is not a per-user filter.
+   */
+  it("surfaces every user's assessments, and projectId narrows without regard to who owns it", async () => {
     await createUser(USER_A);
     await createUser(USER_B);
     await createProject(PROJECT_A, USER_A);
@@ -201,14 +208,14 @@ describe('project isolation', () => {
     await createAssessment('a-in-A2', PROJECT_A2, new Date('2026-01-02'));
     await createAssessment('b-in-B', PROJECT_B, new Date('2026-01-03'));
 
-    const allForA = await service.findAll(USER_A);
-    expect(allForA.map((r) => r.id).sort()).toEqual(['a-in-A', 'a-in-A2']);
+    const all = await service.findAll();
+    expect(all.map((r) => r.id).sort()).toEqual(['a-in-A', 'a-in-A2', 'b-in-B']);
 
-    const onlyProjectA = await service.findAll(USER_A, PROJECT_A);
+    const onlyProjectA = await service.findAll(PROJECT_A);
     expect(onlyProjectA.map((r) => r.id)).toEqual(['a-in-A']);
 
-    const forB = await service.findAll(USER_B);
-    expect(forB.map((r) => r.id)).toEqual(['b-in-B']);
+    const onlyProjectB = await service.findAll(PROJECT_B);
+    expect(onlyProjectB.map((r) => r.id)).toEqual(['b-in-B']);
   });
 
   it('excludes scans belonging to a deactivated project from the global list', async () => {
@@ -223,8 +230,8 @@ describe('project isolation', () => {
     await createAssessment('a-active', PROJECT_A, new Date('2026-01-01'));
     await prisma.project.update({ where: { id: PROJECT_A }, data: { isActive: false } });
 
-    expect(await service.findAll(USER_A)).toEqual([]);
-    expect(await service.findAll(USER_A, PROJECT_A)).toEqual([]);
+    expect(await service.findAll()).toEqual([]);
+    expect(await service.findAll(PROJECT_A)).toEqual([]);
   });
 });
 
@@ -242,7 +249,7 @@ describe('findByProjectPaginated', () => {
   });
 
   it('first page returns the 5 most recent, newest first', async () => {
-    const page = await service.findByProjectPaginated(USER_A, PROJECT_A, 1, 5);
+    const page = await service.findByProjectPaginated(PROJECT_A, 1, 5);
     expect(page.total).toBe(12);
     expect(page.totalPages).toBe(3);
     expect(page.page).toBe(1);
@@ -250,22 +257,22 @@ describe('findByProjectPaginated', () => {
   });
 
   it('second page returns the next records with no duplicates', async () => {
-    const p1 = await service.findByProjectPaginated(USER_A, PROJECT_A, 1, 5);
-    const p2 = await service.findByProjectPaginated(USER_A, PROJECT_A, 2, 5);
+    const p1 = await service.findByProjectPaginated(PROJECT_A, 1, 5);
+    const p2 = await service.findByProjectPaginated(PROJECT_A, 2, 5);
     expect(p2.data.map((r) => r.id)).toEqual(['a-06', 'a-05', 'a-04', 'a-03', 'a-02']);
     const overlap = p1.data.map((r) => r.id).filter((id) => p2.data.some((r) => r.id === id));
     expect(overlap).toEqual([]);
   });
 
   it('last page works with fewer than a full page', async () => {
-    const p3 = await service.findByProjectPaginated(USER_A, PROJECT_A, 3, 5);
+    const p3 = await service.findByProjectPaginated(PROJECT_A, 3, 5);
     expect(p3.data.map((r) => r.id)).toEqual(['a-01', 'a-00']);
     expect(p3.data.length).toBe(2);
   });
 
   it('exposes bounds that drive the disabled Previous/Next controls', async () => {
-    const first = await service.findByProjectPaginated(USER_A, PROJECT_A, 1, 5);
-    const last = await service.findByProjectPaginated(USER_A, PROJECT_A, 3, 5);
+    const first = await service.findByProjectPaginated(PROJECT_A, 1, 5);
+    const last = await service.findByProjectPaginated(PROJECT_A, 3, 5);
     // Previous disabled on the first page:
     expect(first.page <= 1).toBe(true);
     // Next disabled on the last page:
@@ -273,23 +280,26 @@ describe('findByProjectPaginated', () => {
   });
 
   it('is scoped to the project', async () => {
-    const page = await service.findByProjectPaginated(USER_A, PROJECT_A, 1, 5);
+    const page = await service.findByProjectPaginated(PROJECT_A, 1, 5);
     expect(page.total).toBe(12);
     expect(page.data.some((r) => r.id === 'other')).toBe(false);
   });
 
   it('attaches occurrence-derived counts to paginated rows', async () => {
     await addFindings(PROJECT_A, 'a-11', [finding('CRITICAL', 'r1'), finding('HIGH', 'r2')]);
-    const page = await service.findByProjectPaginated(USER_A, PROJECT_A, 1, 5);
+    const page = await service.findByProjectPaginated(PROJECT_A, 1, 5);
     expect(page.data[0].id).toBe('a-11');
     expect(page.data[0].findingCounts).toMatchObject({ critical: 1, high: 1, total: 2 });
   });
 
-  it('returns an empty page for a project the user does not own', async () => {
+  /**
+   * A different user in the same installation sees the same page: there is
+   * no per-user ownership check left in `findByProjectPaginated`.
+   */
+  it('returns the same page for a different user in the same installation', async () => {
     await createUser(USER_B);
-    const page = await service.findByProjectPaginated(USER_B, PROJECT_A, 1, 5);
-    expect(page.total).toBe(0);
-    expect(page.data).toEqual([]);
-    expect(page.totalPages).toBe(1);
+    const page = await service.findByProjectPaginated(PROJECT_A, 1, 5);
+    expect(page.total).toBe(12);
+    expect(page.data.map((r) => r.id)).toEqual(['a-11', 'a-10', 'a-09', 'a-08', 'a-07']);
   });
 });

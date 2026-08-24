@@ -24,10 +24,12 @@ import { ScanComparison } from '@/components/assessments/scan-comparison';
 import { AssessmentProgress } from '@/components/assessments/assessment-progress';
 import { DeleteConfirmationDialog } from '@/components/shared/delete-confirmation-dialog';
 import { formatDate, formatDuration } from '@/lib/utils';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 const TERMINAL = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
 
 export default function AssessmentDetailPage() {
+  const { canWrite } = useCurrentUser();
   const { assessmentId } = useParams<{ assessmentId: string }>();
   const queryClient = useQueryClient();
   const [exporting, setExporting] = useState<string>();
@@ -142,7 +144,7 @@ export default function AssessmentDetailPage() {
               and marks the scan CANCELLED — but nothing in the UI ever called
               it, so a stuck scan could not be stopped from the product.
             */}
-            {running && (
+            {running && canWrite && (
               <DeleteConfirmationDialog
                 title="Cancel this scan?"
                 description="The scan stops where it is. Findings already persisted are kept, but the scan will not produce a score or a report."
@@ -277,7 +279,7 @@ export default function AssessmentDetailPage() {
         <div className="min-w-0 space-y-4">
           <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconTerminal2 className="size-4 text-primary" />Execution</CardTitle></CardHeader><CardContent><dl className="space-y-2 text-xs"><Row label="Mode" value={assessment.config?.executionMode ?? '—'} /><Row label="Plugins" value={String(assessment.config?.resolvedPlugins?.length ?? 0)} /><Row label="AI analysis" value={assessment.config?.enableAiAnalysis ? 'Enabled' : 'Disabled'} /><Row label="Risk" value={summary?.riskLevel ?? '—'} /></dl></CardContent></Card>
           <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconFileReport className="size-4 text-primary" />Reports</CardTitle></CardHeader><CardContent className="space-y-2">{assessment.reports?.length ? assessment.reports.map((report) => <Button key={report.id} asChild variant="outline" className="w-full justify-between"><Link href={`/reports/${report.id}`}><span className="truncate">{report.title}</span><Badge variant="secondary" className="shrink-0">{report.format}</Badge></Link></Button>) : <p className="text-sm text-muted-foreground">{running ? 'Generated after completion.' : 'No report artifact is available.'}</p>}</CardContent></Card>
-          <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconDownload className="size-4 text-primary" />Export</CardTitle><CardDescription>PDF is the primary report; machine-readable formats are also available.</CardDescription></CardHeader><CardContent className="grid grid-cols-2 gap-2">{(['PDF', 'HTML', 'JSON', 'SARIF', 'MARKDOWN'] as const).map((format) => <Button key={format} variant={format === 'PDF' ? 'default' : 'outline'} size="sm" disabled={running || Boolean(exporting)} onClick={() => exportReport(format)}>{exporting === format ? 'Preparing…' : format}</Button>)}</CardContent></Card>
+          {canWrite && <Card><CardHeader><CardTitle className="flex items-center gap-2"><IconDownload className="size-4 text-primary" />Export</CardTitle><CardDescription>PDF is the primary report; machine-readable formats are also available.</CardDescription></CardHeader><CardContent className="grid grid-cols-2 gap-2">{(['PDF', 'HTML', 'JSON', 'SARIF', 'MARKDOWN'] as const).map((format) => <Button key={format} variant={format === 'PDF' ? 'default' : 'outline'} size="sm" disabled={running || Boolean(exporting)} onClick={() => exportReport(format)}>{exporting === format ? 'Preparing…' : format}</Button>)}</CardContent></Card>}
           <AiEnrichmentCard ai={ai} requested={Boolean(assessment.config?.enableAiAnalysis)} running={running} />
         </div>
       </div>

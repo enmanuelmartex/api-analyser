@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { IconDownload, IconFilePlus, IconLoader2, IconAlertTriangle } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { reportsApi } from '@/lib/api';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import { formatBytes, formatDay } from '@/lib/utils';
 import type { ReportFormat, ReportFormatAvailability, ReportType } from '@/types';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +48,7 @@ export function ReportFormatActions({
   /** Highlighted as the format currently being viewed. */
   primaryFormat?: ReportFormat;
 }) {
+  const { canWrite } = useCurrentUser();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<ReportFormat | null>(null);
 
@@ -164,7 +166,7 @@ export function ReportFormatActions({
                     </TooltipTrigger>
                     <TooltipContent>Downloads the stored file. No new report is created.</TooltipContent>
                   </Tooltip>
-                ) : (
+                ) : canWrite ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -185,7 +187,7 @@ export function ReportFormatActions({
                     </TooltipTrigger>
                     <TooltipContent>Builds this format from the scan’s stored results.</TooltipContent>
                   </Tooltip>
-                )}
+                ) : null}
               </div>
             </div>
           );

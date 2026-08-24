@@ -1,10 +1,9 @@
-import { Controller, Post, Get, Patch, Body, UseGuards, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, UseGuards, HttpCode, HttpStatus, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuditAction } from '@prisma/client';
 import { AuthService, profileChanges } from './auth.service';
 import { AuditService } from '../audit/audit.service';
-import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -33,8 +32,10 @@ export class AuthController {
   @Throttle({ short: { limit: 3, ttl: 300_000 } })
   @Post('register')
   @ApiOperation({ summary: 'Register a new user account' })
-  async register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+  async register() {
+    throw new ForbiddenException(
+      'Public registration is disabled. Ask an administrator to create your account in Settings > Users.',
+    );
   }
 
   /*

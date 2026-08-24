@@ -13,6 +13,8 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuditAction } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto, SaveProjectDraftDto, UpdateProjectDto } from './dto/create-project.dto';
@@ -20,7 +22,7 @@ import { AuditService } from '../audit/audit.service';
 
 @ApiTags('Projects')
 @ApiBearerAuth('JWT')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('projects')
 export class ProjectsController {
   constructor(
@@ -30,17 +32,18 @@ export class ProjectsController {
 
   @Get()
   @ApiOperation({ summary: 'List all projects' })
-  findAll(@CurrentUser() user: any) {
-    return this.projectsService.findAll(user.id);
+  findAll() {
+    return this.projectsService.findAll();
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get project details' })
-  findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.projectsService.findOne(id, user.id);
+  findOne(@Param('id') id: string) {
+    return this.projectsService.findOne(id);
   }
 
   @Post()
+  @Roles('ADMIN', 'ANALYST')
   @ApiOperation({ summary: 'Create a new project' })
   /*
    * Project lifecycle events are recorded by ProjectsService, which emits
@@ -55,24 +58,28 @@ export class ProjectsController {
   }
 
   @Post('drafts')
+  @Roles('ADMIN', 'ANALYST')
   @ApiOperation({ summary: 'Create a meaningful project draft' })
   createDraft(@CurrentUser() user: any, @Body() dto: SaveProjectDraftDto) {
     return this.projectsService.createDraft(user.id, dto);
   }
 
   @Put(':id/draft')
+  @Roles('ADMIN', 'ANALYST')
   @ApiOperation({ summary: 'Autosave a project draft' })
-  saveDraft(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: SaveProjectDraftDto) {
-    return this.projectsService.saveDraft(id, user.id, dto);
+  saveDraft(@Param('id') id: string, @Body() dto: SaveProjectDraftDto) {
+    return this.projectsService.saveDraft(id, dto);
   }
 
   @Post(':id/finalize')
+  @Roles('ADMIN', 'ANALYST')
   @ApiOperation({ summary: 'Validate and finalize a project draft' })
-  finalize(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.projectsService.finalize(id, user.id);
+  finalize(@Param('id') id: string) {
+    return this.projectsService.finalize(id);
   }
 
   @Put(':id')
+  @Roles('ADMIN', 'ANALYST')
   @ApiOperation({ summary: 'Update a project' })
   update(
     @Param('id') id: string,
@@ -83,6 +90,7 @@ export class ProjectsController {
   }
 
   @Delete(':id')
+  @Roles('ADMIN', 'ANALYST')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a project' })
   remove(@Param('id') id: string, @CurrentUser() user: any) {
@@ -90,6 +98,7 @@ export class ProjectsController {
   }
 
   @Post(':id/spec/url')
+  @Roles('ADMIN', 'ANALYST')
   @ApiOperation({ summary: 'Import OpenAPI spec from URL' })
   async importFromUrl(
     @Param('id') id: string,
@@ -102,6 +111,7 @@ export class ProjectsController {
   }
 
   @Post(':id/spec/upload')
+  @Roles('ADMIN', 'ANALYST')
   @ApiOperation({ summary: 'Import OpenAPI spec from uploaded content' })
   async importFromUpload(
     @Param('id') id: string,
@@ -114,13 +124,14 @@ export class ProjectsController {
   }
 
   @Post(':id/auth')
+  @Roles('ADMIN', 'ANALYST')
   @ApiOperation({ summary: 'Save authentication configuration' })
   async saveAuth(
     @Param('id') id: string,
     @CurrentUser() user: any,
     @Body() authData: any,
   ) {
-    const result = await this.projectsService.saveAuthConfig(id, user.id, authData);
+    const result = await this.projectsService.saveAuthConfig(id, authData);
     /*
      * Only the auth *type* is recorded. The token, password and API key in this
      * payload are encrypted at rest and never returned to a client; writing any

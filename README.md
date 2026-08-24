@@ -99,9 +99,8 @@ API Analyser automatically assesses REST API security by:
    survive a restart of the API, the worker or Redis. See
    [docs/SCHEDULED-SCANS.md](docs/SCHEDULED-SCANS.md).
 7. **Telling you** what happened — persistent in-app notifications with unread
-   badges on the sidebar, live over SSE, and optional email through Resend with
-   the report attached. Everything is stored, so a scan that finishes at 3 a.m.
-   is waiting for you at 8. See
+   badges on the sidebar, live over SSE. Everything is stored, so a scan that
+   finishes at 3 a.m. is waiting for you at 8. See
    [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
 
 ---
@@ -260,14 +259,6 @@ OPENAI_MODEL=gpt-4o-mini
 # On by default, in every NODE_ENV; set to false to stop serving them.
 SWAGGER_ENABLED=true
 
-# Optional — enables outbound email through Resend. Without a key the app runs
-# normally, records every would-be send as SKIPPED with a reason, and leaves
-# in-app notifications untouched.
-RESEND_API_KEY=re_...
-RESEND_FROM_EMAIL=security@yourdomain.com   # must be a domain verified in Resend
-RESEND_FROM_NAME=API Analyzer
-APP_URL=https://scan.yourdomain.com         # links in emails; defaults to FRONTEND_URL
-EMAIL_MAX_ATTACHMENT_BYTES=8388608          # larger reports are linked, not attached
 ```
 
 A placeholder is rejected on purpose: `validateEnv` fails the boot on any secret

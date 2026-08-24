@@ -24,8 +24,6 @@ export const DomainEvent = {
   ProjectChanged: 'project.changed',
   ReportGenerated: 'report.generated',
   ReportFailed: 'report.failed',
-  EmailSent: 'email.sent',
-  EmailFailed: 'email.failed',
   SecurityWarning: 'security.warning',
   SystemError: 'system.error',
   HttpError: 'http.error',
@@ -293,34 +291,6 @@ export interface ReportFailedEvent extends BaseEvent {
   kind?: string;
   reason: string;
   attempts: number;
-}
-
-/** An outbound message was accepted by the provider. */
-export interface EmailSentEvent extends BaseEvent {
-  deliveryId: string;
-  template: string;
-  /** Present so a notification can name the subject; never the recipient's body. */
-  entityType?: string;
-  entityId?: string;
-  providerMessageId?: string;
-  projectName?: string;
-}
-
-/**
- * An outbound message could not be delivered.
- *
- * Never fails the work that produced it: a scan whose report emailed badly is
- * still a completed scan with a downloadable report. The consumer raises an
- * in-app notification so the user learns their mail is misconfigured.
- */
-export interface EmailFailedEvent extends BaseEvent {
-  deliveryId?: string;
-  template: string;
-  entityType?: string;
-  entityId?: string;
-  /** Provider message or a summary. Never contains the API key. */
-  reason: string;
-  projectName?: string;
 }
 
 export interface SecurityWarningEvent extends BaseEvent {

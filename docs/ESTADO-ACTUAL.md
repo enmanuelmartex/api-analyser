@@ -150,7 +150,7 @@ Listado, CRUD, cambio de rol, activación/desactivación, reseteo de contraseña
 
 **Actualizado (2026-08-14):** el sistema de invitaciones se eliminó por completo — endpoints, modelo `Invitation` y la pantalla `/accept-invite`. Nunca llegó a enviar correo: el paso intermedio de 2026-08-11 hacía que `POST /users/invite` devolviera el enlace al administrador para entregarlo a mano, lo cual es estrictamente más trabajo que crear la cuenta directamente y además dejaba una cuenta a medio configurar en la base de datos hasta que el invitado la reclamara. Los administradores crean cuentas desde Settings → Users.
 
-Que ahora exista transporte de correo (relay o Resend) no lo resucita: el correo transaccional de este producto son informes y resúmenes, no alta de usuarios.
+**Actualizado (2026-08-24):** el envío de correo saliente (Resend, el relay alojado, el PDF por correo y el resumen semanal) se eliminó por completo, junto con el servicio de mail independiente. Las notificaciones in-app son y siempre fueron el canal principal.
 
 Es el único módulo (junto con `auth`) que escribe en `AuditLog`.
 

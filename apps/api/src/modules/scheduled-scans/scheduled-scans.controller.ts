@@ -36,9 +36,9 @@ import { listTimeZones } from './recurrence/zoned-time';
  *             that runs by itself.
  *   ADMIN   — everything an analyst may do.
  *
- * Ownership is enforced separately and always: every service method scopes its
- * query by `project: { userId }`, so a role never grants access to another
- * user's projects.
+ * There is no per-project ownership boundary: one installation is one
+ * company, so every schedule is visible to and actionable by every user
+ * whose role permits the action — see `ProjectsService.findAll`.
  */
 @ApiTags('Scheduled Scans')
 @ApiBearerAuth('JWT')
@@ -75,14 +75,14 @@ export class ScheduledScansController {
 
   @Get()
   @ApiOperation({ summary: 'List scheduled scans (filtered, paginated)' })
-  findAll(@CurrentUser() user: any, @Query() query: QueryScheduledScansDto) {
-    return this.scheduledScans.findAll(user.id, query);
+  findAll(@Query() query: QueryScheduledScansDto) {
+    return this.scheduledScans.findAll(query);
   }
 
   @Get('upcoming')
   @ApiOperation({ summary: 'The next few scheduled runs, for the dashboard' })
-  upcoming(@CurrentUser() user: any, @Query('limit') limit?: string) {
-    return this.scheduledScans.upcoming(user.id, limit ? Number.parseInt(limit, 10) : undefined);
+  upcoming(@Query('limit') limit?: string) {
+    return this.scheduledScans.upcoming(limit ? Number.parseInt(limit, 10) : undefined);
   }
 
   /**
@@ -124,21 +124,19 @@ export class ScheduledScansController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a scheduled scan' })
-  findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.scheduledScans.findOne(id, user.id);
+  findOne(@Param('id') id: string) {
+    return this.scheduledScans.findOne(id);
   }
 
   @Get(':id/executions')
   @ApiOperation({ summary: 'Execution history for one scheduled scan' })
   listExecutions(
     @Param('id') id: string,
-    @CurrentUser() user: any,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     return this.scheduledScans.listExecutions(
       id,
-      user.id,
       page ? Number.parseInt(page, 10) : undefined,
       pageSize ? Number.parseInt(pageSize, 10) : undefined,
     );

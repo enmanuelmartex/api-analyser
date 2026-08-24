@@ -45,9 +45,9 @@ export class ComparisonService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Assessments that can be used as a baseline for the given one. */
-  async getComparisonCandidates(assessmentId: string, userId: string) {
+  async getComparisonCandidates(assessmentId: string) {
     const target = await this.prisma.assessment.findFirst({
-      where: { id: assessmentId, project: { userId } },
+      where: { id: assessmentId },
       select: { id: true, projectId: true, createdAt: true },
     });
     if (!target) throw new NotFoundException('Scan not found');
@@ -75,16 +75,16 @@ export class ComparisonService {
    * Compares `assessmentId` against `baselineId`, or against the most recent
    * earlier completed scan of the same project when no baseline is given.
    */
-  async compare(assessmentId: string, userId: string, baselineId?: string) {
+  async compare(assessmentId: string, baselineId?: string) {
     if (baselineId && baselineId === assessmentId) {
       throw new BadRequestException('A scan cannot be compared with itself.');
     }
 
-    const current = await this.loadSide(assessmentId, userId);
+    const current = await this.loadSide(assessmentId);
 
     const baseline = baselineId
-      ? await this.loadSide(baselineId, userId)
-      : await this.findPreviousSide(assessmentId, userId);
+      ? await this.loadSide(baselineId)
+      : await this.findPreviousSide(assessmentId);
 
     if (!baseline) {
       return {
@@ -145,18 +145,18 @@ export class ComparisonService {
 
   // ── Loading ────────────────────────────────────────────────────────────────
 
-  private async loadSide(assessmentId: string, userId: string): Promise<SideSnapshot> {
+  private async loadSide(assessmentId: string): Promise<SideSnapshot> {
     const assessment = await this.prisma.assessment.findFirst({
-      where: { id: assessmentId, project: { userId } },
+      where: { id: assessmentId },
       select: { id: true, createdAt: true, status: true, summary: true },
     });
     if (!assessment) throw new NotFoundException(`Scan ${assessmentId} not found`);
     return this.toSide(assessment);
   }
 
-  private async findPreviousSide(assessmentId: string, userId: string): Promise<SideSnapshot | null> {
+  private async findPreviousSide(assessmentId: string): Promise<SideSnapshot | null> {
     const target = await this.prisma.assessment.findFirst({
-      where: { id: assessmentId, project: { userId } },
+      where: { id: assessmentId },
       select: { projectId: true, createdAt: true },
     });
     if (!target) throw new NotFoundException('Scan not found');

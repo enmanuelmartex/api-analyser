@@ -14,6 +14,7 @@ import {
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { pluginsApi } from '@/lib/api';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import type { Plugin, PluginExecution, SecurityIssue } from '@/types';
 import { cn, formatDate, formatDuration } from '@/lib/utils';
 import { PageContainer } from '@/components/layout/page-container';
@@ -51,6 +52,7 @@ const TABS: { id: TabId; label: string; icon: typeof IconInfoCircle }[] = [
 ];
 
 export default function SecurityCheckDetailPage() {
+  const { canWrite } = useCurrentUser();
   const { pluginId } = useParams<{ pluginId: string }>();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -119,7 +121,7 @@ export default function SecurityCheckDetailPage() {
             <Switch
               id="check-enabled"
               checked={plugin.isEnabled}
-              disabled={toggle.isPending}
+              disabled={toggle.isPending || !canWrite}
               onCheckedChange={(checked) => toggle.mutate(checked)}
             />
           </div>
@@ -155,7 +157,7 @@ export default function SecurityCheckDetailPage() {
       {activeTab === 'overview' && <OverviewTab plugin={plugin} />}
       {activeTab === 'executions' && <ExecutionsTab pluginId={pluginId} />}
       {activeTab === 'issues' && <IssuesTab pluginId={pluginId} />}
-      {activeTab === 'configuration' && <ConfigurationTab plugin={plugin} />}
+      {activeTab === 'configuration' && <ConfigurationTab plugin={plugin} canWrite={canWrite} />}
     </PageContainer>
   );
 }
@@ -353,7 +355,7 @@ function IssuesTab({ pluginId }: { pluginId: string }) {
   );
 }
 
-function ConfigurationTab({ plugin }: { plugin: Plugin }) {
+function ConfigurationTab({ plugin, canWrite }: { plugin: Plugin; canWrite: boolean }) {
   const queryClient = useQueryClient();
   const fields = plugin.configSchema?.fields ?? [];
 
@@ -408,6 +410,7 @@ function ConfigurationTab({ plugin }: { plugin: Plugin }) {
               <Switch
                 id={`cfg-${field.key}`}
                 checked={Boolean(values[field.key])}
+                disabled={!canWrite}
                 onCheckedChange={(checked) =>
                   setValues((prev) => ({ ...prev, [field.key]: checked }))
                 }
@@ -419,6 +422,7 @@ function ConfigurationTab({ plugin }: { plugin: Plugin }) {
                 value={values[field.key] ?? ''}
                 min={field.min}
                 max={field.max}
+                disabled={!canWrite}
                 onChange={(e) =>
                   setValues((prev) => ({
                     ...prev,
@@ -440,10 +444,10 @@ function ConfigurationTab({ plugin }: { plugin: Plugin }) {
         ))}
 
         <div className="flex items-center gap-2">
-          <Button disabled={!dirty || save.isPending} onClick={() => save.mutate(values)}>
+          <Button disabled={!dirty || save.isPending || !canWrite} onClick={() => save.mutate(values)}>
             {save.isPending ? 'Saving…' : 'Save configuration'}
           </Button>
-          {dirty && (
+          {dirty && canWrite && (
             <Button variant="ghost" size="sm" onClick={() => setValues(initial)}>
               Reset
             </Button>

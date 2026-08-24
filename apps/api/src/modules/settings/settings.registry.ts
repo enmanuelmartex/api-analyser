@@ -17,15 +17,9 @@
  * without a redaction pass.
  */
 
-/**
- * `email-list` is a list of addresses, stored as a JSON array and accepted from
- * the environment as a comma-separated string. It is the one kind that is not a
- * scalar, which is why `SettingValue` below exists rather than every consumer
- * writing `boolean | number`.
- */
-export type SettingKind = 'boolean' | 'number' | 'email-list';
+export type SettingKind = 'boolean' | 'number';
 
-export type SettingValue = boolean | number | string[];
+export type SettingValue = boolean | number;
 
 export interface SettingDefinition {
   /** Dotted key, also the primary key in `system_settings`. */
@@ -40,8 +34,6 @@ export interface SettingDefinition {
   /** Inclusive bounds for `kind: 'number'`. Rejected outside these. */
   min?: number;
   max?: number;
-  /** Ceiling on `kind: 'email-list'`. Rejected above this. */
-  maxItems?: number;
   /** Which UI block the setting belongs to. */
   group: 'logs' | 'notifications' | 'scanner' | 'reports';
 }
@@ -131,46 +123,6 @@ export const SETTING_DEFINITIONS = [
     max: 3650,
     label: 'Notification retention',
     description: 'Read notifications older than this are removed by the cleanup job.',
-    group: 'notifications',
-  },
-
-  // ── Report email ───────────────────────────────────────────────────────────
-  // Where scan results are emailed, for this installation as a whole.
-  //
-  // Deliberately install-level rather than per-user: the addresses that should
-  // receive a security report are usually a team mailbox and a ticketing inbox,
-  // not the account of whoever happens to own the project. Per-user preferences
-  // still govern the mail each user receives at their own address; these govern
-  // the configured recipients, who are frequently not users at all.
-  {
-    key: 'notifications.reportRecipients',
-    kind: 'email-list',
-    env: 'REPORT_EMAIL_RECIPIENTS',
-    fallback: [],
-    maxItems: 20,
-    label: 'Report recipients',
-    description:
-      'Addresses that receive the report for every completed scan, manual or scheduled. They do not need to be users of this installation. Leave empty to email only the users who have enabled it for themselves.',
-    group: 'notifications',
-  },
-  {
-    key: 'notifications.emailOnScanCompleted',
-    kind: 'boolean',
-    env: 'EMAIL_ON_SCAN_COMPLETED',
-    fallback: true,
-    label: 'Email completed scans',
-    description:
-      'Send the report to the addresses above when a scan finishes. Turn off to keep the recipient list but stop the mail.',
-    group: 'notifications',
-  },
-  {
-    key: 'notifications.emailOnScanFailed',
-    kind: 'boolean',
-    env: 'EMAIL_ON_SCAN_FAILED',
-    fallback: true,
-    label: 'Email failed scans',
-    description:
-      'Tell the addresses above when a scan does not complete. A failed scheduled scan is easy to miss otherwise.',
     group: 'notifications',
   },
 

@@ -76,12 +76,6 @@ describe('defaults', () => {
     expect(DEFAULT_PREFERENCES.soundEnabled).toBe(false);
     expect(DEFAULT_PREFERENCES.desktopEnabled).toBe(false);
   });
-
-  it('leaves email off until an administrator configures a provider', () => {
-    // A self-hosted install has no mail provider until somebody sets one up.
-    // Defaulting this on would queue deliveries that can only fail.
-    expect(DEFAULT_PREFERENCES.emailEnabled).toBe(false);
-  });
 });
 
 /**
@@ -89,7 +83,7 @@ describe('defaults', () => {
  *
  * `COLUMN_FOR_TYPE` previously listed six of the twelve notification types.
  * `wants()` indexed it with one of the other six, got `undefined`, and returned
- * it — so every NEW_FINDINGS, REPORT_FAILED, SCHEDULED_SCAN_* and EMAIL_*
+ * it — so every NEW_FINDINGS, REPORT_FAILED and SCHEDULED_SCAN_*
  * notification was silently discarded at the preference gate. This asserts the
  * property that makes that impossible.
  */
@@ -103,8 +97,6 @@ describe('catalog coverage', () => {
     'REPORT_FAILED',
     'NEW_FINDINGS',
     'CRITICAL_FINDING',
-    'EMAIL_REPORT_SENT',
-    'EMAIL_REPORT_FAILED',
     'SECURITY_WARNING',
     'SYSTEM_ERROR',
   ];
@@ -140,65 +132,21 @@ describe('catalog coverage', () => {
   });
 });
 
-describe('wantsEmail', () => {
-  it('says no when the master switch is off, whatever the per-event switch says', async () => {
-    const { service } = makeService({
-      ...DEFAULT_PREFERENCES,
-      emailEnabled: false,
-      emailScanCompleted: true,
-    });
-
-    expect(await service.wantsEmail('user-1', 'SCAN_COMPLETED')).toBe(false);
-  });
-
-  it('says yes only when both the master and the per-event switch are on', async () => {
-    const on = makeService({
-      ...DEFAULT_PREFERENCES,
-      emailEnabled: true,
-      emailScanCompleted: true,
-    });
-    const off = makeService({
-      ...DEFAULT_PREFERENCES,
-      emailEnabled: true,
-      emailScanCompleted: false,
-    });
-
-    expect(await on.service.wantsEmail('user-1', 'SCAN_COMPLETED')).toBe(true);
-    expect(await off.service.wantsEmail('user-1', 'SCAN_COMPLETED')).toBe(false);
-  });
-
-  /**
-   * Some types are in-app only, and no preference combination can change that.
-   *
-   * NEW_FINDINGS in particular: the scan-completed email already carries the
-   * severity breakdown, so emailing it too would be the same news twice.
-   */
-  it('refuses to email a type the catalog marks in-app only', async () => {
-    const { service } = makeService({ ...DEFAULT_PREFERENCES, emailEnabled: true });
-
-    expect(await service.wantsEmail('user-1', 'NEW_FINDINGS')).toBe(false);
-    expect(await service.wantsEmail('user-1', 'REPORT_FAILED')).toBe(false);
-    // Mailing to confirm a mail, or to report that mail is broken, is a loop.
-    expect(await service.wantsEmail('user-1', 'EMAIL_REPORT_SENT')).toBe(false);
-    expect(await service.wantsEmail('user-1', 'EMAIL_REPORT_FAILED')).toBe(false);
-  });
-});
-
 describe('update', () => {
-  it('persists the new email preferences', async () => {
+  it('persists a partial patch', async () => {
     const { service, upserts } = makeService(null);
 
-    await service.update('user-1', { emailEnabled: true, emailScanFailed: false });
+    await service.update('user-1', { scanFailed: false });
 
-    expect((upserts[0] as any).update).toEqual({ emailEnabled: true, emailScanFailed: false });
+    expect((upserts[0] as any).update).toEqual({ scanFailed: false });
   });
 
   it('ignores keys that are not preferences', async () => {
     const { service, upserts } = makeService(null);
 
-    await service.update('user-1', { emailEnabled: true, hacked: 'yes' } as any);
+    await service.update('user-1', { scanFailed: false, hacked: 'yes' } as any);
 
-    expect((upserts[0] as any).update).toEqual({ emailEnabled: true });
+    expect((upserts[0] as any).update).toEqual({ scanFailed: false });
   });
 });
 

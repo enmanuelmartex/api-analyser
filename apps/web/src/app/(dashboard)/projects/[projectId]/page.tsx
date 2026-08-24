@@ -18,11 +18,13 @@ import { RunAssessmentSheet } from '@/components/projects/run-assessment-sheet';
 import { EndpointsTable } from '@/components/projects/endpoints-table';
 import { ProjectSchedulesCard } from '@/components/projects/project-schedules-card';
 import { ScheduleSheet } from '@/components/scheduled-scans/schedule-sheet';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import { cn, formatDay } from '@/lib/utils';
 
 const ASSESSMENTS_PAGE_SIZE = 5;
 
 export default function ProjectDetailsPage() {
+  const { canWrite } = useCurrentUser();
   const { projectId } = useParams<{ projectId: string }>();
   const searchParams = useSearchParams();
   const projectsQuery = searchParams.get('projectsQuery');
@@ -77,7 +79,7 @@ export default function ProjectDetailsPage() {
           now, the other arranges for scans later — and keeps the header from
           growing a third equal-weight button.
         */
-        actions={<><Button asChild variant="outline"><a href={project.baseUrl} target="_blank" rel="noreferrer"><IconExternalLink />Open API</a></Button><ScheduleSheet project={project} trigger={<Button variant="outline" disabled={project.status !== 'READY'}><IconCalendarClock />Schedule Scan</Button>} /><RunAssessmentSheet project={project} /></>}
+        actions={<><Button asChild variant="outline"><a href={project.baseUrl} target="_blank" rel="noreferrer"><IconExternalLink />Open API</a></Button>{canWrite && <ScheduleSheet project={project} trigger={<Button variant="outline" disabled={project.status !== 'READY'}><IconCalendarClock />Schedule Scan</Button>} />}{canWrite && <RunAssessmentSheet project={project} />}</>}
       />
 
       <div className="grid gap-4 md:grid-cols-3">

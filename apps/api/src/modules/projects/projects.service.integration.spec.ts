@@ -11,11 +11,10 @@ import { resetTestDatabase, setupTestDatabase, teardownTestDatabase } from '../.
 
 /**
  * `DELETE /api/v1/projects/:id` used to be a soft delete (`isActive = false`).
- * It is now a real, cascading delete, so this suite proves two things a unit
- * test cannot: that every table that exists only because of the project is
- * actually gone from the database afterwards (the cascade is declared in real
- * Postgres foreign keys, not application code), and that ownership is
- * enforced before any of it runs.
+ * It is now a real, cascading delete, so this suite proves what a unit test
+ * cannot: that every table that exists only because of the project is
+ * actually gone from the database afterwards — the cascade is declared in
+ * real Postgres foreign keys, not application code.
  */
 
 let prisma: PrismaClient;
@@ -148,9 +147,9 @@ beforeAll(async () => {
 
   service = new ProjectsService(
     prisma as any,
-    {} as any, // CryptoService — unused by remove()/assertOwner()
+    {} as any, // CryptoService — unused by remove()/assertExists()
     new EventEmitter2(),
-    {} as any, // SettingsService — unused by remove()/assertOwner()
+    {} as any, // SettingsService — unused by remove()/assertExists()
     new AuditService(prisma as any, { getBoolean: async () => true } as any, { publish: () => {} } as any),
     new ReportStorageService(),
     fakeQueue(),
@@ -250,22 +249,28 @@ describe('ProjectsService.remove — full cascading delete', () => {
   });
 });
 
-describe('ProjectsService.remove — ownership', () => {
-  it('refuses to delete a project owned by a different user', async () => {
+describe('ProjectsService.remove — shared access', () => {
+  /**
+   * There is no organization boundary in this product: one installation is
+   * one company, and any authenticated user may act on any project — the
+   * same way an analyst account in Wazuh sees the same data an admin does.
+   * `userId` still records who created a project; it no longer gates who may
+   * read or delete it.
+   */
+  it('lets a different user in the same installation delete the project', async () => {
     await seedFullProject(null);
 
-    await expect(service.remove(PROJECT, OTHER)).rejects.toThrow(/not found|access denied/i);
+    await service.remove(PROJECT, OTHER);
 
-    // Nothing was touched.
-    expect(await prisma.project.findUnique({ where: { id: PROJECT } })).not.toBeNull();
+    expect(await prisma.project.findUnique({ where: { id: PROJECT } })).toBeNull();
   });
 
-  it('responds the same way for a project that does not exist as for one that is not owned', async () => {
+  it('404s for a project that does not exist, regardless of who asks', async () => {
     await seedFullProject(null);
 
-    const forOther = service.remove(PROJECT, OTHER).catch((e) => e.message);
-    const forMissing = service.remove('does-not-exist', OWNER).catch((e) => e.message);
+    await expect(service.remove('does-not-exist', OWNER)).rejects.toThrow(/not found/i);
 
-    expect(await forOther).toEqual(await forMissing);
+    // The real project was untouched by the attempt on the missing id.
+    expect(await prisma.project.findUnique({ where: { id: PROJECT } })).not.toBeNull();
   });
 });

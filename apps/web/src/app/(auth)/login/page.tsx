@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { toast } from 'sonner';
 import { IconEye, IconEyeOff } from '@tabler/icons-react';
 import { authClient } from '@/lib/auth-client';
@@ -65,7 +64,12 @@ export default function LoginPage() {
       localStorage.setItem('api_analyser_user', JSON.stringify(data.user));
       router.push('/dashboard');
     } catch (err: any) {
-      toast.error(err.message || err.response?.data?.message || 'Invalid credentials');
+      const msg = err?.message || err?.response?.data?.message || 'Invalid credentials';
+      if (typeof msg === 'string' && msg.toLowerCase().includes('failed to fetch')) {
+        toast.error('Could not reach the API. Verify API URL and CORS configuration.');
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -135,12 +139,6 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <p className="text-center text-sm text-muted-foreground mt-5">
-            No account yet?{' '}
-            <Link href="/register" className="text-primary underline underline-offset-2 hover:text-primary/80">
-              Create one
-            </Link>
-          </p>
         </div>
 
         <p className="text-center text-xs text-muted-foreground/70 mt-6">

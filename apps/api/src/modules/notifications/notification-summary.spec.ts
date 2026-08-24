@@ -266,27 +266,4 @@ describe('report notifications', () => {
     expect(created[0].type).toBe('REPORT_FAILED');
     expect(created[0].message).toContain('after 3 attempts');
   });
-
-  /**
-   * A failed email must not read as a lost report.
-   *
-   * The report is generated, stored and downloadable; only its delivery failed,
-   * and the message has to say so.
-   */
-  it('makes clear the report still exists when only the email failed', async () => {
-    const { listener, created } = makeListener();
-
-    await listener.onEmailFailed({
-      template: 'report-ready',
-      userId: 'user_1',
-      entityType: 'report',
-      entityId: 'report_456',
-      projectName: 'Production API',
-      reason: 'Domain not verified',
-    } as any);
-
-    expect(created[0].type).toBe('EMAIL_REPORT_FAILED');
-    expect(created[0].message).toContain('available in the app');
-    expect(created[0].message).toContain('Domain not verified');
-  });
 });

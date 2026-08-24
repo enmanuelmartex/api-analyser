@@ -2,8 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { AuditService } from './audit.service';
 import type {
-  EmailFailedEvent,
-  EmailSentEvent,
   HttpErrorEvent,
   ProjectChangedEvent,
   ReportFailedEvent,
@@ -507,45 +505,6 @@ export class AuditEventsListener {
         kind: payload.kind,
         attempts: payload.attempts,
       },
-    });
-  }
-
-  @OnEvent('email.sent')
-  onEmailSent(payload: EmailSentEvent) {
-    void this.audit.record({
-      event: 'report.email.sent',
-      category: 'REPORTS',
-      severity: 'INFO',
-      status: 'SUCCESS',
-      resource: payload.entityType ?? 'email',
-      resourceId: payload.entityId,
-      userId: payload.userId,
-      requestId: payload.requestId,
-      source: 'worker',
-      message: `The ${payload.template} email was accepted by the provider`,
-      // The recipient's address is deliberately absent: the delivery row holds
-      // it, and duplicating personal data into a second table with its own
-      // retention policy is not something an audit trail needs to do.
-      metadata: { template: payload.template, providerMessageId: payload.providerMessageId },
-    });
-  }
-
-  @OnEvent('email.failed')
-  onEmailFailed(payload: EmailFailedEvent) {
-    void this.audit.record({
-      event: 'report.email.failed',
-      category: 'REPORTS',
-      severity: 'WARNING',
-      status: 'FAILED',
-      resource: payload.entityType ?? 'email',
-      resourceId: payload.entityId,
-      userId: payload.userId,
-      requestId: payload.requestId,
-      source: 'worker',
-      // WARNING, not ERROR: the work the email was about succeeded, and the
-      // report is still in the product. Only its delivery failed.
-      message: `The ${payload.template} email could not be delivered: ${payload.reason}`,
-      metadata: { template: payload.template },
     });
   }
 

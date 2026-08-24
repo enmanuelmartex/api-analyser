@@ -61,9 +61,9 @@ export class ReportGeneratorService implements OnModuleInit {
    * so the templates stay untouched, and each carries its persistent issue id
    * so a reader can navigate from a report entry to the live issue.
    */
-  async getAssessmentData(assessmentId: string, userId: string) {
+  async getAssessmentData(assessmentId: string) {
     const assessment = await this.prisma.assessment.findFirst({
-      where: { id: assessmentId, project: { userId } },
+      where: { id: assessmentId },
       include: {
         project: { select: { id: true, name: true, baseUrl: true, environment: true } },
         summary: true,

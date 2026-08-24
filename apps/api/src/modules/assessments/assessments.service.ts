@@ -1,7 +1,6 @@
 import {
   Injectable,
   NotFoundException,
-  ForbiddenException,
   BadRequestException,
   Logger,
 } from '@nestjs/common';
@@ -63,7 +62,7 @@ export class AssessmentsService {
     });
   }
 
-  async findAll(userId: string, projectId?: string) {
+  async findAll(projectId?: string) {
     const assessments = await this.prisma.assessment.findMany({
       where: {
         // `isActive: true` here matches every other project-scoped query in
@@ -75,7 +74,10 @@ export class AssessmentsService {
         // from the table entirely — but it still matters for any project
         // soft-deleted before that change, and for defense in depth if a
         // soft delete is ever reintroduced for some other purpose.
-        project: { userId, isActive: true },
+        //
+        // Every user in the installation shares the same projects — there is
+        // no per-user ownership boundary here, see `ProjectsService.findAll`.
+        project: { isActive: true },
         ...(projectId ? { projectId } : {}),
       },
       include: {
@@ -94,12 +96,9 @@ export class AssessmentsService {
    * A project's assessments, newest first, one page at a time.
    *
    * Server-side pagination (skip/take + count) rather than fetching every scan
-   * and slicing in the browser: a project can accumulate hundreds of scans. The
-   * `project: { userId }` scope both filters by project and enforces ownership,
-   * so another user's project simply returns an empty page.
+   * and slicing in the browser: a project can accumulate hundreds of scans.
    */
   async findByProjectPaginated(
-    userId: string,
     projectId: string,
     page = 1,
     pageSize = PROJECT_ASSESSMENTS_PAGE_SIZE,
@@ -109,7 +108,7 @@ export class AssessmentsService {
       MAX_PAGE_SIZE,
       Math.max(1, Math.floor(pageSize) || PROJECT_ASSESSMENTS_PAGE_SIZE),
     );
-    const where = { projectId, project: { userId } };
+    const where = { projectId };
 
     const [total, rows] = await Promise.all([
       this.prisma.assessment.count({ where }),
@@ -166,9 +165,9 @@ export class AssessmentsService {
     return foldOccurrenceCounts(groups);
   }
 
-  async findOne(id: string, userId: string) {
+  async findOne(id: string) {
     const assessment = await this.prisma.assessment.findFirst({
-      where: { id, project: { userId } },
+      where: { id },
       include: {
         project: { select: { id: true, name: true, baseUrl: true, environment: true } },
         // Named so the scan detail can say "triggered by Weekly Production
@@ -231,7 +230,7 @@ export class AssessmentsService {
     provenance?: ScanProvenance,
   ) {
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, userId },
+      where: { id: projectId },
       include: {
         apiSpec: {
           include: { authConfig: true, endpoints: true },
@@ -239,7 +238,7 @@ export class AssessmentsService {
       },
     });
 
-    if (!project) throw new ForbiddenException('Project not found or access denied');
+    if (!project) throw new NotFoundException('Project not found');
     if (project.status !== 'READY') {
       throw new BadRequestException('Complete project setup before running an assessment');
     }
@@ -353,7 +352,7 @@ export class AssessmentsService {
 
   async cancel(id: string, userId: string) {
     const assessment = await this.prisma.assessment.findFirst({
-      where: { id, project: { userId } },
+      where: { id },
       include: { project: { select: { id: true, name: true } } },
     });
     if (!assessment) throw new NotFoundException('Assessment not found');
@@ -402,9 +401,9 @@ export class AssessmentsService {
     return cancelled;
   }
 
-  async streamProgress(assessmentId: string, userId: string): Promise<Observable<MessageEvent>> {
+  async streamProgress(assessmentId: string): Promise<Observable<MessageEvent>> {
     const assessment = await this.prisma.assessment.findFirst({
-      where: { id: assessmentId, project: { userId } },
+      where: { id: assessmentId },
       select: { id: true, status: true, progress: true, currentStep: true },
     });
     if (!assessment) throw new NotFoundException('Assessment not found');
@@ -440,16 +439,21 @@ export class AssessmentsService {
     }
   }
 
-  async getDashboardStats(userId: string) {
+  /**
+   * Installation-wide, not per-caller: there is no organization boundary in
+   * this product, so every authenticated user's dashboard shows the same
+   * projects and scans, whoever created them.
+   */
+  async getDashboardStats() {
     // The two counts below were bound to swapped names, so the Dashboard
     // reported the assessment total as "Projects" and the project total as
     // "Assessments". Order now matches the destructuring.
     const [projects, totalAssessmentCount, assessments, findings] = await Promise.all([
-      this.prisma.project.count({ where: { userId, isActive: true } }),
+      this.prisma.project.count({ where: { isActive: true } }),
       // Real total, separate from the recent-scans window below.
-      this.prisma.assessment.count({ where: { project: { userId } } }),
+      this.prisma.assessment.count({ where: { project: { isActive: true } } }),
       this.prisma.assessment.findMany({
-        where: { project: { userId }, status: 'COMPLETED' },
+        where: { project: { isActive: true }, status: 'COMPLETED' },
         include: { summary: true },
         orderBy: { createdAt: 'desc' },
         take: 10,
@@ -464,7 +468,7 @@ export class AssessmentsService {
       this.prisma.securityIssue.groupBy({
         by: ['severity'],
         where: {
-          project: { userId, isActive: true },
+          project: { isActive: true },
           status: { in: ['OPEN', 'ACKNOWLEDGED', 'ACCEPTED_RISK'] },
         },
         _count: { severity: true },
@@ -489,7 +493,7 @@ export class AssessmentsService {
     // no scans at all saw 100/100. Unassessed is now `null`, never 100.
     const postures = await Promise.all(
       (await this.prisma.project.findMany({
-        where: { userId, isActive: true },
+        where: { isActive: true },
         select: { id: true },
       })).map((project) => this.scoring.getProjectPosture(project.id)),
     );
@@ -512,8 +516,8 @@ export class AssessmentsService {
       // Same occurrence-derived counts as the assessments list, so the dashboard
       // "Critical + High" column matches the full table.
       recentAssessments: await this.withFindingCounts(assessments.slice(0, 5)),
-      ...(await this.getScoreTrend(userId)),
-      ...(await this.getFindingsTrend(userId)),
+      ...(await this.getScoreTrend()),
+      ...(await this.getFindingsTrend()),
     };
   }
 
@@ -523,11 +527,11 @@ export class AssessmentsService {
    * total of the eight weeks immediately before the window so the card can show
    * a period-over-period comparison badge.
    *
-   * Counts real detections (`FindingOccurrence`) by `detectedAt`, scoped to the
-   * user's active projects — the same scope as the current findings totals. No
-   * mock data: a week with no detections stays at zero.
+   * Counts real detections (`FindingOccurrence`) by `detectedAt`, scoped to
+   * every active project in the installation — the same scope as the current
+   * findings totals. No mock data: a week with no detections stays at zero.
    */
-  private async getFindingsTrend(userId: string) {
+  private async getFindingsTrend() {
     const WEEKS = 8;
     const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
     const now = new Date();
@@ -539,7 +543,7 @@ export class AssessmentsService {
 
     const occurrences = await this.prisma.findingOccurrence.findMany({
       where: {
-        issue: { project: { userId, isActive: true } },
+        issue: { project: { isActive: true } },
         detectedAt: { gte: previousStart, lt: windowEnd },
       },
       select: { detectedAt: true, severitySnapshot: true },
@@ -587,7 +591,7 @@ export class AssessmentsService {
    * `scoreTrendAverage` is the mean score across every scored assessment
    * completed this year — the same period the chart represents.
    */
-  private async getScoreTrend(userId: string) {
+  private async getScoreTrend() {
     const now = new Date();
     const year = now.getFullYear();
     const yearStart = new Date(year, 0, 1);
@@ -602,7 +606,6 @@ export class AssessmentsService {
 
     const completed = await this.prisma.assessment.findMany({
       where: {
-        project: { userId },
         status: 'COMPLETED',
         completedAt: { gte: yearStart, lt: yearEnd },
       },

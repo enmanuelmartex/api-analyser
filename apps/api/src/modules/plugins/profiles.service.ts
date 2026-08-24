@@ -137,7 +137,7 @@ export class ProfilesService implements OnModuleInit {
     // Collapsed into one generic 404, same as every other module's ownership
     // check: a 403 here would confirm that some other user's profile id
     // exists, which is exactly the existence leak the rest of the app avoids
-    // (compare ProjectsService.assertOwner, ScheduledScansService.assertOwned).
+    // (compare ProjectsService.assertExists, ScheduledScansService.assertExists).
     if (!profile || (!profile.isSystem && profile.userId !== userId)) {
       throw new NotFoundException('Scan profile not found');
     }

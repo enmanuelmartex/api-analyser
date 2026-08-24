@@ -65,7 +65,7 @@ export class PluginsService {
       this.prisma.securityIssue.groupBy({
         by: ['severity'],
         _count: { id: true },
-        where: { pluginId, project: { userId, isActive: true } },
+        where: { pluginId, project: { isActive: true } },
       }),
     ]);
 
@@ -138,11 +138,11 @@ export class PluginsService {
    * Returns issues rather than raw detections so the same vulnerability appears
    * once regardless of how many scans found it.
    */
-  async getIssues(pluginId: string, userId: string, limit = 50) {
+  async getIssues(pluginId: string, limit = 50) {
     return this.prisma.securityIssue.findMany({
       where: {
         pluginId,
-        project: { userId, isActive: true },
+        project: { isActive: true },
       },
       include: {
         project: { select: { id: true, name: true } },

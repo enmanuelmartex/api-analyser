@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ScheduleStatusBadge } from '@/components/scheduled-scans/schedule-status-badge';
 import { ScheduleActions } from '@/components/scheduled-scans/schedule-actions';
 import { ScheduleSheet } from '@/components/scheduled-scans/schedule-sheet';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 /**
  * This project's automatic scans, on the project page.
@@ -23,6 +24,7 @@ import { ScheduleSheet } from '@/components/scheduled-scans/schedule-sheet';
  * implicitly by way of the same create sheet.
  */
 export function ProjectSchedulesCard({ project }: { project: Project }) {
+  const { canWrite } = useCurrentUser();
   const { data, isLoading, isError } = useQuery<Paginated<ScheduledScan>>({
     queryKey: ['scheduled-scans', 'list', { projectId: project.id }],
     queryFn: () => scheduledScansApi.list({ projectId: project.id, pageSize: 5 }),
@@ -44,7 +46,7 @@ export function ProjectSchedulesCard({ project }: { project: Project }) {
               Assessments that run automatically against this API.
             </CardDescription>
           </div>
-          {schedules.length > 0 && (
+          {schedules.length > 0 && canWrite && (
             <ScheduleSheet
               project={project}
               trigger={
@@ -78,15 +80,17 @@ export function ProjectSchedulesCard({ project }: { project: Project }) {
             description="Set this API to be scanned automatically, so a regression is caught without anyone having to remember."
             compact
             action={
-              <ScheduleSheet
-                project={project}
-                trigger={
-                  <Button size="sm" variant="outline" disabled={project.status !== 'READY'}>
-                    <IconCalendarClock className="size-4" />
-                    Schedule Scan
-                  </Button>
-                }
-              />
+              canWrite ? (
+                <ScheduleSheet
+                  project={project}
+                  trigger={
+                    <Button size="sm" variant="outline" disabled={project.status !== 'READY'}>
+                      <IconCalendarClock className="size-4" />
+                      Schedule Scan
+                    </Button>
+                  }
+                />
+              ) : undefined
             }
           />
         ) : (

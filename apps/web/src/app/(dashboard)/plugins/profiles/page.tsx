@@ -15,6 +15,7 @@ import {
   IconStar,
 } from '@tabler/icons-react';
 import { profilesApi, pluginsApi } from '@/lib/api';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import type { ScanProfile, Plugin } from '@/types';
 import { cn } from '@/lib/utils';
 import { DeleteConfirmationDialog } from '@/components/shared/delete-confirmation-dialog';
@@ -41,6 +42,7 @@ const PROFILE_ICONS: Record<string, typeof IconShield> = {
 };
 
 export default function ProfilesPage() {
+  const { canWrite } = useCurrentUser();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
 
@@ -82,10 +84,12 @@ export default function ProfilesPage() {
         title="Scan Profiles"
         description="Reusable sets of security checks for targeted scans"
         actions={
-          <Button onClick={() => setShowCreate(true)}>
-            <IconPlus className="h-4 w-4" />
-            New Profile
-          </Button>
+          canWrite ? (
+            <Button onClick={() => setShowCreate(true)}>
+              <IconPlus className="h-4 w-4" />
+              New Profile
+            </Button>
+          ) : undefined
         }
       />
 
@@ -110,7 +114,7 @@ export default function ProfilesPage() {
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Custom Profiles</h2>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {userProfiles.map((profile) => (
-              <ProfileCard key={profile.id} profile={profile} plugins={plugins} isDeleting={deleteMutation.isPending && deleteMutation.variables === profile.id} onDelete={() => deleteMutation.mutateAsync(profile.id)} />
+              <ProfileCard key={profile.id} profile={profile} plugins={plugins} isDeleting={deleteMutation.isPending && deleteMutation.variables === profile.id} onDelete={canWrite ? () => deleteMutation.mutateAsync(profile.id) : undefined} />
             ))}
           </div>
         </section>
