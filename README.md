@@ -85,7 +85,7 @@ API Analyser automatically assesses REST API security by:
 1. **Parsing** OpenAPI/Swagger specifications (URL or file upload)
 2. **Discovering** all endpoints, methods, parameters, and schemas
 3. **Running** 13 security checks covering all 10 OWASP API Top 10 categories
-4. **Analyzing** results with AI — OpenAI, Claude, Gemini, Grok or Ollama (optional)
+4. **Analyzing** results with AI — OpenAI, Claude, Gemini, Groq or Ollama (optional)
 5. **Generating** reports in PDF, HTML, JSON, SARIF and Markdown. Every scan that
    completes gets its PDF automatically — rendered on a queue, retried three
    times with backoff, and never marked ready until the bytes are on disk. The
@@ -97,11 +97,11 @@ API Analyser automatically assesses REST API security by:
    monthly or on a cron expression, in the timezone you configure. Scheduled
    scans run entirely on the server: they keep going with the browser closed and
    survive a restart of the API, the worker or Redis. See
-   [docs/SCHEDULED-SCANS.md](docs/SCHEDULED-SCANS.md).
+   [apps/api/src/modules/scheduled-scans](apps/api/src/modules/scheduled-scans).
 7. **Telling you** what happened — persistent in-app notifications with unread
    badges on the sidebar, live over SSE. Everything is stored, so a scan that
    finishes at 3 a.m. is waiting for you at 8. See
-   [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
+   [apps/api/src/modules/notifications](apps/api/src/modules/notifications).
 
 ---
 
@@ -166,29 +166,37 @@ api-analyser/
 │   ├── api/                    # NestJS backend (Port 4000)
 │   │   ├── src/
 │   │   │   ├── modules/
-│   │   │   │   ├── auth/           # JWT authentication
-│   │   │   │   ├── projects/       # Project + OpenAPI management
-│   │   │   │   ├── assessments/    # Assessment orchestration + SSE
-│   │   │   │   ├── scheduled-scans/# Recurring scans (BullMQ tick → createAndRun)
-│   │   │   │   │   └── recurrence/ # Timezone-aware next-run engine + cron parser
-│   │   │   │   ├── findings/       # Vulnerability findings
-│   │   │   │   ├── reports/        # HTML/JSON/SARIF/Markdown reports
-│   │   │   │   └── scanner/        # Security scanner engine (BullMQ)
-│   │   │   │       └── plugins/
-│   │   │   │           ├── authentication/  # Broken Auth (API2)
-│   │   │   │           ├── authorization/   # BOLA (API1) + BFLA (API5)
-│   │   │   │           ├── jwt/             # JWT Analysis
-│   │   │   │           ├── rate-limit/      # Rate Limiting (API4)
-│   │   │   │           ├── cors/            # CORS Analysis (API8)
-│   │   │   │           ├── headers/         # Security Headers (API8)
-│   │   │   │           ├── sensitive-data/  # Data Exposure (API3)
-│   │   │   │           ├── mass-assignment/ # Mass Assignment (API3)
-│   │   │   │           ├── ssrf/            # SSRF (API7)
-│   │   │   │           ├── business-flows/  # Sensitive Business Flows (API6)
-│   │   │   │           ├── inventory/       # Inventory & Exposure (API9)
-│   │   │   │           ├── api-consumption/ # Third-Party Consumption (API10)
-│   │   │   │           ├── shared/          # Baseline comparison, tokenising
-│   │   │   │           └── ai-analysis/     # OpenAI enrichment
+│   │   │   │   ├── auth/            # Better Auth session + JWT/bearer auth, admin bootstrap
+│   │   │   │   ├── users/           # User CRUD, roles
+│   │   │   │   ├── projects/        # Project + OpenAPI/Swagger management
+│   │   │   │   ├── assessments/     # Assessment orchestration + SSE progress
+│   │   │   │   ├── scheduled-scans/ # Recurring scans (BullMQ tick → createAndRun)
+│   │   │   │   │   └── recurrence/  # Timezone-aware next-run engine + cron parser
+│   │   │   │   ├── issues/          # Findings lifecycle (status, occurrences, dedup)
+│   │   │   │   ├── scoring/         # Assessment security score + run-to-run comparison
+│   │   │   │   ├── reports/         # PDF/HTML/JSON/SARIF/Markdown report generation
+│   │   │   │   ├── scanner/         # Security scanner engine (BullMQ)
+│   │   │   │   │   └── plugins/
+│   │   │   │   │       ├── authentication/  # Broken Auth (API2)
+│   │   │   │   │       ├── authorization/   # BOLA (API1) + BFLA (API5)
+│   │   │   │   │       ├── jwt/             # JWT Analysis
+│   │   │   │   │       ├── rate-limit/      # Rate Limiting (API4)
+│   │   │   │   │       ├── cors/            # CORS Analysis (API8)
+│   │   │   │   │       ├── headers/         # Security Headers (API8)
+│   │   │   │   │       ├── sensitive-data/  # Data Exposure (API3)
+│   │   │   │   │       ├── mass-assignment/ # Mass Assignment (API3)
+│   │   │   │   │       ├── ssrf/            # SSRF (API7)
+│   │   │   │   │       ├── business-flows/  # Sensitive Business Flows (API6)
+│   │   │   │   │       ├── inventory/       # Inventory & Exposure (API9)
+│   │   │   │   │       ├── api-consumption/ # Third-Party Consumption (API10)
+│   │   │   │   │       └── shared/          # Baseline comparison, tokenising
+│   │   │   │   ├── ai/               # Pluggable AI enrichment (OpenAI, Groq, Claude, Gemini, Ollama)
+│   │   │   │   ├── plugins/          # Plugin registry + OWASP coverage computation
+│   │   │   │   ├── notifications/    # In-app notifications, live over SSE
+│   │   │   │   ├── audit/            # Audit log, retention, live stream
+│   │   │   │   ├── settings/         # System settings
+│   │   │   │   ├── events/           # Internal domain events
+│   │   │   │   └── system/           # Health checks, boot diagnostics
 │   │   │   └── prisma/          # Prisma ORM service
 │   │   └── prisma/
 │   │       └── schema.prisma    # Complete database schema
@@ -196,16 +204,17 @@ api-analyser/
 │       └── src/
 │           ├── app/
 │           │   ├── (auth)/          # Login, Register
-│           │   └── (dashboard)/     # Dashboard, Projects, Assessments, Findings, Reports
+│           │   └── (dashboard)/     # Dashboard, Projects, Assessments, Issues, Scheduled scans,
+│           │                        # Reports, Plugins, Notifications, Settings
 │           ├── components/          # Sidebar, badges, charts
 │           ├── lib/                 # API client, utilities
 │           └── types/               # Shared TypeScript types
-├── docker-compose.yml           # Full stack + observability profiles
+├── docker-compose.yml           # Full stack + observability profiles (Prometheus, Grafana)
 ├── .env.example                 # All environment variables documented
 └── .github/
     └── workflows/
         ├── ci.yml               # Lint, test, build Docker images
-        └── security.yml         # Security gate + SARIF to GitHub Security
+        └── security.yml         # Security gate template — see CI/CD Security Gate below
 ```
 
 ---
@@ -220,8 +229,8 @@ api-analyser/
 | Backend     | NestJS 10, TypeScript         |
 | Database    | PostgreSQL 16 + Prisma ORM    |
 | Queue       | Redis 7 + BullMQ              |
-| Auth        | JWT (HS256), Passport.js      |
-| AI Analysis | OpenAI GPT-4o-mini            |
+| Auth        | Better Auth, JWT (HS256), Passport.js |
+| AI Analysis | OpenAI, Groq, Claude, Gemini, or local Ollama — pluggable via `AI_PROVIDER` |
 | Container   | Docker Compose                |
 | CI/CD       | GitHub Actions                |
 
@@ -251,7 +260,12 @@ ENCRYPTION_KEY=<64 hex chars>        # exactly 64 hex, AES-256-GCM
 ADMIN_EMAIL=admin@apianalyser.local
 ADMIN_PASSWORD=admin1234
 
-# Optional — enables AI-powered vulnerability analysis
+# Optional — enables AI-powered vulnerability analysis. Pick one provider; the
+# rest can be left blank. Each provider also has tuning vars under its own
+# prefix (OPENAI_*, GROQ_*, CLAUDE_*, GEMINI_*, OLLAMA_*) — see .env.example
+# for the full list. Providers can also be configured from the UI at
+# Settings → AI Configuration, which takes priority over these env vars.
+AI_PROVIDER=none              # openai | grok | claude | gemini | ollama | none
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
 
@@ -331,9 +345,11 @@ there. What changed is the plumbing underneath.
 
 ---
 
-## CI/CD Security Gate
+## CI/CD Security Gate (planned)
 
-Block PRs with security issues using API Analyser GitHub Actions:
+The shape of a PR gate — a reusable workflow that fails the build on findings
+at or above a chosen severity, with results uploaded to **GitHub Security** as
+SARIF:
 
 ```yaml
 - name: API Analyser API Security Gate
@@ -345,31 +361,56 @@ Block PRs with security issues using API Analyser GitHub Actions:
     API_ANALYSER_API_KEY: ${{ secrets.API_ANALYSER_API_KEY }}
 ```
 
-Results are uploaded to **GitHub Security** as SARIF.
+**Not usable yet, on purpose.** [.github/workflows/security.yml](.github/workflows/security.yml)
+today is a template: it has no `workflow_call` trigger, so nothing can `uses:`
+it as shown above, and its scan step is commented out. Running an assessment
+from CI also needs a programmatic API key, and issuing one is not implemented
+— Settings → API tokens says exactly that in the UI. This section describes
+where the gate is headed, not something to wire up today; every scan currently
+runs through the web app.
 
 ---
 
 ## Adding Custom Plugins
 
+A plugin declares a `manifest` — its metadata, OWASP mappings and every
+`ruleId` it can emit — and implements one `run` method:
+
 ```typescript
 // apps/api/src/modules/scanner/plugins/my-check/my-check.plugin.ts
 import { BasePlugin, ScanContext, PluginResult } from '../../types/scanner.types';
+import { PluginManifest, PluginCategory } from '../../types/plugin-manifest.types';
 
 export class MyCheckPlugin extends BasePlugin {
-  readonly id = 'my-custom-check';
-  readonly name = 'My Security Check';
-  readonly description = 'Description of what this checks';
-  readonly owaspCategories = ['API8:2023'];
+  readonly manifest: PluginManifest = {
+    id: 'my-custom-check',
+    name: 'My Security Check',
+    version: '1.0.0',
+    description: 'Description of what this checks',
+    author: 'your-name',
+    license: 'MIT',
+    category: PluginCategory.API_DESIGN,
+    owaspMappings: ['API8:2023'],
+    tags: ['custom'],
+    supportedApiTypes: ['REST'],
+    permissions: ['http:read', 'findings:write'],
+    minimumCoreVersion: '1.0.0',
+    isBuiltin: false,
+    ruleNamespace: 'my-custom-check',
+    ruleIds: ['my-custom-check.some-rule'], // every ruleId this plugin can emit, declared up front
+  };
 
   async run(context: ScanContext): Promise<PluginResult> {
     const findings = [];
     // Implement detection logic using context.endpoints, context.auth, context.baseUrl
-    return { pluginId: this.id, pluginName: this.name, findings, scanDuration: 0, endpointsTested: 0 };
+    return { pluginId: this.manifest.id, pluginName: this.manifest.name, findings, scanDuration: 0, endpointsTested: 0 };
   }
 }
 ```
 
-Register it in `scanner.service.ts` — it runs automatically in every assessment.
+Register an instance of it in the array returned by `createBuiltinPlugins()` in
+[apps/api/src/modules/plugins/plugin-registry.service.ts](apps/api/src/modules/plugins/plugin-registry.service.ts)
+— it then runs automatically in every assessment.
 
 ---
 
